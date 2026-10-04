@@ -1,0 +1,37 @@
+# KRT Terminal — starting test thresholds (backtest மூலம் validate செய்ய வேண்டும்)
+universe: [RELIANCE, HDFCBANK, ICICIBANK, INFY, TCS, SBIN, MARUTI, LT]
+index_symbol: NIFTY
+timeframe_minutes: 15
+
+volume:
+  rvol_pass: 1.5
+  rvol_high_participation: 2.0
+  lookback_days: 10
+
+entry:
+  max_extension_pct: 0.6     # level-ல் இருந்து இதற்கு மேல் போனால் EXTENDED
+  min_targets: 3
+
+risk:
+  max_risk_per_trade: 2500   # ₹ planned risk cap
+  account_risk_limit: null   # user account-based limit (null = ignore)
+  charges_slippage: 150      # ₹ estimated allowance
+  daily_loss_limit: 5000
+  max_open_positions: 3
+
+score_weights:
+  setup_structure: 25
+  relative_strength: 20
+  volume: 15
+  alignment: 15
+  room_reward_risk: 15
+  liquidity: 10
+
+chartink:
+  enabled: true
+  ce_url: https://chartink.com/screener/1-2026-02-15-7
+  pe_url: https://chartink.com/screener/pe-calls-list
+  ce_clause: ""        # auto-extract fail ஆனால் மட்டும் scan clause இங்கே paste
+  pe_clause: ""
+  max_per_side: 25
+  fno_only: true       # F&O stocks மட்டும் (option trade-க்கு)
