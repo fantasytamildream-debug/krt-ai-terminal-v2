@@ -81,7 +81,7 @@ class H(BaseHTTPRequestHandler):
 
     def _auth_ok(self):
         if not APP_PASSWORD:
-            return not HOSTED  # hosted-ல் password இல்லாமல் திறக்காது
+            return True  # password set பண்ணலைன்னா login இல்லாமல் திறக்கும்
         h = self.headers.get("Authorization", "")
         if h.startswith("Basic "):
             try:
@@ -92,9 +92,6 @@ class H(BaseHTTPRequestHandler):
         return False
 
     def _deny(self):
-        if HOSTED and not APP_PASSWORD:
-            return self._send(503, "APP_PASSWORD environment variable set பண்ணுங்க (Render → Environment).",
-                              "text/plain; charset=utf-8")
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="KRT Terminal"')
         self.send_header("Content-Length", "0")
@@ -129,7 +126,7 @@ class H(BaseHTTPRequestHandler):
 
         if self.path == "/api/scan":
             started = do_scan_async(d.get("at"))
-            return self._send(200, _json({"ok": started, "msg": "" if started else "Scan already ஓடுகிறது"}))
+            return self._send(200, _json({"ok": started, "msg": "" if started else "1 நிமிடம் கழித்து மறுபடி try பண்ணுங்க"}))
 
         if self.path == "/api/setup":
             if HOSTED:
@@ -178,9 +175,14 @@ class H(BaseHTTPRequestHandler):
         self._send(404, _json({"error": "not found"}))
 
 
+LAST_START = [0.0]
+
+
 def do_scan_async(at=None):
-    if STATE["scanning"]:
+    # 60 second-க்குள் மறுபடி scan வேண்டாம் (Angel One rate limit பாதுகாப்பு)
+    if STATE["scanning"] or time.time() - LAST_START[0] < 60:
         return False
+    LAST_START[0] = time.time()
     threading.Thread(target=do_scan, args=(at,), daemon=True).start()
     return True
 
