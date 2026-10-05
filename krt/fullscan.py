@@ -12,9 +12,7 @@ from .instruments import load as load_inst, contracts, INDEX_SPOT, INDEX_OPT_EXC
 from .levels import completed_levels, swing_levels
 from .market import classify
 from .optmath import plan as prem_plan
-import datetime as _dt, json as _json
 
-TRACK = {"session": None, "items": {}}
 C = {"session": None, "levels": {}, "avgvol": {}, "swings": {}, "orb": {}, "orb_session": None,
      "nifty_daily": None, "oi_base": {}, "oi_day": None}
 UP, DN = ("PDH", "PWH", "PMH"), ("PDL", "PWL", "PML")
@@ -55,7 +53,7 @@ def _vol_share(mins):
 
 def ensure_daily(ag, inst, names, session, prog):
     if C["session"] != session:
-        C.update(session=session, levels={}, avgvol={}, swings={}, nifty_daily=None)
+        C.update(session=session, levels={}, avgvol={}, swings={}, nifty_daily=None, feat={})
     if C["nifty_daily"] is None:
         df = ag.candles("NSE", INDEX_SPOT["NIFTY"][1], "ONE_DAY", session - pd.Timedelta(days=200), session)
         if not df.empty:
@@ -76,6 +74,14 @@ def ensure_daily(ag, inst, names, session, prog):
         past = df[df.index < session]
         C["avgvol"][n] = float(past["volume"].tail(20).mean()) if len(past) else 0.0
         C["swings"][n] = swing_levels(df, session)
+        c = past["close"]
+        if len(c) >= 60:
+            e20, e50 = c.ewm(span=20).mean(), c.ewm(span=50).mean()
+            tr = pd.concat([past["high"] - past["low"], (past["high"] - c.shift()).abs(), (past["low"] - c.shift()).abs()], axis=1).max(axis=1)
+            C.setdefault("feat", {})[n] = {"ema20": float(e20.iloc[-1]), "ema50": float(e50.iloc[-1]),
+                                           "ema20_5": float(e20.iloc[-6]), "atr": float(tr.tail(14).mean()),
+                                           "c20": float(c.iloc[-21]), "hi52": float(past["high"].tail(250).max()),
+                                           "lo52": float(past["low"].tail(250).min())}
 
 
 def ensure_orb(ag, inst, names, session, live, now, prog):
@@ -189,7 +195,7 @@ def pick_options(ag, inst, rows):
     """ATM / 1 ITM — spread ≤ 3%, OI அதிகம். Cheap far-OTM தேர்வு இல்லை."""
     plan, toks = [], {}
     for r in rows:
-        exp, cs = contracts(inst, r["symbol"], 3)
+        exp, cs = contracts(inst, r["symbol"], r.get("min_days", 3))
         cs = [c for c in cs if c[4] == r["side"]]
         if not cs:
             r["option"] = {"none": "F&O option contract கிடைக்கவில்லை"}
@@ -472,95 +478,25 @@ def run_full(ag, prog=lambda m: None) -> dict:
     if not best:
         summary.append("இப்போ rules எல்லாம் pass ஆன setup இல்லை → WAIT.")
 
-    prog("Tracking")
-    track = update_tracking(ag, session, now, best[:6], orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx)
+    prog("Swing picks")
+    from .swing import swing_picks
+    try:
+        swing = swing_picks(ag, inst, universe, C, idx, trend, now, session)
+    except Exception as e:
+        swing = {"5": [], "10": []}
+        errors.append(f"Swing: {e}")
+    prog("Calls tracking")
+    from .calls import update_calls
+    try:
+        track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing)
+    except Exception as e:
+        track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
+        errors.append(f"Tracking: {e}")
 
-    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "tracking": track, "session": str(session.date()), "live": live,
+    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),
             "errors": errors, "seconds": round(time.time() - t_start)}
 
 
-# ---------------- Signal tracking (original levels freeze — பின்னால் மாற்றப்படாது) ----------------
-TRACK_FILE = ROOT / "logs" / "tracking.json"
-
-
-def _track_load(session):
-    if TRACK["session"] == str(session.date()):
-        return
-    TRACK.update(session=str(session.date()), items={})
-    try:
-        d = _json.loads(TRACK_FILE.read_text(encoding="utf-8"))
-        if d.get("session") == TRACK["session"]:
-            TRACK["items"] = d.get("items", {})
-    except Exception:
-        pass
-
-
-def _add(src, r, opt, now):
-    p = (opt or {}).get("plan")
-    if not p or not opt.get("token"):
-        return
-    key = f"{src}|{r['symbol']}|{opt['contract']}"
-    if key in TRACK["items"]:
-        return
-    TRACK["items"][key] = {
-        "id": key, "source": src, "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"],
-        "token": opt["token"], "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],
-        "signal_time": str(now), "ul_price": r.get("price"), "ul_sl": r.get("sl"), "ul_targets": r.get("targets"),
-        "entry": p["entry"], "sl": p["sl"], "targets": p["targets"], "risk": p["risk"], "risk_ok": p["risk_ok"],
-        "ltp": p["entry"], "high": p["entry"], "low": p["entry"], "status": "OPEN", "hits": [], "closed_at": None}
-
-
-def update_tracking(ag, session, now, best, orb, voi, idx):
-    _track_load(session)
-    for r in best:
-        _add("Breakout/Breakdown", r, r.get("option"), now)
-    for r in orb:
-        if r.get("status") == "CONFIRMED":
-            _add("5-min ORB", r, r.get("option"), now)
-    for r in voi:
-        _add("Volume+OI", r, r.get("option"), now)
-    for x in idx:
-        pl = (x.get("plans") or {}).get(x.get("suggest"))
-        if pl and x.get("confidence") == "OI bias":
-            _add("Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"], "targets": pl["ul_targets"]},
-                 pl["option"], now)
-    items = TRACK["items"]
-    open_ = [t for t in items.values() if t["status"] in ("OPEN", "T1 HIT", "T2 HIT")]
-    toks = {}
-    for t in open_:
-        toks.setdefault(t["exch"], []).append(t["token"])
-    qs = ag.quotes(toks) if toks else {}
-    for t in open_:
-        q = qs.get(t["token"])
-        if not q:
-            continue
-        ltp = _f(q.get("ltp"))
-        if not ltp:
-            continue
-        t.update(ltp=ltp, high=max(t["high"], ltp), low=min(t["low"], ltp), updated=str(now))
-        if ltp <= t["sl"]:
-            t.update(status="SL HIT", closed_at=str(now))
-            t["hits"].append(f"SL {now:%H:%M}")
-            continue
-        for i, tg in enumerate(t["targets"], 1):
-            tag = f"T{i} HIT"
-            if ltp >= tg and not any(h.startswith(f"T{i} ") for h in t["hits"]):
-                t["hits"].append(f"T{i} {now:%H:%M}")
-                t["status"] = tag
-                if i == 3:
-                    t["closed_at"] = str(now)
-    for t in items.values():
-        t["pnl_lot"] = round((t["ltp"] - t["entry"]) * t["lot"])
-    try:
-        TRACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TRACK_FILE.write_text(_json.dumps({"session": TRACK["session"], "items": items}, default=str), encoding="utf-8")
-    except Exception:
-        pass
-    rows = sorted(items.values(), key=lambda t: t["signal_time"], reverse=True)
-    done = [t for t in rows if t["status"] != "OPEN"]
-    return {"rows": rows, "total": len(rows), "t1": sum(any(h.startswith("T1") for h in t["hits"]) for t in rows),
-            "sl": sum(t["status"] == "SL HIT" for t in rows), "closed": len(done),
-            "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}

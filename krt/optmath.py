@@ -44,13 +44,14 @@ def r05(x):
     return round(round(x / 0.05) * 0.05, 2)
 
 
-def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=2500):
+def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=2500, hold_days=0):
     """→ premium entry zone, SL, T1-T3, risk. ul_targets: underlying targets (3)."""
     if not prem or prem <= 0 or not S:
         return None
     T = years_to_expiry(expiry, now)
     sig = iv(prem, S, K, T, typ)
-    T2 = max(T - 1 / (365 * 24) * 2, 1 / (365 * 24))  # ~2 மணி நேரம் கழித்து
+    # intraday: ~2 மணி நேரம்; swing: hold_days கழித்து (theta கணக்கில்)
+    T2 = max(T - (2 / 24 + hold_days) / 365, 1 / (365 * 24))
     sl = r05(max(0.05, bs(ul_sl, K, T2, sig, typ)))
     tg = [r05(bs(t, K, T2, sig, typ)) for t in ul_targets]
     entry = r05(prem)
