@@ -13,7 +13,9 @@ from krt.config import load_settings
 HOSTED = bool(os.getenv("RENDER") or os.getenv("HOSTED"))
 PORT = int(os.getenv("PORT", "8765"))
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
-STATE = {"scanning": False, "result": None, "error": None, "last_run": None, "slot": None}
+STATE = {"scanning": False, "result": None, "error": None, "last_run": None, "slot": None,
+         "full": None, "full_error": None, "full_running": False, "full_last": None, "progress": "", "fslot": None}
+ANGEL = None
 LOCK = threading.Lock()
 
 
@@ -27,11 +29,9 @@ def do_scan(at=None):
             return False
         STATE["scanning"] = True
     try:
-        src = "angel" if angel_configured() else "csv"
-        if src == "csv" and not any((ROOT / "data" / "sample").glob("*.csv")):
-            import runpy
-            runpy.run_path(str(ROOT / "scripts" / "make_sample_data.py"))
-        res = run_scan(src, at or None)
+        if not angel_configured():
+            raise RuntimeError("Angel One connect ஆகவில்லை — demo data காட்டப்படாது")
+        res = run_scan("angel", at or None)
         STATE.update(result=res, error=None)
     except Exception as e:
         traceback.print_exc()
@@ -39,6 +39,28 @@ def do_scan(at=None):
     finally:
         STATE["last_run"] = str(now_ist())
         STATE["scanning"] = False
+    return True
+
+
+def do_full():
+    global ANGEL
+    with LOCK:
+        if STATE["full_running"]:
+            return False
+        STATE["full_running"] = True
+    try:
+        if not angel_configured():
+            raise RuntimeError("Angel One connect ஆகவில்லை — Render Environment-ல் ANGEL_API_KEY, ANGEL_CLIENT_ID, ANGEL_MPIN, ANGEL_TOTP_SECRET வேண்டும்")
+        from krt.angel_api import Angel
+        from krt.fullscan import run_full
+        ANGEL = ANGEL or Angel()
+        res = run_full(ANGEL, lambda m: STATE.update(progress=m))
+        STATE.update(full=res, full_error=None)
+    except Exception as e:
+        traceback.print_exc()
+        STATE["full_error"] = str(e)
+    finally:
+        STATE.update(full_last=str(now_ist()), full_running=False, progress="")
     return True
 
 
@@ -50,6 +72,10 @@ def scheduler():
         if market_open(t) and t.minute % 15 == 1 and STATE["slot"] != slot and angel_configured():
             STATE["slot"] = slot
             threading.Thread(target=do_scan, daemon=True).start()
+        fslot = t.floor("5min")
+        if market_open(t) and t.minute % 5 == 1 and STATE["fslot"] != fslot and angel_configured():
+            STATE["fslot"] = fslot
+            threading.Thread(target=do_full, daemon=True).start()
         time.sleep(15)
 
 
@@ -108,7 +134,8 @@ class H(BaseHTTPRequestHandler):
             cfg = load_settings().get("chartink", {})
             cl = saved_clauses()
             return self._send(200, _json({
-                **{k: STATE[k] for k in ("scanning", "result", "error", "last_run")},
+                **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full", "full_error",
+                                         "full_running", "full_last", "progress")},
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
@@ -123,6 +150,12 @@ class H(BaseHTTPRequestHandler):
             d = self._body()
         except Exception:
             return self._send(400, _json({"ok": False, "msg": "தவறான request"}))
+
+        if self.path == "/api/full":
+            if STATE["full_running"]:
+                return self._send(200, _json({"ok": False, "msg": "Full scan ஏற்கனவே ஓடுகிறது"}))
+            threading.Thread(target=do_full, daemon=True).start()
+            return self._send(200, _json({"ok": True, "msg": ""}))
 
         if self.path == "/api/scan":
             started = do_scan_async(d.get("at"))
@@ -189,6 +222,8 @@ def do_scan_async(at=None):
 
 if __name__ == "__main__":
     threading.Thread(target=scheduler, daemon=True).start()
+    if angel_configured():  # start ஆனதும் ஒரு full scan
+        threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"
     url = f"http://127.0.0.1:{PORT}"
     srv = ThreadingHTTPServer((host, PORT), H)

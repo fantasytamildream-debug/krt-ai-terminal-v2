@@ -83,6 +83,28 @@ ol.how{margin:6px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
 .replay{display:flex;gap:8px;align-items:end}
 .replay input{max-width:220px}
 
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin:4px 0 18px;scrollbar-width:none}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--muted);padding:10px 12px;white-space:nowrap}
+.tabs button[aria-selected=true]{color:var(--text);border-bottom-color:var(--watch)}
+.pane[hidden]{display:none}
+.summary{margin:0 0 20px;padding:0;list-style:none;display:grid;gap:6px}
+.summary li{padding-left:14px;position:relative;max-width:80ch}
+.summary li:before{content:"";position:absolute;left:0;top:.62em;width:6px;height:6px;border-radius:50%;background:var(--watch)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px;background:rgba(255,255,255,.02)}
+td:first-child,th:first-child{text-align:left}
+tr.atm td{background:rgba(245,185,66,.08)}
+.up{color:var(--ce)} .dn{color:var(--pe)}
+.idxgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-bottom:22px}
+.idx{border:1px solid var(--line);border-radius:10px;padding:14px}
+.idx h3{margin:0;font-size:17px;display:flex;justify-content:space-between}
+.idx .big{font-size:22px;font-weight:800;margin:4px 0}
+.opt{margin-top:8px;font-size:13px;border-left:3px solid var(--line);padding-left:10px}
+.opt b{font-weight:800}
+h2.sec{font-size:18px;margin:26px 0 10px}
+.progress{color:var(--watch);font-size:13px;margin-top:6px}
 @media (max-width:820px){
   .sides{grid-template-columns:1fr}
   .hero{grid-template-columns:1fr}
@@ -98,9 +120,9 @@ ol.how{margin:6px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">KRT Terminal<small>Rule-based F&amp;O scanner · Angel One + Chartink</small></div>
+    <div class="brand">KRT Terminal<small>Rule-based F&amp;O scanner · Angel One live data</small></div>
     <div class="actions">
-      <button id="scanBtn" class="primary">Scan now</button>
+      <button id="scanBtn" class="primary">Full market scan</button>
       <button id="setBtn">Settings</button>
     </div>
   </header>
@@ -108,20 +130,39 @@ ol.how{margin:6px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
   <div class="hero">
     <div>
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
-      <p id="subline">Data வருகிறது.</p>
+      <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
     </div>
     <div class="meta num" id="meta"></div>
   </div>
 
   <ul class="notes" id="notes"></ul>
 
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-p="ov" aria-selected="true">Overview</button>
+    <button role="tab" data-p="bo">Breakout CE</button>
+    <button role="tab" data-p="bd">Breakdown PE</button>
+    <button role="tab" data-p="orb">5-min ORB</button>
+    <button role="tab" data-p="vol">Volume + OI</button>
+    <button role="tab" data-p="ix">Index OI</button>
+    <button role="tab" data-p="ck">Chartink</button>
+  </nav>
+
+  <section class="pane" id="p-ov"></section>
+  <section class="pane" id="p-bo" hidden></section>
+  <section class="pane" id="p-bd" hidden></section>
+  <section class="pane" id="p-orb" hidden></section>
+  <section class="pane" id="p-vol" hidden></section>
+  <section class="pane" id="p-ix" hidden></section>
+  <section class="pane" id="p-ck" hidden>
+  <button id="ckBtn" style="margin-bottom:14px">Run Chartink scan</button>
   <div class="sides">
     <div class="side ce"><h2><i></i>CE candidates</h2><div class="sub">Bullish level break — Chartink CE scan stocks</div><div id="ce"></div></div>
     <div class="side pe"><h2><i></i>PE candidates</h2><div class="sub">Bearish level break — Chartink PE scan stocks</div><div id="pe"></div></div>
   </div>
   <div class="blocked" id="blocked"></div>
+  </section>
 
-  <footer>Rule-based scanner மட்டும். Profit / accuracy guarantee இல்லை. Investment advice இல்லை. Score என்பது ranking — win probability இல்லை. Option strike / premium இன்னும் build ஆகவில்லை; முடிவு உங்களுடையது.</footer>
+  <footer>Rule-based scanner மட்டும் — AI prediction இல்லை. Profit / accuracy guarantee இல்லை. Investment advice இல்லை. Score என்பது ranking, win probability இல்லை. Option premium SL / target இன்னும் build ஆகவில்லை. முடிவு உங்களுடையது.</footer>
 </div>
 
 <dialog id="dlg"><div class="dlg">
@@ -158,8 +199,8 @@ ol.how{margin:6px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
   </section>
 
   <section>
-    <strong>பழைய நேரத்தில் test பண்ண</strong>
-    <div class="hint">Market மூடியிருக்கும்போது கடைசி trading day-ஐ replay பண்ணலாம்.</div>
+    <strong>Chartink scan — பழைய நேரத்தில் replay</strong>
+    <div class="hint">Chartink tab-க்கு மட்டும். Full scan எப்போதும் கடைசி session data காட்டும்.</div>
     <div class="replay"><div style="flex:1"><label for="at">Date + time</label><input id="at" type="datetime-local"></div>
     <button onclick="replay()">Replay scan</button></div>
   </section>
@@ -168,111 +209,150 @@ ol.how{margin:6px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
 <script>
 const $ = id => document.getElementById(id);
 const dlg = $("dlg");
-let last = null, pollT = null;
-
+let pollT = null;
 const STATUS_HELP = {
-  "CONFIRMED": "Rules எல்லாம் pass. Chart-ல் நீங்களே பார்த்து முடிவு பண்ணுங்க.",
-  "WATCH": "Level break ஆனது, ஆனா confirm இல்லை (volume குறைவு / gap). கவனிச்சுட்டு இருங்க.",
+  "CONFIRMED": "Rules எல்லாம் pass (5-min close + volume). Chart-ல் நீங்களே பார்த்து முடிவு பண்ணுங்க.",
+  "WATCH": "Level break ஆனது, ஆனா confirm இல்லை (volume குறைவு / gap / close இல்லை). கவனிங்க.",
   "EXTENDED": "ரொம்ப தூரம் போயிடுச்சு — late entry. Chase பண்ணாதீங்க.",
+  "LTP ONLY": "LTP மட்டும் level தாண்டியிருக்கு; candle confirm பண்ணல.",
   "INSUFFICIENT TARGETS": "3 practical target இல்லை — skip."
 };
-
 function esc(s){return String(s ?? "").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function hm(t){ if(!t) return "–"; const d=new Date(String(t).replace(" ","T")); return isNaN(d)?esc(t):d.toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) }
+const n2 = x => x==null||x===""?"–":Number(x).toLocaleString("en-IN",{maximumFractionDigits:2});
+const pc = x => x==null?"–":`<span class="${x>=0?'up':'dn'}">${x>=0?"+":""}${Number(x).toFixed(2)}%</span>`;
+const big = x => { x=Number(x||0); return x>=1e7?(x/1e7).toFixed(2)+" Cr":x>=1e5?(x/1e5).toFixed(2)+" L":x.toLocaleString("en-IN") };
+
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.setAttribute("aria-selected", x===b));
+  document.querySelectorAll(".pane").forEach(p=>p.hidden = p.id !== "p-"+b.dataset.p);
+});
+
+function optHTML(o){
+  if(!o) return "";
+  if(o.none) return `<div class="opt">Option: ${esc(o.none)}</div>`;
+  return `<div class="opt">Option: <b>${esc(o.strike)} ${esc(o.type)}</b> · ${esc(o.moneyness)} · expiry ${esc(o.expiry)}<br>
+   Bid ${n2(o.bid)} / Ask ${n2(o.ask)} · spread ${n2(o.spread_pct)}% · OI ${big(o.oi)} · lot ${esc(o.lot)} · 1 lot ≈ ₹${n2(o.lot_cost)}<br>
+   <span class="hint">Premium SL / target இன்னும் build ஆகவில்லை — underlying SL-ஐ follow பண்ணுங்க.</span></div>`;
+}
+function setupRow(r){
+  const st=r.status, cls="s-"+st.split(" ")[0];
+  const t=(r.targets||[]).length? r.targets.map((x,i)=>`T${i+1} <b class="num">${n2(x)}</b>`).join(" · ") : "Visible target level இல்லை";
+  return `<div class="row ${r.side==='PE'?'pe':''}">
+   <div class="top"><div><span class="sym">${esc(r.symbol)}</span><span class="lvl">${r.side} · ${esc(r.levels.join("+"))} ${n2(r.ref_level)}</span></div>
+   <span class="status ${cls}">${esc(st)}</span></div>
+   <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stop loss</span>${n2(r.sl)}</div>
+   <div><span>Vol ratio*</span>${n2(r.vol_ratio)}×</div><div><span>Score</span>${esc(r.score)}/100</div></div>
+   <div class="targets">${t}</div>
+   <div class="tags">${r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
+   ${optHTML(r.option)}
+   <div class="hint">${esc(STATUS_HELP[st]||"")}</div></div>`;
+}
+function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
+function idxCard(x){
+  if(x.error) return `<div class="idx"><h3>${esc(x.index)}</h3><div class="hint">${esc(x.error)}</div></div>`;
+  const o=(q,t)=> q?`<div class="opt"><b>${x.atm} ${t}</b> · LTP ${n2(q.ltp)} · bid ${n2(q.bid)} / ask ${n2(q.ask)} · OI ${big(q.oi)} · lot ${q.lot}</div>`:"";
+  return `<div class="idx"><h3><span>${esc(x.index)}</span><span class="num">${pc(x.pct)}</span></h3>
+   <div class="big num">${n2(x.spot)}</div>
+   <div class="hint">Expiry ${esc(x.expiry)} · PCR <b>${n2(x.pcr)}</b></div>
+   <div class="hint">Support (max PE OI) <b>${n2(x.support)}</b> · Resistance (max CE OI) <b>${n2(x.resistance)}</b></div>
+   <div style="margin-top:6px;font-weight:800">${esc(x.bias)}</div>${o(x.atm_ce,"CE")}${o(x.atm_pe,"PE")}</div>`;
+}
+function chainTbl(x){
+  if(!x.chain) return "";
+  const rows=x.chain.map(r=>{const c=r.CE||{},p=r.PE||{};
+    return `<tr class="${r.strike===x.atm?'atm':''}"><td>${n2(c.oi)}</td><td>${c.chg>=0?'+':''}${n2(c.chg)}</td><td>${n2(c.ltp)}</td><td style="text-align:center;font-weight:800">${n2(r.strike)}</td><td>${n2(p.ltp)}</td><td>${p.chg>=0?'+':''}${n2(p.chg)}</td><td>${n2(p.oi)}</td></tr>`}).join("");
+  return `<h2 class="sec">${esc(x.index)} option chain (ATM ±10)</h2><div class="tbl"><table class="num"><tr><th>CE OI</th><th>CE OI chg</th><th>CE LTP</th><th style="text-align:center">Strike</th><th>PE LTP</th><th>PE OI chg</th><th>PE OI</th></tr>${rows}</table></div>`;
+}
+function simpleTbl(rows, cols){
+  if(!rows||!rows.length) return `<div class="empty">இப்போ எதுவும் இல்லை.</div>`;
+  return `<div class="tbl"><table class="num"><tr>${cols.map(c=>`<th>${c[0]}</th>`).join("")}</tr>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c[1](r)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+}
+
+function renderFull(s){
+  const f=s.full;
+  if(!f){ const m = s.full_running ? "Full scan நடக்கிறது…" : (s.full_error? "Error: "+esc(s.full_error) : "“Full market scan” click பண்ணுங்க.");
+    ["ov","bo","bd","orb","vol","ix"].forEach(k=>$("p-"+k).innerHTML=`<div class="empty">${m}</div>`); return; }
+  const late = !f.live ? `<li>Market மூடியிருக்கு — ${esc(f.session)} session-ன் கடைசி data காட்டப்படுகிறது.</li>`:"";
+  $("p-ov").innerHTML = `<ul class="summary">${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+    <h2 class="sec">Best setups (rule-based ranking)</h2>${list(f.best,"CONFIRMED setup இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.")}
+    <h2 class="sec">Index OI</h2><div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>
+    <div class="hint">${f.universe_count} F&O stocks scan ஆனது · ${f.seconds}s · *Vol ratio = இன்றைய volume ÷ 20-நாள் சராசரியின் அதே நேர பங்கு (approx)</div>
+    ${(f.errors||[]).map(e=>`<div class="hint">⚠ ${esc(e)}</div>`).join("")}`;
+  $("p-bo").innerHTML = `<div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
+  $("p-bd").innerHTML = `<div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
+  const orbCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["5-min high",r=>n2(r.orb&&r.orb[0])],["5-min low",r=>n2(r.orb&&r.orb[1])],["Vol ratio*",r=>n2(r.vol_ratio)+"×"]];
+  $("p-orb").innerHTML = f.orb_ready ? `<h2 class="sec up">முதல் 5-min candle high break</h2>${simpleTbl(f.orb_up,orbCols)}<h2 class="sec dn">முதல் 5-min candle low break</h2>${simpleTbl(f.orb_dn,orbCols)}<div class="hint">LTP அடிப்படையில். Volume உடன் சேர்த்து பாருங்க.</div>` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
+  const bu=f.oi_buildup||{};
+  const buCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Fut OI",r=>big(r.oi)],["OI chg",r=>pc(r.oi_chg)]];
+  $("p-vol").innerHTML = `<h2 class="sec">அதிக volume F&O stocks</h2>${simpleTbl(f.high_volume,[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Volume",r=>big(r.volume)],["Vol ratio*",r=>n2(r.vol_ratio)+"×"],["Fut OI",r=>esc(r.oi_tag||"–")]])}
+    <h2 class="sec up">Long build-up (விலை ↑ OI ↑)</h2>${simpleTbl(bu["Long Built Up"],buCols)}
+    <h2 class="sec up">Short covering (விலை ↑ OI ↓)</h2>${simpleTbl(bu["Short Covering"],buCols)}
+    <h2 class="sec dn">Short build-up (விலை ↓ OI ↑)</h2>${simpleTbl(bu["Short Built Up"],buCols)}
+    <h2 class="sec dn">Long unwinding (விலை ↓ OI ↓)</h2>${simpleTbl(bu["Long Unwinding"],buCols)}
+    <div class="hint">OI buildup என்பது positioning தகவல் — direction guarantee இல்லை.</div>`;
+  $("p-ix").innerHTML = `<div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>${(f.index||[]).map(chainTbl).join("")}
+    <div class="hint">OI chg = இன்று server முதலில் பார்த்த OI-லிருந்து மாற்றம். Max OI = support/resistance என்பது ஒரு பார்வை மட்டும்.</div>`;
+}
 
 function rowHTML(r){
   const st = r.status, cls = "s-" + st.split(" ")[0];
-  const t = (r.targets||[]).length ? r.targets.map((x,i)=>`T${i+1} <b class="num">${x}</b>`).join(" · ") : "Target இல்லை (கீழே/மேலே visible level இல்லை)";
-  return `<div class="row">
-    <div class="top"><div><span class="sym">${esc(r.symbol)}</span><span class="lvl">${esc(r.level_name)} ${esc(r.level)}</span></div>
+  const t = (r.targets||[]).length ? r.targets.map((x,i)=>`T${i+1} <b class="num">${x}</b>`).join(" · ") : "Target இல்லை";
+  return `<div class="row"><div class="top"><div><span class="sym">${esc(r.symbol)}</span><span class="lvl">${esc(r.level_name)} ${esc(r.level)}</span></div>
     <span class="status ${cls}">${esc(st)}</span></div>
-    <div class="grid num">
-      <div><span>Price</span>${esc(r.price)}</div>
-      <div><span>Stop loss</span>${esc(r.sl)}</div>
-      <div><span>RVOL</span>${r.rvol ?? "–"}×</div>
-      <div><span>Score</span>${esc(r.score)}/100</div>
-    </div>
-    <div class="targets">${t}</div>
-    <div class="tags">${(r.tags||[]).map(x=>`<em>${esc(x)}</em>`).join("")}<em>Break ${hm(r.break_time)}</em></div>
-    <div class="hint">${esc(STATUS_HELP[st]||"")}</div>
-  </div>`;
+    <div class="grid num"><div><span>Price</span>${esc(r.price)}</div><div><span>Stop loss</span>${esc(r.sl)}</div><div><span>RVOL</span>${r.rvol ?? "–"}×</div><div><span>Score</span>${esc(r.score)}/100</div></div>
+    <div class="targets">${t}</div><div class="tags">${(r.tags||[]).map(x=>`<em>${esc(x)}</em>`).join("")}</div>
+    <div class="hint">${esc(STATUS_HELP[st]||"")}</div></div>`;
 }
 
 function render(s){
-  last = s;
-  const r = s.result;
-  $("scanBtn").disabled = s.scanning;
-  $("scanBtn").textContent = s.scanning ? "Scanning…" : "Scan now";
-  const dot = $("dot");
-  let head = "Scan இன்னும் நடக்கவில்லை", sub = "“Scan now” click பண்ணுங்க.";
-  dot.style.background = "var(--late)"; dot.classList.toggle("live", s.market_open);
-
-  if (!s.configured) { head = "Angel One connect ஆகவில்லை"; sub = s.hosted ? "Render → Environment-ல் ANGEL_ variables சேருங்க." : "Settings-ல் Angel One details கொடுங்க."; }
-  if (r) {
-    const m = r.market;
-    const nConf = (r.signals||[]).length;
-    head = m === "TRENDING UP" ? "Market trending up" : m === "TRENDING DOWN" ? "Market trending down" : m === "RANGE-BOUND" ? "Market range-bound" : "Market unclear — wait";
-    dot.style.background = m === "TRENDING UP" ? "var(--ce)" : m === "TRENDING DOWN" ? "var(--pe)" : "var(--watch)";
-    sub = nConf ? `${nConf} confirmed setup. Chart-ல் check பண்ணிட்டு முடிவு பண்ணுங்க.` : "Confirmed setup இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.";
-    if (r.replay) sub = "Replay: " + hm(r.time) + ". " + sub;
+  const f=s.full, r=s.result;
+  $("scanBtn").disabled = s.full_running;
+  $("scanBtn").textContent = s.full_running ? "Scanning…" : "Full market scan";
+  $("prog").textContent = s.full_running ? (s.progress || "தொடங்குகிறது…") + " — முதல் scan 3–5 நிமிடம் ஆகலாம்" : "";
+  let head="Scan இன்னும் நடக்கவில்லை", sub="“Full market scan” click பண்ணுங்க.", color="var(--late)";
+  if (!s.configured){ head="Angel One connect ஆகவில்லை"; sub = s.hosted ? "Render → Environment-ல் ANGEL_API_KEY, ANGEL_CLIENT_ID, ANGEL_MPIN, ANGEL_TOTP_SECRET சேருங்க." : "Settings-ல் Angel One details கொடுங்க."; }
+  if (f){
+    const m=f.trend;
+    head = m==="TRENDING UP"?"Market trending up":m==="TRENDING DOWN"?"Market trending down":m==="RANGE-BOUND"?"Market range-bound":"Market unclear — wait";
+    color = m==="TRENDING UP"?"var(--ce)":m==="TRENDING DOWN"?"var(--pe)":"var(--watch)";
+    sub = f.best.length ? `${f.best.length} confirmed setup. Chart-ல் check பண்ணிட்டு முடிவு பண்ணுங்க.` : "Confirmed setup இல்லை — WAIT.";
   }
-  if (s.error) { sub = "Error: " + s.error; }
-  $("headline").innerHTML = `<span class="dot${s.market_open?' live':''}" id="dot" style="background:${dot.style.background}"></span>${esc(head)}`;
+  if (s.full_error) sub = "Error: " + s.full_error;
+  $("headline").innerHTML = `<span class="dot${s.market_open?' live':''}" style="background:${color}"></span>${esc(head)}`;
   $("subline").textContent = sub;
+  $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>Last full scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
+  $("notes").innerHTML = "";
+  renderFull(s);
 
-  $("meta").innerHTML = `Market <b>${s.market_open ? "open" : "closed"}</b><br>
-    Last scan <b>${hm(s.last_run)}</b><br>
-    Next auto scan <b>${s.next_auto ? hm(s.next_auto) : "–"}</b><br>
-    Data <b>${r ? esc(r.source).toUpperCase() : "–"}</b>`;
+  for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }
+  $("blocked").textContent = (r?.msgs||[]).join(" · ");
+  $("ckBtn").disabled = s.scanning; $("ckBtn").textContent = s.scanning? "Chartink scanning…" : "Run Chartink scan";
 
-  const notes = [];
-  if (!s.market_open && !r?.replay) notes.push(["warn","Market மூடியிருக்கு. Live data stale-ஆ இருக்கும். Settings → Replay மூலம் கடைசி trading day பாருங்க."]);
-  (r?.msgs||[]).forEach(m => notes.push([m.includes("⚠")||m.includes("fail")?"warn":"", m]));
-  $("notes").innerHTML = notes.map(([c,m])=>`<li class="${c}">${esc(m)}</li>`).join("");
-
-  for (const side of ["ce","pe"]) {
-    const rows = r?.[side] || [];
-    $(side).innerHTML = rows.length ? rows.map(rowHTML).join("") : `<div class="empty">No confirmed setup. இப்போ இந்த side-ல் எதுவும் இல்லை.</div>`;
-  }
-  const b = r?.blocked || [];
-  $("blocked").textContent = b.length ? "Data இல்லாததால் skip: " + b.map(x=>x.symbol).join(", ") : "";
-
-  // settings state
-  $("angelState").textContent = s.configured ? "Connected ✓" + (s.hosted ? " (Render environment)" : "") : (s.hosted ? "Render → Environment-ல் set பண்ணுங்க" : "இன்னும் set ஆகவில்லை");
+  $("angelState").textContent = s.configured ? "Connected ✓"+(s.hosted?" (Render environment)":"") : (s.hosted?"Render → Environment-ல் set பண்ணுங்க":"இன்னும் set ஆகவில்லை");
   $("angelForm").style.display = s.hosted ? "none" : "";
   $("ceState").textContent = s.chartink?.ce_saved ? "· saved" : "· auto";
   $("peState").textContent = s.chartink?.pe_saved ? "· saved" : "· auto";
-
-  clearTimeout(pollT);
-  pollT = setTimeout(load, s.scanning ? 3000 : 30000);
+  clearTimeout(pollT); pollT = setTimeout(load, (s.full_running||s.scanning) ? 4000 : 30000);
 }
-
 async function load(){
   try { const r = await fetch("/api/status",{cache:"no-store"}); render(await r.json()); }
-  catch(e){ $("subline").textContent = "Server-ஐ அடைய முடியவில்லை. KRT window திறந்திருக்கா?"; clearTimeout(pollT); pollT=setTimeout(load,10000); }
+  catch(e){ $("subline").textContent="Server-ஐ அடைய முடியவில்லை. கொஞ்ச நேரத்தில் refresh பண்ணுங்க."; clearTimeout(pollT); pollT=setTimeout(load,10000); }
 }
-async function post(url, body){
-  const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
-  return r.json();
-}
-$("scanBtn").onclick = async () => { $("scanBtn").disabled = true; await post("/api/scan"); setTimeout(load, 800); };
+async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); return r.json(); }
+$("scanBtn").onclick = async () => { $("scanBtn").disabled=true; await post("/api/full"); setTimeout(load,800); };
+$("ckBtn").onclick = async () => { $("ckBtn").disabled=true; const j=await post("/api/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(load,800); };
 $("setBtn").onclick = () => dlg.showModal();
-
 async function saveAngel(){
-  const m = $("angelMsg"); m.className="msg"; m.textContent="Login test ஆகிறது…";
-  const j = await post("/api/setup",{api_key:$("api").value,client_id:$("cid").value,mpin:$("mpin").value,totp:$("totp").value});
-  m.className = "msg " + (j.ok?"ok":"bad"); m.textContent = j.msg;
-  if (j.ok) { $("mpin").value=""; $("totp").value=""; load(); }
+  const m=$("angelMsg"); m.className="msg"; m.textContent="Login test ஆகிறது…";
+  const j=await post("/api/setup",{api_key:$("api").value,client_id:$("cid").value,mpin:$("mpin").value,totp:$("totp").value});
+  m.className="msg "+(j.ok?"ok":"bad"); m.textContent=j.msg; if(j.ok){$("mpin").value="";$("totp").value="";load();}
 }
 async function saveClause(side){
-  const j = await post("/api/clause",{side, clause:$(side+"C").value});
-  const m = $("clauseMsg"); m.className = "msg " + (j.ok?"ok":"bad"); m.textContent = j.msg;
-  if (j.ok) { $(side+"C").value=""; load(); }
+  const j=await post("/api/clause",{side,clause:$(side+"C").value});
+  const m=$("clauseMsg"); m.className="msg "+(j.ok?"ok":"bad"); m.textContent=j.msg; if(j.ok){$(side+"C").value="";load();}
 }
-async function replay(){
-  const v = $("at").value; if(!v) return;
-  dlg.close(); await post("/api/scan",{at:v.replace("T"," ")}); setTimeout(load,800);
-}
+async function replay(){ const v=$("at").value; if(!v) return; dlg.close(); await post("/api/scan",{at:v.replace("T"," ")}); setTimeout(load,800); }
 load();
 </script>
 </body>

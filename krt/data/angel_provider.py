@@ -46,22 +46,10 @@ class AngelProvider(DataProvider):
 
     # ---------- symbol → token ----------
     def _load_master(self) -> dict:
-        p = self.cache_dir / "scrip_master.json"
-        old = not p.exists() or (time.time() - p.stat().st_mtime) > 86400
-        if old:
-            print("  Angel One instrument list download ஆகிறது (ஒரு நாளுக்கு ஒருமுறை)...")
-            r = requests.get(MASTER_URL, timeout=120)
-            r.raise_for_status()
-            p.write_bytes(r.content)
-        tokens, self.fno = {}, set()
-        for row in json.loads(p.read_text(encoding="utf-8")):
-            sym = row.get("symbol", "")
-            if row.get("exch_seg") == "NSE" and sym.endswith("-EQ"):
-                tokens[sym[:-3]] = row["token"]
-            elif row.get("exch_seg") == "NFO" and row.get("instrumenttype") == "OPTSTK":
-                self.fno.add(row.get("name", "").upper())
-        tokens.update(INDEX_TOKENS)
-        return tokens
+        from ..instruments import load
+        data = load(self.cache_dir)
+        self.fno = set(data["fno"])
+        return {**data["eq"], **INDEX_TOKENS}
 
     # ---------- candles ----------
     def _candles(self, symbol: str, interval: str, days: int) -> pd.DataFrame:
