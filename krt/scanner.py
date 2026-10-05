@@ -21,6 +21,9 @@ def scan(provider, cfg: dict, now: pd.Timestamp, watch: dict | None = None) -> d
             rows.append({"symbol": sym, "status": "STALE / NO DATA — BLOCKED"})
             continue
         daily, intra = provider.daily(sym), provider.intraday(sym)
+        if daily.empty:
+            rows.append({"symbol": sym, "status": "NO DAILY DATA — BLOCKED"})
+            continue
         lv = completed_levels(daily, now)
         pool = sorted({round(x, 2) for x in swing_levels(daily, now) + list(lv.values())})
         rvol = same_time_rvol(intra, now, cfg["volume"]["lookback_days"])

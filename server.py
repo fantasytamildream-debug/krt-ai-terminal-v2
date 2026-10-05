@@ -17,6 +17,7 @@ STATE = {"scanning": False, "result": None, "error": None, "last_run": None, "sl
          "full": None, "full_error": None, "full_running": False, "full_last": None, "progress": "", "fslot": None}
 ANGEL = None
 LOCK = threading.Lock()
+API_LOCK = threading.Lock()  # Chartink scan + full scan ஒரே நேரத்தில் Angel API-ஐ அடிக்கக்கூடாது (rate limit)
 
 
 def _json(o):
@@ -31,7 +32,8 @@ def do_scan(at=None):
     try:
         if not angel_configured():
             raise RuntimeError("Angel One connect ஆகவில்லை — demo data காட்டப்படாது")
-        res = run_scan("angel", at or None)
+        with API_LOCK:
+            res = run_scan("angel", at or None)
         STATE.update(result=res, error=None)
     except Exception as e:
         traceback.print_exc()
@@ -54,7 +56,8 @@ def do_full():
         from krt.angel_api import Angel
         from krt.fullscan import run_full
         ANGEL = ANGEL or Angel()
-        res = run_full(ANGEL, lambda m: STATE.update(progress=m))
+        with API_LOCK:
+            res = run_full(ANGEL, lambda m: STATE.update(progress=m))
         STATE.update(full=res, full_error=None)
     except Exception as e:
         traceback.print_exc()

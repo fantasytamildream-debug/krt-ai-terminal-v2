@@ -2,6 +2,8 @@ import pandas as pd
 
 
 def classify(index_daily: pd.DataFrame, as_of: pd.Timestamp) -> str:
+    if index_daily is None or index_daily.empty or not isinstance(index_daily.index, pd.DatetimeIndex):
+        return "UNCLEAR — WAIT"
     d = index_daily[index_daily.index.normalize() < as_of.normalize()]
     if len(d) < 50:
         return "UNCLEAR — WAIT"
@@ -17,6 +19,8 @@ def classify(index_daily: pd.DataFrame, as_of: pd.Timestamp) -> str:
 
 
 def relative_strength(stock_daily, index_daily, as_of, days: int = 20) -> float | None:
+    if stock_daily.empty or index_daily.empty:
+        return None
     s = stock_daily[stock_daily.index.normalize() < as_of.normalize()]["close"]
     i = index_daily[index_daily.index.normalize() < as_of.normalize()]["close"]
     if len(s) <= days or len(i) <= days:

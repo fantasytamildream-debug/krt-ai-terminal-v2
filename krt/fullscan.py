@@ -11,7 +11,10 @@ from .config import ROOT, load_settings
 from .instruments import load as load_inst, contracts, INDEX_SPOT, INDEX_OPT_EXCH
 from .levels import completed_levels, swing_levels
 from .market import classify
+from .optmath import plan as prem_plan
+import datetime as _dt, json as _json
 
+TRACK = {"session": None, "items": {}}
 C = {"session": None, "levels": {}, "avgvol": {}, "swings": {}, "orb": {}, "orb_session": None,
      "nifty_daily": None, "oi_base": {}, "oi_day": None}
 UP, DN = ("PDH", "PWH", "PMH"), ("PDL", "PWL", "PML")
@@ -79,10 +82,11 @@ def ensure_orb(ag, inst, names, session, live, now, prog):
     if live and now < session + pd.Timedelta(hours=9, minutes=20):
         return False
     if C["orb_session"] != session:
-        C.update(orb_session=session, orb={})
+        C.update(orb_session=session, orb={}, orb_try={})
     t0 = session + pd.Timedelta(hours=9, minutes=15)
-    todo = [n for n in names if n not in C["orb"]]
+    todo = [n for n in names if C["orb"].get(n) is None and C.setdefault("orb_try", {}).get(n, 0) < 3][:120]
     for i, n in enumerate(todo):
+        C["orb_try"][n] = C["orb_try"].get(n, 0) + 1
         if i % 10 == 0:
             prog(f"First 5-min candle {i}/{len(todo)}")
         tok = inst["eq"].get(n)
@@ -145,6 +149,42 @@ def _score(r, trend):
     return int(min(100, round(s)))
 
 
+def stars(score):
+    return 5 if score >= 85 else 4 if score >= 70 else 3 if score >= 55 else 2 if score >= 40 else 1
+
+
+def fill_targets(price, sl, side, tg):
+    """Structure targets 3-க்கு குறைவு என்றால் 1R/2R/3R கொண்டு நிரப்பு (label உடன்)."""
+    tg, kinds = list(tg)[:3], ["level"] * min(3, len(tg))
+    risk = abs(price - sl) or price * 0.005
+    k = 1
+    while len(tg) < 3:
+        t = price + k * risk if side == "CE" else price - k * risk
+        if t <= 0 or k > 12:
+            break
+        if all((t > x) if side == "CE" else (t < x) for x in tg):
+            tg.append(round(t, 2))
+            kinds.append(f"{k}R")
+        k += 1
+    return tg, kinds
+
+
+def attach_plan(r, opt, now):
+    """r: price, sl, targets, side → opt['plan'] (premium ESTIMATE)."""
+    if not opt or "none" in opt:
+        return
+    tg, kinds = fill_targets(r["price"], r["sl"], r["side"], r.get("targets") or [])
+    r["targets"], r["target_kinds"] = tg, kinds
+    cfg = load_settings().get("risk", {})
+    prem = opt.get("ask") or opt.get("ltp")
+    try:
+        opt["plan"] = prem_plan(prem, r["price"], opt["strike"], opt["expiry"], opt["type"], r["sl"], tg,
+                            now.to_pydatetime(), opt["lot"], cfg.get("charges_slippage", 150),
+                            cfg.get("max_risk_per_trade", 2500))
+    except Exception:
+        opt["plan"] = None
+
+
 def pick_options(ag, inst, rows):
     """ATM / 1 ITM — spread ≤ 3%, OI அதிகம். Cheap far-OTM தேர்வு இல்லை."""
     plan, toks = [], {}
@@ -172,7 +212,7 @@ def pick_options(ag, inst, rows):
             bid, ask = _depth(q)
             mid = (bid + ask) / 2 if bid and ask else 0
             spread = (ask - bid) / mid * 100 if mid else 999
-            cand = {"contract": c[1], "strike": c[3], "expiry": c[2], "type": c[4], "lot": c[5],
+            cand = {"token": c[0], "exch": c[6], "contract": c[1], "strike": c[3], "expiry": c[2], "type": c[4], "lot": c[5],
                     "moneyness": "ATM" if c[3] == atm else "ITM", "bid": bid, "ask": ask,
                     "ltp": _f(q.get("ltp")), "spread_pct": round(spread, 2), "oi": int(_f(q.get("opnInterest"))),
                     "volume": int(_f(q.get("tradeVolume"))), "lot_cost": round(ask * c[5])}
@@ -223,8 +263,33 @@ def index_oi(ag, inst, spot_q):
         else:
             bias = "NEUTRAL / RANGE"
         atm_row = chain.get(atm, {})
-        out.append({"index": idx, "spot": spot, "pct": _f((q or {}).get("percentChange")), "expiry": exp,
+        pct = _f((q or {}).get("percentChange"))
+        if bias == "BULLISH TILT":
+            side, conf = "CE", "OI bias"
+        elif bias == "BEARISH TILT":
+            side, conf = "PE", "OI bias"
+        else:
+            side, conf = ("CE" if pct >= 0 else "PE"), "LOW — range market, day change அடிப்படையில்"
+        plans = {}
+        for sd in ("CE", "PE"):
+            o = atm_row.get(sd)
+            if not o:
+                continue
+            if sd == "CE":
+                walls = sorted(r["strike"] for r in sorted(rows, key=lambda r: -r.get("CE", {}).get("oi", 0))[:6] if r["strike"] > spot)
+                sl_ul = max(sup, spot * 0.996) if sup < spot else spot * 0.996
+            else:
+                walls = sorted((r["strike"] for r in sorted(rows, key=lambda r: -r.get("PE", {}).get("oi", 0))[:6] if r["strike"] < spot), reverse=True)
+                sl_ul = min(res, spot * 1.004) if res > spot else spot * 1.004
+            pr = {"side": sd, "price": spot, "sl": round(sl_ul, 2), "targets": walls[:3]}
+            opt = {"token": next((c[0] for c in sel if c[3] == atm and c[4] == sd), None),
+                   "exch": INDEX_OPT_EXCH[idx], "contract": o["contract"], "strike": atm, "expiry": exp,
+                   "type": sd, "lot": o["lot"], "bid": o["bid"], "ask": o["ask"], "ltp": o["ltp"], "moneyness": "ATM"}
+            attach_plan(pr, opt, _now())
+            plans[sd] = {"ul_sl": pr["sl"], "ul_targets": pr["targets"], "kinds": pr.get("target_kinds"), "option": opt}
+        out.append({"index": idx, "spot": spot, "pct": pct, "expiry": exp,
                     "atm": atm, "pcr": pcr, "support": sup, "resistance": res, "bias": bias,
+                    "suggest": side, "confidence": conf, "plans": plans,
                     "atm_ce": atm_row.get("CE"), "atm_pe": atm_row.get("PE"), "chain": rows})
     return out
 
@@ -286,6 +351,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
         orb_up = bool(orb and ltp > orb[0])
         orb_dn = bool(orb and ltp < orb[1])
         universe.append({"symbol": n, "ltp": ltp, "pct": pct, "vol_ratio": vr, "volume": int(vol),
+                         "high": _f(q.get("high")), "low": _f(q.get("low")),
                          "orb_up": orb_up, "orb_dn": orb_dn, "orb": orb})
         for side, keys, beyond, gapf in (("CE", UP, lambda l: ltp > l, lambda l: op > l),
                                          ("PE", DN, lambda l: ltp < l, lambda l: op < l)):
@@ -318,29 +384,81 @@ def run_full(ag, prog=lambda m: None) -> dict:
     pe = [r for r in cands if r["side"] == "PE"]
 
     prog("Option strikes")
-    pick_options(ag, inst, ce[:6] + pe[:6])
+    for r in cands:
+        r["stars"] = stars(r["score"])
+    top_ce, top_pe = ce[:8], pe[:8]
 
-    orb_up = sorted([u for u in universe if u["orb_up"]], key=lambda u: -u["vol_ratio"])[:20]
-    orb_dn = sorted([u for u in universe if u["orb_dn"]], key=lambda u: -u["vol_ratio"])[:20]
+    # 5-min ORB rows + targets (range multiples)
+    def orb_rows(side):
+        rows = []
+        for u in universe:
+            o = u["orb"]
+            if not o or not (u["orb_up"] if side == "CE" else u["orb_dn"]):
+                continue
+            hi, lo = o[0], o[1]
+            rng = max(hi - lo, u["ltp"] * 0.002)
+            if side == "CE":
+                ent, sl, tg = hi, lo, [hi + rng, hi + 2 * rng, hi + 3 * rng]
+            else:
+                ent, sl, tg = lo, hi, [lo - rng, lo - 2 * rng, lo - 3 * rng]
+            ext = abs(u["ltp"] - ent) / ent * 100
+            sc = min(100, int(min(u["vol_ratio"] / 3, 1) * 50 + (25 if ext <= 1 else 5) +
+                              (25 if (trend == "TRENDING UP") == (side == "CE") and trend != "RANGE-BOUND" else 10)))
+            rows.append({"symbol": u["symbol"], "side": side, "price": u["ltp"], "pct": u["pct"],
+                         "vol_ratio": u["vol_ratio"], "orb_high": hi, "orb_low": lo, "entry": round(ent, 2),
+                         "sl": round(sl, 2), "targets": [round(x, 2) for x in tg], "target_kinds": ["1×range", "2×range", "3×range"],
+                         "ext": round(ext, 2), "status": "EXTENDED" if ext > 1.2 else ("CONFIRMED" if u["vol_ratio"] >= 1.5 else "WATCH"),
+                         "score": sc, "stars": stars(sc)})
+        rows.sort(key=lambda r: (r["status"] != "CONFIRMED", -r["score"]))
+        return rows[:20]
+    orb_up, orb_dn = orb_rows("CE"), orb_rows("PE")
+
+    # Volume + OI picks: buildup + volume + direction ஒத்துப்போனால்
+    bu_tag = {}
+    try:
+        prog("Futures OI buildup")
+        bu = oi_buildups(ag)
+    except Exception as e:
+        bu = {}
+        errors.append(f"OI buildup: {e}")
+    for kind, rows_ in bu.items():
+        for x in rows_:
+            bu_tag[x["symbol"]] = kind
+    voi = {"CE": [], "PE": []}
+    for u in sorted(universe, key=lambda u: -u["vol_ratio"]):
+        k = bu_tag.get(u["symbol"], "")
+        side = "CE" if k in ("Long Built Up", "Short Covering") and u["pct"] > 0 else \
+               "PE" if k in ("Short Built Up", "Long Unwinding") and u["pct"] < 0 else None
+        if not side or len(voi[side]) >= 3 or u["vol_ratio"] < 1.5:
+            continue
+        sl = u["low"] if side == "CE" else u["high"]
+        if not sl or abs(u["ltp"] - sl) / u["ltp"] > 0.03:
+            sl = u["ltp"] * (0.985 if side == "CE" else 1.015)
+        sc = min(100, int(min(u["vol_ratio"] / 3, 1) * 40 + 30 + (20 if k in ("Long Built Up", "Short Built Up") else 10) +
+                          (10 if (trend == "TRENDING UP") == (side == "CE") else 0)))
+        voi[side].append({"symbol": u["symbol"], "side": side, "price": u["ltp"], "pct": u["pct"],
+                          "vol_ratio": u["vol_ratio"], "oi_tag": k, "sl": round(sl, 2),
+                          "targets": _targets(u["symbol"], side, u["ltp"]), "score": sc, "stars": stars(sc),
+                          "status": "CONFIRMED"})
+
+    picks = top_ce + top_pe + orb_up[:5] + orb_dn[:5] + voi["CE"] + voi["PE"]
+    pick_options(ag, inst, picks)
+    for r in picks:
+        attach_plan(r, r.get("option"), now)
 
     prog("Index option OI")
     try:
         idx = index_oi(ag, inst, qs)
     except Exception as e:
-        idx, _ = [], errors.append(f"Index OI: {e}")
-    prog("Futures OI buildup")
-    try:
-        bu = oi_buildups(ag)
-    except Exception as e:
-        bu, _ = {}, errors.append(f"OI buildup: {e}")
-    tag = {}
-    for kind, rows in bu.items():
-        for x in rows:
-            tag[x["symbol"]] = kind
+        idx = []
+        errors.append(f"Index OI: {e}")
     hv = sorted(universe, key=lambda u: -u["vol_ratio"])[:20]
     for u in hv:
-        u["oi_tag"] = tag.get(u["symbol"], "")
-
+        u["oi_tag"] = bu_tag.get(u["symbol"], "")
+    if has_orb:
+        got = sum(1 for n in names if C["orb"].get(n))
+        if got < len(names) * 0.8:
+            errors.append(f"5-min ORB data {got}/{len(names)} stocks மட்டும் கிடைத்தது — அடுத்த scan-ல் மீதி எடுக்கும்")
     best = [r for r in ce + pe if r["status"] == "CONFIRMED" and "none" not in (r.get("option") or {"none": 1})]
     best.sort(key=lambda r: -r["score"])
     nifty = next((x for x in idx if x.get("index") == "NIFTY"), {})
@@ -354,8 +472,95 @@ def run_full(ag, prog=lambda m: None) -> dict:
     if not best:
         summary.append("இப்போ rules எல்லாம் pass ஆன setup இல்லை → WAIT.")
 
-    return {"kind": "full", "time": str(now), "session": str(session.date()), "live": live,
+    prog("Tracking")
+    track = update_tracking(ag, session, now, best[:6], orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx)
+
+    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "tracking": track, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),
             "errors": errors, "seconds": round(time.time() - t_start)}
+
+
+# ---------------- Signal tracking (original levels freeze — பின்னால் மாற்றப்படாது) ----------------
+TRACK_FILE = ROOT / "logs" / "tracking.json"
+
+
+def _track_load(session):
+    if TRACK["session"] == str(session.date()):
+        return
+    TRACK.update(session=str(session.date()), items={})
+    try:
+        d = _json.loads(TRACK_FILE.read_text(encoding="utf-8"))
+        if d.get("session") == TRACK["session"]:
+            TRACK["items"] = d.get("items", {})
+    except Exception:
+        pass
+
+
+def _add(src, r, opt, now):
+    p = (opt or {}).get("plan")
+    if not p or not opt.get("token"):
+        return
+    key = f"{src}|{r['symbol']}|{opt['contract']}"
+    if key in TRACK["items"]:
+        return
+    TRACK["items"][key] = {
+        "id": key, "source": src, "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"],
+        "token": opt["token"], "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],
+        "signal_time": str(now), "ul_price": r.get("price"), "ul_sl": r.get("sl"), "ul_targets": r.get("targets"),
+        "entry": p["entry"], "sl": p["sl"], "targets": p["targets"], "risk": p["risk"], "risk_ok": p["risk_ok"],
+        "ltp": p["entry"], "high": p["entry"], "low": p["entry"], "status": "OPEN", "hits": [], "closed_at": None}
+
+
+def update_tracking(ag, session, now, best, orb, voi, idx):
+    _track_load(session)
+    for r in best:
+        _add("Breakout/Breakdown", r, r.get("option"), now)
+    for r in orb:
+        if r.get("status") == "CONFIRMED":
+            _add("5-min ORB", r, r.get("option"), now)
+    for r in voi:
+        _add("Volume+OI", r, r.get("option"), now)
+    for x in idx:
+        pl = (x.get("plans") or {}).get(x.get("suggest"))
+        if pl and x.get("confidence") == "OI bias":
+            _add("Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"], "targets": pl["ul_targets"]},
+                 pl["option"], now)
+    items = TRACK["items"]
+    open_ = [t for t in items.values() if t["status"] in ("OPEN", "T1 HIT", "T2 HIT")]
+    toks = {}
+    for t in open_:
+        toks.setdefault(t["exch"], []).append(t["token"])
+    qs = ag.quotes(toks) if toks else {}
+    for t in open_:
+        q = qs.get(t["token"])
+        if not q:
+            continue
+        ltp = _f(q.get("ltp"))
+        if not ltp:
+            continue
+        t.update(ltp=ltp, high=max(t["high"], ltp), low=min(t["low"], ltp), updated=str(now))
+        if ltp <= t["sl"]:
+            t.update(status="SL HIT", closed_at=str(now))
+            t["hits"].append(f"SL {now:%H:%M}")
+            continue
+        for i, tg in enumerate(t["targets"], 1):
+            tag = f"T{i} HIT"
+            if ltp >= tg and not any(h.startswith(f"T{i} ") for h in t["hits"]):
+                t["hits"].append(f"T{i} {now:%H:%M}")
+                t["status"] = tag
+                if i == 3:
+                    t["closed_at"] = str(now)
+    for t in items.values():
+        t["pnl_lot"] = round((t["ltp"] - t["entry"]) * t["lot"])
+    try:
+        TRACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TRACK_FILE.write_text(_json.dumps({"session": TRACK["session"], "items": items}, default=str), encoding="utf-8")
+    except Exception:
+        pass
+    rows = sorted(items.values(), key=lambda t: t["signal_time"], reverse=True)
+    done = [t for t in rows if t["status"] != "OPEN"]
+    return {"rows": rows, "total": len(rows), "t1": sum(any(h.startswith("T1") for h in t["hits"]) for t in rows),
+            "sl": sum(t["status"] == "SL HIT" for t in rows), "closed": len(done),
+            "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}

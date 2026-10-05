@@ -97,6 +97,14 @@ th{color:var(--muted);font-weight:600;font-size:12px;background:rgba(255,255,255
 td:first-child,th:first-child{text-align:left}
 tr.atm td{background:rgba(245,185,66,.08)}
 .up{color:var(--ce)} .dn{color:var(--pe)}
+.stars{color:var(--watch);letter-spacing:1px;font-size:14px;margin-left:8px}
+.plan{margin-top:8px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.04);font-size:13.5px}
+.plan .buy{font-weight:800;font-size:15px}
+.lv{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}
+.lv span{white-space:nowrap}
+.hit{color:var(--ce);font-weight:800} .miss{color:var(--muted)} .slhit{color:var(--pe);font-weight:800}
+.skip{color:var(--pe);font-weight:700}
+.suggest{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,185,66,.1);font-size:13px}
 .idxgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-bottom:22px}
 .idx{border:1px solid var(--line);border-radius:10px;padding:14px}
 .idx h3{margin:0;font-size:17px;display:flex;justify-content:space-between}
@@ -144,6 +152,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
     <button role="tab" data-p="orb">5-min ORB</button>
     <button role="tab" data-p="vol">Volume + OI</button>
     <button role="tab" data-p="ix">Index OI</button>
+    <button role="tab" data-p="tr">Tracking</button>
     <button role="tab" data-p="ck">Chartink</button>
   </nav>
 
@@ -153,6 +162,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   <section class="pane" id="p-orb" hidden></section>
   <section class="pane" id="p-vol" hidden></section>
   <section class="pane" id="p-ix" hidden></section>
+  <section class="pane" id="p-tr" hidden></section>
   <section class="pane" id="p-ck" hidden>
   <button id="ckBtn" style="margin-bottom:14px">Run Chartink scan</button>
   <div class="sides">
@@ -162,7 +172,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   <div class="blocked" id="blocked"></div>
   </section>
 
-  <footer>Rule-based scanner மட்டும் — AI prediction இல்லை. Profit / accuracy guarantee இல்லை. Investment advice இல்லை. Score என்பது ranking, win probability இல்லை. Option premium SL / target இன்னும் build ஆகவில்லை. முடிவு உங்களுடையது.</footer>
+  <footer>Rule-based scanner மட்டும் — AI prediction இல்லை. Profit / accuracy guarantee இல்லை. Investment advice இல்லை. Score என்பது ranking, win probability இல்லை. Option premium entry / SL / target எல்லாம் ESTIMATED (model) — real fill வேறுபடலாம். Tracking = paper மட்டும். முடிவு உங்களுடையது.</footer>
 </div>
 
 <dialog id="dlg"><div class="dlg">
@@ -228,24 +238,43 @@ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll(".pane").forEach(p=>p.hidden = p.id !== "p-"+b.dataset.p);
 });
 
-function optHTML(o){
+let TRK = {};
+function starHTML(n){ return n?`<span class="stars" title="Rule-based rating">${"★".repeat(n)}${"☆".repeat(5-n)}</span>`:"" }
+function trackHTML(sym, o){
+  const t = TRK[sym+"|"+(o&&o.contract)]; if(!t) return "";
+  const lv = [["T1",t.targets[0]],["T2",t.targets[1]],["T3",t.targets[2]]].map(([k,v],i)=>{
+    const hit = t.hits.some(h=>h.startsWith(k+" ")); return `<span class="${hit?'hit':'miss'}">${k} ${hit?"✅":"⏳"}</span>`}).join(" ");
+  const sl = t.status==="SL HIT" ? `<span class="slhit">SL HIT ❌</span>` : "";
+  return `<div class="lv"><span>Signal ${hm(t.signal_time)}</span><span>LTP <b class="num">${n2(t.ltp)}</b></span><span>P/L per lot <b class="${t.pnl_lot>=0?'up':'dn'}">₹${n2(t.pnl_lot)}</b></span>${lv} ${sl}</div>`;
+}
+function optHTML(o, sym){
   if(!o) return "";
   if(o.none) return `<div class="opt">Option: ${esc(o.none)}</div>`;
-  return `<div class="opt">Option: <b>${esc(o.strike)} ${esc(o.type)}</b> · ${esc(o.moneyness)} · expiry ${esc(o.expiry)}<br>
-   Bid ${n2(o.bid)} / Ask ${n2(o.ask)} · spread ${n2(o.spread_pct)}% · OI ${big(o.oi)} · lot ${esc(o.lot)} · 1 lot ≈ ₹${n2(o.lot_cost)}<br>
-   <span class="hint">Premium SL / target இன்னும் build ஆகவில்லை — underlying SL-ஐ follow பண்ணுங்க.</span></div>`;
+  const p = o.plan;
+  const head = `<div class="buy">BUY ${esc(o.strike)} ${esc(o.type)} <span class="hint">(${esc(o.moneyness)} · expiry ${esc(o.expiry)} · lot ${esc(o.lot)})</span></div>`;
+  const quote = `<div class="hint">Bid ${n2(o.bid)} / Ask ${n2(o.ask)} · spread ${n2(o.spread_pct)}% · OI ${big(o.oi)}</div>`;
+  if(!p) return `<div class="plan">${head}${quote}</div>`;
+  return `<div class="plan">${head}${quote}
+    <div class="lv num"><span>Entry <b>${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>
+    ${p.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}</div>
+    <div class="lv"><span>1 lot ≈ ₹${n2(p.entry*o.lot)}</span><span>Risk/lot ≈ ₹${n2(p.risk)}</span><span>IV ${n2(p.iv)}%</span>
+    ${p.risk_ok?"":`<span class="skip">SKIP — RISK ABOVE ₹2,500</span>`}</div>
+    ${trackHTML(sym,o)}
+    <div class="hint">Premium levels ESTIMATED (Black-Scholes, underlying SL/target விலையில்). Underlying SL அல்லது premium SL — எது முதலில் வருதோ அதில் exit.</div></div>`;
 }
 function setupRow(r){
   const st=r.status, cls="s-"+st.split(" ")[0];
-  const t=(r.targets||[]).length? r.targets.map((x,i)=>`T${i+1} <b class="num">${n2(x)}</b>`).join(" · ") : "Visible target level இல்லை";
+  const k=r.target_kinds||[];
+  const t=(r.targets||[]).length? r.targets.map((x,i)=>`T${i+1} <b class="num">${n2(x)}</b>${k[i]&&k[i]!=="level"?` <span class="hint">(${esc(k[i])})</span>`:""}`).join(" · ") : "Visible target level இல்லை";
+  const lvl = r.levels ? `${esc(r.levels.join("+"))} ${n2(r.ref_level)}` : r.orb_high ? `5-min range ${n2(r.orb_low)}–${n2(r.orb_high)}` : esc(r.oi_tag||"");
   return `<div class="row ${r.side==='PE'?'pe':''}">
-   <div class="top"><div><span class="sym">${esc(r.symbol)}</span><span class="lvl">${r.side} · ${esc(r.levels.join("+"))} ${n2(r.ref_level)}</span></div>
+   <div class="top"><div><span class="sym">${esc(r.symbol)}</span>${starHTML(r.stars)}<span class="lvl">${r.side} · ${lvl}</span></div>
    <span class="status ${cls}">${esc(st)}</span></div>
-   <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stop loss</span>${n2(r.sl)}</div>
+   <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stock SL</span>${n2(r.sl)}</div>
    <div><span>Vol ratio*</span>${n2(r.vol_ratio)}×</div><div><span>Score</span>${esc(r.score)}/100</div></div>
-   <div class="targets">${t}</div>
-   <div class="tags">${r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
-   ${optHTML(r.option)}
+   <div class="targets">Stock targets: ${t}</div>
+   <div class="tags">${r.levels&&r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb===true?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.oi_tag?`<em>${esc(r.oi_tag)}</em>`:""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
+   ${optHTML(r.option, r.symbol)}
    <div class="hint">${esc(STATUS_HELP[st]||"")}</div></div>`;
 }
 function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
@@ -256,7 +285,15 @@ function idxCard(x){
    <div class="big num">${n2(x.spot)}</div>
    <div class="hint">Expiry ${esc(x.expiry)} · PCR <b>${n2(x.pcr)}</b></div>
    <div class="hint">Support (max PE OI) <b>${n2(x.support)}</b> · Resistance (max CE OI) <b>${n2(x.resistance)}</b></div>
-   <div style="margin-top:6px;font-weight:800">${esc(x.bias)}</div>${o(x.atm_ce,"CE")}${o(x.atm_pe,"PE")}</div>`;
+   <div style="margin-top:6px;font-weight:800">${esc(x.bias)}</div>${idxPlan(x)}</div>`;
+}
+function idxPlan(x){
+  const p=(x.plans||{})[x.suggest]; if(!p) return "";
+  const other = x.suggest==="CE"?"PE":"CE", q=(x.plans||{})[other];
+  const ul = `Spot SL ${n2(p.ul_sl)} · Spot targets ${(p.ul_targets||[]).map(n2).join(" / ")}`;
+  return `<div class="suggest">Suggestion: <b>${esc(x.index)} ${esc(p.option.strike)} ${esc(x.suggest)}</b> · confidence: ${esc(x.confidence)}<div class="hint">${ul}</div></div>
+    ${optHTML(p.option, x.index)}
+    ${q?`<details style="margin-top:6px"><summary class="hint">Opposite side plan (${other})</summary>${optHTML(q.option, x.index)}</details>`:""}`;
 }
 function chainTbl(x){
   if(!x.chain) return "";
@@ -273,6 +310,7 @@ function renderFull(s){
   const f=s.full;
   if(!f){ const m = s.full_running ? "Full scan நடக்கிறது…" : (s.full_error? "Error: "+esc(s.full_error) : "“Full market scan” click பண்ணுங்க.");
     ["ov","bo","bd","orb","vol","ix"].forEach(k=>$("p-"+k).innerHTML=`<div class="empty">${m}</div>`); return; }
+  TRK = {}; (f.tracking?.rows||[]).forEach(t=>TRK[t.symbol+"|"+t.contract]=t);
   const late = !f.live ? `<li>Market மூடியிருக்கு — ${esc(f.session)} session-ன் கடைசி data காட்டப்படுகிறது.</li>`:"";
   $("p-ov").innerHTML = `<ul class="summary">${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
     <h2 class="sec">Best setups (rule-based ranking)</h2>${list(f.best,"CONFIRMED setup இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.")}
@@ -281,16 +319,28 @@ function renderFull(s){
     ${(f.errors||[]).map(e=>`<div class="hint">⚠ ${esc(e)}</div>`).join("")}`;
   $("p-bo").innerHTML = `<div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
   $("p-bd").innerHTML = `<div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
-  const orbCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["5-min high",r=>n2(r.orb&&r.orb[0])],["5-min low",r=>n2(r.orb&&r.orb[1])],["Vol ratio*",r=>n2(r.vol_ratio)+"×"]];
-  $("p-orb").innerHTML = f.orb_ready ? `<h2 class="sec up">முதல் 5-min candle high break</h2>${simpleTbl(f.orb_up,orbCols)}<h2 class="sec dn">முதல் 5-min candle low break</h2>${simpleTbl(f.orb_dn,orbCols)}<div class="hint">LTP அடிப்படையில். Volume உடன் சேர்த்து பாருங்க.</div>` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
+  $("p-orb").innerHTML = f.orb_ready ? `<div class="hint">Entry = 5-min high/low break · SL = range மறுபக்கம் · Targets = range-ன் 1×/2×/3×. Top 5-க்கு option plan.</div>
+    <h2 class="sec up">முதல் 5-min candle HIGH break (CE)</h2>${list(f.orb_up,"இப்போ எதுவும் இல்லை.")}
+    <h2 class="sec dn">முதல் 5-min candle LOW break (PE)</h2>${list(f.orb_dn,"இப்போ எதுவும் இல்லை.")}` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
   const bu=f.oi_buildup||{};
   const buCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Fut OI",r=>big(r.oi)],["OI chg",r=>pc(r.oi_chg)]];
-  $("p-vol").innerHTML = `<h2 class="sec">அதிக volume F&O stocks</h2>${simpleTbl(f.high_volume,[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Volume",r=>big(r.volume)],["Vol ratio*",r=>n2(r.vol_ratio)+"×"],["Fut OI",r=>esc(r.oi_tag||"–")]])}
+  const vp=f.volume_oi_picks||{};
+  $("p-vol").innerHTML = `<div class="hint">Pick rule: volume ratio ≥ 1.5× + Futures OI buildup + விலை direction ஒத்துப்போகணும்.</div>
+    <h2 class="sec up">Best 3 CE (Volume + OI)</h2>${list(vp.CE,"இப்போ rules-க்கு பொருந்தும் CE pick இல்லை.")}
+    <h2 class="sec dn">Best 3 PE (Volume + OI)</h2>${list(vp.PE,"இப்போ rules-க்கு பொருந்தும் PE pick இல்லை.")}
+    <h2 class="sec">அதிக volume F&O stocks</h2>${simpleTbl(f.high_volume,[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Volume",r=>big(r.volume)],["Vol ratio*",r=>n2(r.vol_ratio)+"×"],["Fut OI",r=>esc(r.oi_tag||"–")]])}
     <h2 class="sec up">Long build-up (விலை ↑ OI ↑)</h2>${simpleTbl(bu["Long Built Up"],buCols)}
     <h2 class="sec up">Short covering (விலை ↑ OI ↓)</h2>${simpleTbl(bu["Short Covering"],buCols)}
     <h2 class="sec dn">Short build-up (விலை ↓ OI ↑)</h2>${simpleTbl(bu["Short Built Up"],buCols)}
     <h2 class="sec dn">Long unwinding (விலை ↓ OI ↓)</h2>${simpleTbl(bu["Long Unwinding"],buCols)}
     <div class="hint">OI buildup என்பது positioning தகவல் — direction guarantee இல்லை.</div>`;
+  const tr=f.tracking||{rows:[]};
+  $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${tr.total} signals track ஆகுது · T1 அடைந்தது ${tr.t1} · SL ${tr.sl}</li><li>${esc(tr.note||"")}</li></div>`+
+    simpleTbl(tr.rows,[["Time",t=>hm(t.signal_time)],["Source",t=>esc(t.source)],["Stock",t=>esc(t.symbol)],["Option",t=>esc(t.strike+" "+t.side)],
+      ["Entry",t=>n2(t.entry)],["SL",t=>n2(t.sl)],["T1",t=>n2(t.targets[0])],["T2",t=>n2(t.targets[1])],["T3",t=>n2(t.targets[2])],
+      ["LTP",t=>n2(t.ltp)],["P/L lot",t=>`<span class="${t.pnl_lot>=0?'up':'dn'}">₹${n2(t.pnl_lot)}</span>`],
+      ["Status",t=>`<span class="${t.status==='SL HIT'?'slhit':t.status==='OPEN'?'':'hit'}">${esc(t.status)}</span> ${esc((t.hits||[]).join(", "))}`],
+      ["Risk OK",t=>t.risk_ok?"✓":`<span class="skip">SKIP</span>`]]);
   $("p-ix").innerHTML = `<div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>${(f.index||[]).map(chainTbl).join("")}
     <div class="hint">OI chg = இன்று server முதலில் பார்த்த OI-லிருந்து மாற்றம். Max OI = support/resistance என்பது ஒரு பார்வை மட்டும்.</div>`;
 }

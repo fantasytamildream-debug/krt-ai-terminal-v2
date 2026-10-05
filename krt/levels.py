@@ -3,6 +3,8 @@ import pandas as pd
 
 
 def completed_levels(daily: pd.DataFrame, as_of: pd.Timestamp) -> dict:
+    if daily is None or daily.empty or not isinstance(daily.index, pd.DatetimeIndex):
+        return {}
     d = daily[daily.index.normalize() < as_of.normalize()]
     if d.empty:
         return {}
@@ -25,6 +27,8 @@ def confluence(levels: dict, price: float, pct: float = 0.3) -> list[str]:
 
 
 def swing_levels(daily: pd.DataFrame, as_of: pd.Timestamp, window: int = 3, lookback: int = 120) -> list[float]:
+    if daily is None or daily.empty or not isinstance(daily.index, pd.DatetimeIndex):
+        return []
     """Target-க்கு visible swing highs/lows (completed days only)."""
     d = daily[daily.index.normalize() < as_of.normalize()].tail(lookback)
     lv = []
