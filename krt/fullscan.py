@@ -53,13 +53,13 @@ def _vol_share(mins):
 
 def ensure_daily(ag, inst, names, session, prog):
     if C["session"] != session:
-        C.update(session=session, levels={}, avgvol={}, swings={}, nifty_daily=None, feat={})
+        C.update(session=session, levels={}, avgvol={}, swings={}, nifty_daily=None, feat={}, bars={}, first_seen={})
     if C["nifty_daily"] is None:
         df = ag.candles("NSE", INDEX_SPOT["NIFTY"][1], "ONE_DAY", session - pd.Timedelta(days=200), session)
         if not df.empty:
             df.index = df.index.normalize()
         C["nifty_daily"] = df
-    todo = [n for n in names if n not in C["levels"]]
+    todo = [n for n in names if n not in C["levels"] or n not in C.setdefault("bars", {})]
     start, end = session - pd.Timedelta(days=420), session + pd.Timedelta(hours=9)
     for i, n in enumerate(todo):
         if i % 10 == 0:
@@ -74,6 +74,10 @@ def ensure_daily(ag, inst, names, session, prog):
         past = df[df.index < session]
         C["avgvol"][n] = float(past["volume"].tail(20).mean()) if len(past) else 0.0
         C["swings"][n] = swing_levels(df, session)
+        tail = past.tail(100)
+        C.setdefault("bars", {})[n] = {"t": [str(x.date()) for x in tail.index], "h": tail["high"].round(2).tolist(),
+                                       "l": tail["low"].round(2).tolist(), "c": tail["close"].round(2).tolist(),
+                                       "v": tail["volume"].tolist()}
         c = past["close"]
         if len(c) >= 60:
             e20, e50 = c.ewm(span=20).mean(), c.ewm(span=50).mean()
@@ -153,6 +157,14 @@ def _score(r, trend):
         s += 5
     s += {0: 0, 1: 5}.get(len(r["targets"]), 10)
     return int(min(100, round(s)))
+
+
+def seen(kind, r, now):
+    fs = C.setdefault("first_seen", {})
+    k = f"{kind}|{r['symbol']}|{r.get('side')}|{r.get('pattern', '')}"
+    if k not in fs:
+        fs[k] = now.strftime("%Y-%m-%d %H:%M")
+    r["signal_time"] = fs[k]
 
 
 def stars(score):
@@ -402,6 +414,9 @@ def run_full(ag, prog=lambda m: None) -> dict:
     prog("Option strikes")
     for r in cands:
         r["stars"] = stars(r["score"])
+        seen("lvl", r, now)
+        aligned = (trend == "TRENDING UP" and r["side"] == "CE") or (trend == "TRENDING DOWN" and r["side"] == "PE")
+        r["strong"] = r["status"] == "CONFIRMED" and r["stars"] == 5 and r["vol_ratio"] >= 2 and aligned
     top_ce, top_pe = ce[:8], pe[:8]
 
     # 5-min ORB rows + targets (range multiples)
@@ -428,6 +443,9 @@ def run_full(ag, prog=lambda m: None) -> dict:
         rows.sort(key=lambda r: (r["status"] != "CONFIRMED", -r["score"]))
         return rows[:20]
     orb_up, orb_dn = orb_rows("CE"), orb_rows("PE")
+    for r in orb_up + orb_dn:
+        seen("orb", r, now)
+        r["strong"] = r["status"] == "CONFIRMED" and r["stars"] >= 5
 
     # Volume + OI picks: buildup + volume + direction ஒத்துப்போனால்
     bu_tag = {}
@@ -457,9 +475,52 @@ def run_full(ag, prog=lambda m: None) -> dict:
                           "targets": _targets(u["symbol"], side, u["ltp"]), "score": sc, "stars": stars(sc),
                           "status": "CONFIRMED"})
 
-    picks = top_ce + top_pe + orb_up[:5] + orb_dn[:5] + voi["CE"] + voi["PE"]
+    for side in ("CE", "PE"):
+        for r in voi[side]:
+            seen("voi", r, now)
+
+    # ---- Chart patterns (daily) ----
+    prog("Chart patterns")
+    from .patterns import detect as detect_patterns
+    ulook = {u["symbol"]: u for u in universe}
+    pats = []
+    for n_, u in ulook.items():
+        b, f_ = C.get("bars", {}).get(n_), (C.get("feat") or {}).get(n_)
+        if not b or not f_:
+            continue
+        try:
+            for p_ in detect_patterns(n_, b, u["ltp"], f_["atr"]):
+                p_.update(price=u["ltp"], pct=u["pct"], vol_ratio=u["vol_ratio"], sl=p_["invalidation"])
+                aligned = (trend == "TRENDING UP" and p_["side"] == "CE") or (trend == "TRENDING DOWN" and p_["side"] == "PE")
+                p_["score"] = int(min(100, p_["score"] + (10 if aligned else 0) + (10 if u["vol_ratio"] >= 1.5 and p_["status"] in ("TRIGGERED", "CONFIRMED") else 0)))
+                p_["stars"] = stars(p_["score"])
+                p_["strong"] = p_["status"] in ("TRIGGERED", "CONFIRMED") and p_["stars"] >= 4 and u["vol_ratio"] >= 1.5
+                seen("pat", p_, now)
+                pats.append(p_)
+        except Exception:
+            continue
+    order = {"CONFIRMED": 0, "TRIGGERED": 1, "NEAR BREAKOUT": 2, "FORMING": 3, "FAILED": 4}
+    pats.sort(key=lambda p_: (order[p_["status"]], -p_["score"]))
+    pats = pats[:40]
+    pat_pick = [p_ for p_ in pats if p_["status"] in ("CONFIRMED", "TRIGGERED", "NEAR BREAKOUT")][:10]
+    for p_ in pat_pick:
+        p_["min_days"] = 10
+
+    picks = top_ce + top_pe + orb_up[:5] + orb_dn[:5] + voi["CE"] + voi["PE"] + pat_pick
     pick_options(ag, inst, picks)
     for r in picks:
+        if r in pat_pick:
+            o_ = r.get("option")
+            if o_ and "none" not in o_:
+                cfg_ = load_settings().get("risk", {})
+                try:
+                    o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
+                                           r["invalidation"], r["targets"], now.to_pydatetime(), o_["lot"],
+                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                           hold_days=3, sl_days=1)
+                except Exception:
+                    o_["plan"] = None
+            continue
         attach_plan(r, r.get("option"), now)
 
     prog("Index option OI")
@@ -468,6 +529,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
     except Exception as e:
         idx = []
         errors.append(f"Index OI: {e}")
+    footprint = build_footprint(idx, universe, bu_tag, now)
     hv = sorted(universe, key=lambda u: -u["vol_ratio"])[:20]
     for u in hv:
         u["oi_tag"] = bu_tag.get(u["symbol"], "")
@@ -498,18 +560,63 @@ def run_full(ag, prog=lambda m: None) -> dict:
     prog("Calls tracking")
     from .calls import update_calls
     try:
-        track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing)
+        track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
+                             patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
         errors.append(f"Tracking: {e}")
 
-    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
+    for key_ in ("10", "5"):
+        for r in swing.get(key_, []):
+            seen("swing", r, now)
+    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),
             "errors": errors, "seconds": round(time.time() - t_start)}
 
 
+
+
+def build_footprint(idx, universe, bu_tag, now):
+    """OI footprint (proxy) — option writers (sellers) எங்கே OI சேர்க்கிறார்கள், futures buildup + அதிக volume.
+    இது உண்மையான institution order data இல்லை; public OI / volume-ல் இருந்து ஊகம் மட்டும்."""
+    out = {"index": [], "stocks": []}
+    for x in idx:
+        ch = x.get("chain") or []
+        if not ch:
+            continue
+        ce_add = sorted(ch, key=lambda r: -(r.get("CE", {}).get("chg", 0)))[:3]
+        pe_add = sorted(ch, key=lambda r: -(r.get("PE", {}).get("chg", 0)))[:3]
+        ce_cut = sorted(ch, key=lambda r: r.get("CE", {}).get("chg", 0))[:2]
+        pe_cut = sorted(ch, key=lambda r: r.get("PE", {}).get("chg", 0))[:2]
+        ce_sum = sum(max(0, r.get("CE", {}).get("chg", 0)) for r in ch)
+        pe_sum = sum(max(0, r.get("PE", {}).get("chg", 0)) for r in ch)
+        if pe_sum > ce_sum * 1.3:
+            bias, why = "CE", "Put writers (sellers) அதிகம் OI சேர்க்கிறார்கள் → கீழே support வலுவாகிறது"
+        elif ce_sum > pe_sum * 1.3:
+            bias, why = "PE", "Call writers (sellers) அதிகம் OI சேர்க்கிறார்கள் → மேலே resistance வலுவாகிறது"
+        else:
+            bias, why = None, "இரண்டு பக்கமும் சமம் — range / wait"
+        pl = (x.get("plans") or {}).get(bias) if bias else None
+        out["index"].append({
+            "index": x["index"], "spot": x.get("spot"), "bias": bias, "why": why,
+            "ce_writing": [{"strike": r["strike"], "chg": r["CE"]["chg"]} for r in ce_add if r.get("CE", {}).get("chg", 0) > 0],
+            "pe_writing": [{"strike": r["strike"], "chg": r["PE"]["chg"]} for r in pe_add if r.get("PE", {}).get("chg", 0) > 0],
+            "ce_unwind": [{"strike": r["strike"], "chg": r["CE"]["chg"]} for r in ce_cut if r.get("CE", {}).get("chg", 0) < 0],
+            "pe_unwind": [{"strike": r["strike"], "chg": r["PE"]["chg"]} for r in pe_cut if r.get("PE", {}).get("chg", 0) < 0],
+            "ce_added": int(ce_sum), "pe_added": int(pe_sum), "plan": pl})
+    for u in universe:
+        k = bu_tag.get(u["symbol"], "")
+        if u["vol_ratio"] >= 3 and k and abs(u["pct"]) >= 1.5:
+            side = "CE" if k in ("Long Built Up", "Short Covering") else "PE"
+            r = {"symbol": u["symbol"], "side": side, "ltp": u["ltp"], "pct": u["pct"], "vol_ratio": u["vol_ratio"],
+                 "oi_tag": k, "note": f"Volume {u['vol_ratio']}× + {k}"}
+            seen("fp", r, now)
+            out["stocks"].append(r)
+    out["stocks"].sort(key=lambda r: -r["vol_ratio"])
+    out["stocks"] = out["stocks"][:15]
+    return out
 
 
 def export_cache():
@@ -520,7 +627,8 @@ def export_cache():
     return {"session": str(C["session"].date()), "levels": C["levels"], "avgvol": C["avgvol"],
             "swings": C["swings"], "feat": C.get("feat", {}),
             "orb_session": str(C["orb_session"].date()) if C.get("orb_session") is not None else None,
-            "orb": C.get("orb", {}),
+            "orb": C.get("orb", {}), "oi_day": C.get("oi_day"), "oi_base": C.get("oi_base", {}),
+            "first_seen": C.get("first_seen", {}),
             "nifty": None if nd is None or nd.empty else {"t": [str(x.date()) for x in nd.index], "c": nd["close"].tolist(),
                                                            "h": nd["high"].tolist(), "l": nd["low"].tolist()}}
 
@@ -536,6 +644,7 @@ def import_cache(d):
                           index=pd.to_datetime(n["t"]))
     C.update(session=s, levels=d.get("levels", {}), avgvol=d.get("avgvol", {}), swings=d.get("swings", {}),
              feat=d.get("feat", {}), nifty_daily=nd)
+    C.update(oi_day=d.get("oi_day"), oi_base=d.get("oi_base", {}), first_seen=d.get("first_seen", {}))
     if d.get("orb_session"):
         C.update(orb_session=pd.Timestamp(d["orb_session"]), orb={k: tuple(v) if v else None for k, v in d.get("orb", {}).items()},
                  orb_try={})
@@ -553,7 +662,7 @@ def fast_tick(ag, res):
     for ex, tok in INDEX_SPOT.values():
         toks.setdefault(ex, []).append(tok)
     opt_rows = []
-    for key in ("best", "ce", "pe", "orb_up", "orb_dn"):
+    for key in ("best", "ce", "pe", "orb_up", "orb_dn", "patterns"):
         opt_rows += [r for r in res.get(key) or [] if (r.get("option") or {}).get("token")]
     for side in ("CE", "PE"):
         opt_rows += [r for r in (res.get("volume_oi_picks") or {}).get(side, []) if (r.get("option") or {}).get("token")]
@@ -608,6 +717,22 @@ def fast_tick(ag, res):
             b, a = _depth(q)
             if b and a:
                 o["bid"], o["ask"] = b, a
+    for p_ in res.get("patterns") or []:
+        q = live_q.get(p_["symbol"])
+        if not q or p_["status"] in ("CONFIRMED", "FAILED"):
+            continue
+        ltp = q["ltp"]
+        ce = p_["side"] == "CE"
+        p_["price"], p_["pct"], p_["vol_ratio"] = ltp, q["pct"], q["vol_ratio"]
+        p_["dist_pct"] = round(((p_["level"] - ltp) if ce else (ltp - p_["level"])) / ltp * 100, 2)
+        if (ltp < p_["invalidation"]) if ce else (ltp > p_["invalidation"]):
+            p_["status"] = "FAILED"
+        elif p_["dist_pct"] < 0:
+            if p_["status"] != "TRIGGERED":
+                p_["triggered_at"] = str(now)[11:16]
+            p_["status"] = "TRIGGERED"
+        elif p_["dist_pct"] <= 2:
+            p_["status"] = "NEAR BREAKOUT"
     for x in res.get("index") or []:
         q = qs.get(INDEX_SPOT.get(x.get("index"), (None, None))[1])
         if q:

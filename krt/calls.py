@@ -40,12 +40,12 @@ def _close(c, status, price, when):
     c["pnl_lot"] = round((price - c["entry"]) * c["lot"])
 
 
-def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True):
+def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=()):
     with CALLS_LOCK:
-        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add)
+        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns)
 
 
-def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add):
+def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -86,6 +86,12 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add):
             if pl and x.get("confidence") == "OI bias":
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
+    if add and live and mins < 15 * 60 + 15:
+        for p in patterns:
+            r = dict(p)
+            r["reasons"] = [f"{p['pattern']} ({p['timeframe']}) {p['status']}", p["confirm_rule"], p.get("note", "")]
+            r["confidence"] = f"{p.get('stars', 0)}★"
+            add(_new("PATTERN 5D", "Chart pattern", r, p.get("option"), now, day, 5, session))
     # Swing: 3:00 PM-க்கு பிறகு ஒரு முறை publish (அன்றைய close அருகில் confirm)
     if add and live and mins >= 15 * 60 and not flag.get("swing"):
         for key in ("10", "5"):
@@ -128,7 +134,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add):
         if live and c["kind"] in INTRA and mins >= 15 * 60 + 20 and c["status"] in OPEN:
             _close(c, "EOD EXIT", c["ltp"], str(now))
             changed = True
-        if c["kind"].startswith("SWING") and c["status"] in OPEN and (
+        if c.get("hold_until") and c["status"] in OPEN and (
                 day > c["hold_until"] or (day == c["hold_until"] and mins >= 15 * 60 + 20)):
             _close(c, "TIME EXIT", c["ltp"], str(now))
             changed = True
@@ -146,12 +152,12 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add):
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D")}
     summary["ALL"] = stats(allc)
     today = [c for c in allc if c["date"] == day]
     return {"today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
-            "swing_open": [c for c in allc if c["kind"].startswith("SWING") and c["status"] in OPEN],
+            "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
             "history": allc[:300], "summary": summary, "swing_published": flag.get("swing"),
             "store": "GitHub (நிரந்தரம்)" if STORE.remote else "Server disk (restart / deploy-ல் அழியலாம்)",
             "store_error": STORE.error,

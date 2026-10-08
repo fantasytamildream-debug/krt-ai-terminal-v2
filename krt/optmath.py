@@ -44,7 +44,7 @@ def r05(x):
     return round(round(x / 0.05) * 0.05, 2)
 
 
-def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=2500, hold_days=0):
+def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=2500, hold_days=0, sl_days=None):
     """→ premium entry zone, SL, T1-T3, risk. ul_targets: underlying targets (3)."""
     if not prem or prem <= 0 or not S:
         return None
@@ -52,11 +52,15 @@ def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=
     sig = iv(prem, S, K, T, typ)
     # intraday: ~2 மணி நேரம்; swing: hold_days கழித்து (theta கணக்கில்)
     T2 = max(T - (2 / 24 + hold_days) / 365, 1 / (365 * 24))
-    sl = r05(max(0.05, bs(ul_sl, K, T2, sig, typ)))
+    # SL பொதுவாக சீக்கிரம் வரும் → SL premium-க்கு குறைந்த நாள் theta (swing-ல் 2 நாள்)
+    sd = hold_days if sl_days is None else sl_days
+    Tsl = max(T - (2 / 24 + sd) / 365, 1 / (365 * 24))
+    sl = r05(max(0.05, bs(ul_sl, K, Tsl, sig, typ)))
     tg = [r05(bs(t, K, T2, sig, typ)) for t in ul_targets]
     entry = r05(prem)
     if sl >= entry:
         sl = r05(entry * 0.8)
+    sl = max(sl, r05(entry * 0.4))  # premium SL அதிகபட்சம் 60% நஷ்டம்
     risk = round((entry - sl) * lot + charges)
     return {"entry": entry, "entry_zone": [r05(entry * 0.99), r05(entry * 1.01)], "sl": sl,
             "targets": tg, "iv": round(sig * 100, 1), "risk": risk,

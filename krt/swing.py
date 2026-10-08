@@ -62,7 +62,7 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
             reasons = [f"{'+'.join(broke)} break", "EMA20>EMA50 trend" if side == "CE" else "EMA20<EMA50 trend",
                        f"RS vs NIFTY {srs*100:+.1f}%", f"Vol {u['vol_ratio']}×",
                        f"அடுத்த {'resistance' if side=='CE' else 'support'} {nxt:.1f}" if nxt else "52-week level வரை தடை இல்லை"]
-            cands.append({"symbol": n, "side": side, "price": ltp, "pct": u["pct"], "vol_ratio": u["vol_ratio"],
+            cands.append({"strong": sc >= 85, "symbol": n, "side": side, "price": ltp, "pct": u["pct"], "vol_ratio": u["vol_ratio"],
                           "levels": broke, "ref_level": round(ref, 2), "sl": sl, "targets": tg, "atr": round(atr, 2),
                           "hold": hold, "min_days": int(hold * 1.4) + 5, "score": sc, "stars": stars(sc),
                           "confidence": "HIGH" if sc >= 80 else "MEDIUM", "reasons": reasons, "status": "SWING"})
@@ -86,7 +86,7 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
             o["plan"] = prem_plan(o.get("ask") or o.get("ltp"), r["price"], o["strike"], o["expiry"], o["type"],
                                   r["sl"], r["targets"], now.to_pydatetime(), o["lot"],
                                   cfg.get("charges_slippage", 150), cfg.get("max_risk_per_trade", 2500),
-                                  hold_days=r["hold"] * 1.4)
+                                  hold_days=r["hold"] * 0.7, sl_days=2)
         except Exception:
             o["plan"] = None
     return out

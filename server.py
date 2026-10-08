@@ -94,6 +94,27 @@ def ticker():
             traceback.print_exc()
 
 
+NEWS = {"items": [], "err": None, "t": None}
+
+
+def news_loop():
+    """10 நிமிடத்துக்கு ஒருமுறை Google News RSS — market + setup stocks."""
+    from krt.news import refresh
+    while True:
+        try:
+            f = STATE.get("full") or {}
+            syms = []
+            for key in ("best", "patterns", "ce", "pe"):
+                for r in f.get(key) or []:
+                    if r["symbol"] not in syms:
+                        syms.append(r["symbol"])
+            c = refresh(syms)
+            NEWS.update(items=c["items"][:80], err=c["err"], t=str(now_ist()))
+        except Exception as e:
+            NEWS["err"] = str(e)
+        time.sleep(600)
+
+
 def scheduler():
     """Market நேரத்தில் ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடம் கழித்து auto scan."""
     while True:
@@ -167,6 +188,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full", "full_error",
                                          "full_running", "full_last", "progress")},
+                "news": NEWS,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
@@ -271,6 +293,7 @@ if __name__ == "__main__":
     restore()
     threading.Thread(target=scheduler, daemon=True).start()
     threading.Thread(target=ticker, daemon=True).start()
+    threading.Thread(target=news_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"
