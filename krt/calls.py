@@ -6,7 +6,7 @@ from .store import STORE
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA")
 
 
 def _f(x):
@@ -40,12 +40,12 @@ def _close(c, status, price, when):
     c["pnl_lot"] = round((price - c["entry"]) * c["lot"])
 
 
-def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=()):
+def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=()):
     with CALLS_LOCK:
-        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns)
+        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma)
 
 
-def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns):
+def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -86,6 +86,16 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if pl and x.get("confidence") == "OI bias":
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
+    if live and mins < 15 * 60 + 15:
+        for gm in gamma:  # Gamma: trigger ஆனவுடன் (30-sec tick-லும்) call சேரும், ஒரு index/side-க்கு ஒன்று
+            gk = f"gamma_{gm['name']}_{gm['side']}"
+            if flag.get(gk) or not (gm.get("option") or {}).get("plan"):
+                continue
+            r = {"symbol": gm["name"], "price": gm["spot"], "sl": gm["day_low"] if gm["side"] == "CE" else gm["day_high"],
+                 "targets": [], "stars": 5, "confidence": "HIGH RISK", "reasons": gm.get("reasons")}
+            cid = add(_new("GAMMA", "Gamma blast", r, gm["option"], now, day))
+            if cid:
+                flag[gk] = cid
     if add and live and mins < 15 * 60 + 15:
         for p in patterns:
             r = dict(p)
@@ -152,7 +162,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}

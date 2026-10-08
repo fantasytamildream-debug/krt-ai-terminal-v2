@@ -265,7 +265,7 @@ def index_oi(ag, inst, spot_q):
             bid, ask = _depth(qq)
             chain.setdefault(c[3], {"strike": c[3]})[c[4]] = {
                 "oi": int(oi), "chg": int(oi - base), "ltp": _f(qq.get("ltp")), "bid": bid, "ask": ask,
-                "lot": c[5], "contract": c[1]}
+                "lot": c[5], "contract": c[1], "token": c[0], "exch": INDEX_OPT_EXCH[idx]}
         rows = [chain[k] for k in sorted(chain)]
         ce_oi = sum(r.get("CE", {}).get("oi", 0) for r in rows)
         pe_oi = sum(r.get("PE", {}).get("oi", 0) for r in rows)
@@ -306,6 +306,7 @@ def index_oi(ag, inst, spot_q):
             attach_plan(pr, opt, _now())
             plans[sd] = {"ul_sl": pr["sl"], "ul_targets": pr["targets"], "kinds": pr.get("target_kinds"), "option": opt}
         out.append({"index": idx, "spot": spot, "pct": pct, "expiry": exp,
+                    "day_high": _f((q or {}).get("high")) or spot, "day_low": _f((q or {}).get("low")) or spot,
                     "atm": atm, "pcr": pcr, "support": sup, "resistance": res, "bias": bias,
                     "suggest": side, "confidence": conf, "plans": plans,
                     "atm_ce": atm_row.get("CE"), "atm_pe": atm_row.get("PE"), "chain": rows})
@@ -530,6 +531,16 @@ def run_full(ag, prog=lambda m: None) -> dict:
         idx = []
         errors.append(f"Index OI: {e}")
     footprint = build_footprint(idx, universe, bu_tag, now)
+    prog("Gamma blast")
+    from .gamma import index_gamma, stock_gamma
+    try:
+        cap_ = load_settings().get("risk", {}).get("max_risk_per_trade", 2500)
+        g_idx, g_cal = index_gamma(idx, now, cap_)
+        g_stk = stock_gamma(ag, inst, universe, now, contracts, cap_) if live else []
+        gamma = {"index": g_idx, "stocks": g_stk, "calendar": g_cal}
+    except Exception as e:
+        gamma = {"index": [], "stocks": [], "calendar": []}
+        errors.append(f"Gamma: {e}")
     hv = sorted(universe, key=lambda u: -u["vol_ratio"])[:20]
     for u in hv:
         u["oi_tag"] = bu_tag.get(u["symbol"], "")
@@ -561,7 +572,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
     from .calls import update_calls
     try:
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
-                             patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5])
+                             patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
+                             gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
         errors.append(f"Tracking: {e}")
@@ -569,7 +581,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
     for key_ in ("10", "5"):
         for r in swing.get(key_, []):
             seen("swing", r, now)
-    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
+    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),
@@ -671,6 +683,12 @@ def fast_tick(ag, res):
     for r in opt_rows:
         o = r["option"]
         toks.setdefault(o["exch"], []).append(o["token"])
+    g = res.get("gamma") or {}
+    g_items = (g.get("index") or []) + (g.get("stocks") or [])
+    for it in g_items:
+        o = it.get("option") or {}
+        if o.get("token"):
+            toks.setdefault(o["exch"], []).append(o["token"])
     toks = {k: list(dict.fromkeys(v)) for k, v in toks.items()}
     qs = ag.quotes(toks)
     now = _now()
@@ -737,9 +755,20 @@ def fast_tick(ag, res):
         q = qs.get(INDEX_SPOT.get(x.get("index"), (None, None))[1])
         if q:
             x["spot"], x["pct"] = _f(q.get("ltp")), _f(q.get("percentChange"))
+    if g_items:
+        from .gamma import retick
+        spot_q = {}
+        for name_, (ex_, tok_) in INDEX_SPOT.items():
+            q = qs.get(tok_)
+            if q:
+                spot_q[name_] = {"ltp": _f(q.get("ltp")), "high": _f(q.get("high")), "low": _f(q.get("low"))}
+        for n_, v_ in live_q.items():
+            spot_q.setdefault(n_, {"ltp": v_["ltp"]})
+        retick(g_items, spot_q, qs, now)
     try:
         from .calls import update_calls
-        tr = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False)
+        tr = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
+                          gamma=[x for x in g_items if x["status"] == "TRIGGERED"])
         res["tracking"] = tr
     except Exception:
         pass

@@ -122,6 +122,8 @@ tr.bestrow td{background:rgba(60,207,142,.22);font-weight:800}
 tr.bestrow td:first-child{box-shadow:inset 4px 0 0 var(--ce)}
 tr.slrow td{background:rgba(255,107,107,.08)}
 @media (prefers-reduced-motion:no-preference){tr.bestrow td{animation:glow 2s ease-in-out infinite}@keyframes glow{50%{background:rgba(60,207,142,.32)}}}
+.risk{border:1px solid var(--pe);border-radius:10px;padding:12px 14px;background:rgba(255,107,107,.08);font-size:13.5px;margin-bottom:14px}
+.boom{border:1px solid var(--watch)!important;box-shadow:0 0 22px rgba(245,185,66,.35)!important}
 .suggest{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,185,66,.1);font-size:13px}
 .idxgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-bottom:22px}
 .idx{border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -167,10 +169,9 @@ h2.sec{font-size:18px;margin:26px 0 10px}
     <button role="tab" data-p="lb" aria-selected="true">⚡ Live Board</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
+    <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="sw">Swing 5D/10D</button>
-    <button role="tab" data-p="pt">📐 Patterns</button>
     <button role="tab" data-p="fp">🐘 OI Footprint</button>
-    <button role="tab" data-p="nw">📰 News</button>
     <button role="tab" data-p="bo">Breakout CE</button>
     <button role="tab" data-p="bd">Breakdown PE</button>
     <button role="tab" data-p="orb">5-min ORB</button>
@@ -178,7 +179,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
     <button role="tab" data-p="ix">Index OI</button>
     <button role="tab" data-p="tr">Today calls</button>
     <button role="tab" data-p="hi">History P/L</button>
-    <button role="tab" data-p="ck">Chartink</button>
+
   </nav>
 
   <section class="pane" id="p-lb"></section>
@@ -190,6 +191,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   <section class="pane" id="p-ix" hidden></section>
   <section class="pane" id="p-tr" hidden></section>
   <section class="pane" id="p-jp" hidden></section>
+  <section class="pane" id="p-gm" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-fp" hidden></section>
   <section class="pane" id="p-nw" hidden></section>
@@ -353,6 +355,19 @@ function fpCard(x){
    <div style="margin-top:6px;font-weight:800">${x.bias?("Bias: "+x.bias):"No clear side"}</div><div class="hint">${esc(x.why)}</div>
    ${x.plan?optHTML(x.plan.option,x.index):""}</div>`;
 }
+function gammaCard(g){
+  const st=g.status, cls=st==="TRIGGERED"?"s-CONFIRMED":st==="WATCH"?"s-WATCH":"s-EXTENDED";
+  const o=g.option||{}, p=o.plan;
+  return `<div class="row ${st==="TRIGGERED"?"strong boom":""}"><div class="top"><div><span class="sym">${esc(g.name)} ${esc(g.side)}</span>${g.triggered_at?`<span class="when">💥 ${esc(g.triggered_at)}</span>`:""}
+    <span class="lvl">Expiry ${esc(g.expiry)} · Spot ${n2(g.spot)} · Day ${n2(g.day_low)}–${n2(g.day_high)}</span></div><span class="status ${cls}">${esc(st)}</span></div>
+    <ul class="reasons">${(g.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+    ${o.none?`<div class="opt">${esc(o.none)}</div>`:p?`<div class="plan"><div class="buy">BUY ${esc(o.strike)} ${esc(o.type)} <span class="hint">(${esc(o.moneyness)} · lot ${esc(o.lot)})</span></div>
+      <div class="lv num"><span>Entry <b>${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">${n2(p.sl)}</b> (50%)</span>
+      <span>T1 <b class="up">${n2(p.targets[0])}</b> (2×)</span><span>T2 <b class="up">${n2(p.targets[1])}</b> (3×)</span><span>T3 <b class="up">${n2(p.targets[2])}</b> (5×)</span></div>
+      <div class="lv"><span>LTP <b>${n2(o.ltp)}</b></span><span>1 lot ≈ ₹${n2(p.entry*o.lot)}</span><span>Risk/lot ≈ ₹${n2(p.risk)}</span>${p.risk_ok?"":`<span class="skip">RISK ABOVE LIMIT</span>`}</div>
+      ${trackHTML(g.name,o)}
+      ${st==="TRIGGERED"?"":`<div class="hint">⚠ TRIGGERED ஆகும் வரை entry இல்லை.</div>`}</div>`:""}</div>`;
+}
 function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
 function idxCard(x){
   if(x.error) return `<div class="idx"><h3>${esc(x.index)}</h3><div class="hint">${esc(x.error)}</div></div>`;
@@ -436,10 +451,16 @@ function renderFull(s){
   $("p-nw").innerHTML = `<div class="hint">Moneycontrol, Economic Times, Business Standard, Google News — புதியது முதலில் (கடந்த 24 மணி). Tag = headline வார்த்தை மட்டும் (தவறலாம்). Setup உள்ள stock + news tag இருந்தால் green. ${nw.t?"Updated "+esc(hm(nw.t)):""} ${nw.err?"⚠ "+esc(nw.err):""}</div>
     <div class="news">${newsHTML(nw.items, setupSyms)}</div>`;
   const ck=s.result;
-  $("p-lb").innerHTML = `<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  const gm=f.gamma||{index:[],stocks:[],calendar:[]}, gtrig=[...gm.index,...gm.stocks].filter(g=>g.status==="TRIGGERED");
+  $("p-gm").innerHTML = `<div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
+    <div class="hint">Rules: expiry இன்று + 1:00 PM பிறகு + spot day high (CE) / low (PE) அருகில் + OI wall உடைப்பு அல்லது ATM writers unwinding. Strike: ATM / 1 OTM மட்டும் (index premium ₹5–90). 30 sec-க்கு ஒருமுறை live check.</div>
+    <h2 class="sec">📅 Expiry calendar</h2>${simpleTbl(gm.calendar,[["Index",c=>esc(c.name)],["Next expiry",c=>esc(c.expiry)],["இன்று?",c=>c.today?'<b class="up">✓ GAMMA DAY</b>':"–"]])}
+    <h2 class="sec">💥 Index gamma</h2>${gm.index.length?gm.index.map(gammaCard).join(""):`<div class="empty">இன்று index expiry இல்லை. மேலே calendar பாருங்க.</div>`}
+    <h2 class="sec">💥 Stock gamma (monthly expiry நாள்)</h2>${gm.stocks.length?gm.stocks.map(gammaCard).join(""):`<div class="empty">இன்று stock expiry setup இல்லை.</div>`}`;
+  $("p-lb").innerHTML = `${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
-    <h2 class="sec">🔎 Chartink</h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
+    <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};
   $("p-jp").innerHTML = `<div class="hint">ஒரு நாளுக்கு அதிகபட்சம் 1 CE + 1 PE. Rule: CONFIRMED + 4★ மேல் + liquid option + risk ₹2,500-க்குள். கிடைக்கலைன்னா jackpot இல்லை — WAIT.</div>
@@ -456,7 +477,7 @@ function renderFull(s){
     ${simpleTbl(tr.ranking||[],[["#",(r)=>(tr.ranking.indexOf(r)+1)],["Setup",r=>esc(r.source)],["Calls",r=>r.calls],["Closed",r=>r.closed],["Win rate",r=>r.win_rate==null?"–":r.win_rate+"%"],["T1 reached",r=>r.t1_rate+"%"],["Avg P/L",r=>`<span class="${r.avg>=0?'up':'dn'}">₹${n2(r.avg)}</span>`],["Net P/L",r=>`<span class="${r.net>=0?'up':'dn'}">₹${n2(r.net)}</span>`]], r=>tr.ranking.indexOf(r)===0&&r.net>0?"bestrow":"")}
     <div class="hint">Green glow = இன்றைய top 3 லாபம் தரும் calls (live-ஆ மாறும்). Light green = இப்போ லாபத்தில் உள்ள open calls. Ranking நம்பகமாக இருக்க குறைந்தது 20–30 closed calls வேண்டும்.</div>
     <h2 class="sec">மொத்தம்</h2>${kpis(sm.ALL)}
-    <div class="kpis">${["JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
+    <div class="kpis">${["JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D","GAMMA"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
     ${simpleTbl(tr.history,[["Date",c=>esc(c.date+" "+c.time)],["Type",c=>esc(c.kind)],["Call",c=>esc(c.symbol+" "+c.strike+" "+c.side)],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["Exit/LTP",c=>n2(c.exit??c.ltp)],["Status",c=>esc(c.status)],["Hits",c=>esc((c.hits||[]).join(", "))],["P/L lot",c=>`<span class="${c.pnl_lot>=0?'up':'dn'}">₹${n2(c.pnl_lot)}</span>`]], callCls)}
     <div class="hint">P/L = ஒவ்வொரு call-க்கும் 1 lot, estimated entry-ல் வாங்கியதாக (paper). Charges / slippage சேர்க்கவில்லை.</div>`;
   $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>புது setup confirm ஆனால் மட்டுமே புது call சேரும். ஏற்கனவே உள்ள call-களின் LTP / T1 / SL ஒவ்வொரு scan-லும் update ஆகும்.</li><li>${esc(tr.note||"")}</li></div>`+
@@ -515,6 +536,7 @@ async function load(){
 }
 async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); return r.json(); }
 $("scanBtn").onclick = async () => { $("scanBtn").disabled=true; await post("/api/full"); setTimeout(load,800); };
+async function runCk(){ const j=await post("/api/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(load,800); }
 $("ckBtn").onclick = async () => { $("ckBtn").disabled=true; const j=await post("/api/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(load,800); };
 $("setBtn").onclick = () => dlg.showModal();
 async function saveAngel(){
