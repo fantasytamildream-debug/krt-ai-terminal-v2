@@ -78,6 +78,22 @@ def do_full():
     return True
 
 
+def ticker():
+    """Market நேரத்தில் 30 sec-க்கு ஒருமுறை live price / option LTP / T1-SL update (deep scan நடந்தாலும்)."""
+    global ANGEL
+    while True:
+        time.sleep(30)
+        try:
+            if not (market_open(now_ist()) and angel_configured() and STATE.get("full")):
+                continue
+            from krt.angel_api import Angel
+            from krt.fullscan import fast_tick
+            ANGEL = ANGEL or Angel()
+            STATE["full"] = fast_tick(ANGEL, STATE["full"])
+        except Exception:
+            traceback.print_exc()
+
+
 def scheduler():
     """Market நேரத்தில் ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடம் கழித்து auto scan."""
     while True:
@@ -94,10 +110,11 @@ def scheduler():
 
 
 def next_auto():
+    """Full scan: market நேரத்தில் 5 நிமிடத்துக்கு ஒருமுறை (முந்தைய scan முடிந்திருந்தால்)."""
     t = now_ist()
     for i in range(1, 60 * 24 * 4):
         c = t + pd.Timedelta(minutes=i)
-        if c.minute % 15 == 1 and market_open(c):
+        if c.minute % 5 == 1 and market_open(c):
             return str(c)
     return None
 
@@ -253,6 +270,7 @@ def restore():
 if __name__ == "__main__":
     restore()
     threading.Thread(target=scheduler, daemon=True).start()
+    threading.Thread(target=ticker, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

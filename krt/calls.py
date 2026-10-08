@@ -1,6 +1,9 @@
 """எல்லா calls: Jackpot, Intraday, Swing 5D/10D — original levels freeze, தினமும் track, profit/loss history."""
+import threading
 import pandas as pd
 from .store import STORE
+
+CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
 INTRA = ("JACKPOT", "INTRADAY")
@@ -37,7 +40,12 @@ def _close(c, status, price, when):
     c["pnl_lot"] = round((price - c["entry"]) * c["lot"])
 
 
-def update_calls(ag, session, now, live, best, orb, voi, idx, swing):
+def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True):
+    with CALLS_LOCK:
+        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add)
+
+
+def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -55,7 +63,7 @@ def update_calls(ag, session, now, live, best, orb, voi, idx, swing):
             return c["id"]
 
     mins = now.hour * 60 + now.minute
-    if live and mins < 15 * 60 + 15:
+    if add and live and mins < 15 * 60 + 15:
         # Jackpot: ஒரு நாளுக்கு ஒரு CE + ஒரு PE — 4★+, CONFIRMED, liquid option, risk limit உள்ளே
         for side in ("CE", "PE"):
             if flag.get(f"jackpot_{side}"):
@@ -79,7 +87,7 @@ def update_calls(ag, session, now, live, best, orb, voi, idx, swing):
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
     # Swing: 3:00 PM-க்கு பிறகு ஒரு முறை publish (அன்றைய close அருகில் confirm)
-    if live and mins >= 15 * 60 and not flag.get("swing"):
+    if add and live and mins >= 15 * 60 and not flag.get("swing"):
         for key in ("10", "5"):
             for r in swing.get(key, []):
                 add(_new(f"SWING {key}D", "Swing", r, r.get("option"), now, day, int(key), session))

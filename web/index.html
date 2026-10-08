@@ -288,7 +288,7 @@ function setupRow(r){
    <div class="targets">Stock targets: ${t}</div>
    <div class="tags">${r.levels&&r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb===true?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.oi_tag?`<em>${esc(r.oi_tag)}</em>`:""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
    ${optHTML(r.option, r.symbol)}
-   <div class="hint">${esc(STATUS_HELP[st]||"")}</div></div>`;
+   <div class="hint">${esc(r.live_note||STATUS_HELP[st]||"")}</div></div>`;
 }
 function callCard(c){
   const st=c.status, cls=st==="SL HIT"?"slhit":st==="OPEN"?"":"hit";
@@ -388,7 +388,7 @@ function renderFull(s){
     <div class="kpis">${["JACKPOT","INTRADAY","SWING 5D","SWING 10D"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
     ${simpleTbl(tr.history,[["Date",c=>esc(c.date+" "+c.time)],["Type",c=>esc(c.kind)],["Call",c=>esc(c.symbol+" "+c.strike+" "+c.side)],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["Exit/LTP",c=>n2(c.exit??c.ltp)],["Status",c=>esc(c.status)],["Hits",c=>esc((c.hits||[]).join(", "))],["P/L lot",c=>`<span class="${c.pnl_lot>=0?'up':'dn'}">₹${n2(c.pnl_lot)}</span>`]])}
     <div class="hint">P/L = ஒவ்வொரு call-க்கும் 1 lot, estimated entry-ல் வாங்கியதாக (paper). Charges / slippage சேர்க்கவில்லை.</div>`;
-  $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>${esc(tr.note||"")}</li></div>`+
+  $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>புது setup confirm ஆனால் மட்டுமே புது call சேரும். ஏற்கனவே உள்ள call-களின் LTP / T1 / SL ஒவ்வொரு scan-லும் update ஆகும்.</li><li>${esc(tr.note||"")}</li></div>`+
     simpleTbl(tr.today,[["Time",t=>esc(t.time)],["Type",t=>esc(t.kind)],["Source",t=>esc(t.source)],["Stock",t=>esc(t.symbol)],["Option",t=>esc(t.strike+" "+t.side)],
       ["Entry",t=>n2(t.entry)],["SL",t=>n2(t.sl)],["T1",t=>n2(t.targets[0])],["T2",t=>n2(t.targets[1])],["T3",t=>n2(t.targets[2])],
       ["LTP",t=>n2(t.ltp)],["P/L lot",t=>`<span class="${t.pnl_lot>=0?'up':'dn'}">₹${n2(t.pnl_lot)}</span>`],
@@ -412,7 +412,7 @@ function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
   $("scanBtn").textContent = s.full_running ? "Scanning…" : "Full market scan";
-  $("prog").textContent = s.full_running ? (s.progress || "தொடங்குகிறது…") + " — முதல் scan 3–5 நிமிடம் ஆகலாம்" : "";
+  $("prog").textContent = s.full_running ? "Deep scan background-ல் ஓடுகிறது (" + (s.progress || "…") + ") — prices live-ஆ update ஆகுது" : "";
   let head="Scan இன்னும் நடக்கவில்லை", sub="“Full market scan” click பண்ணுங்க.", color="var(--late)";
   if (!s.configured){ head="Angel One connect ஆகவில்லை"; sub = s.hosted ? "Render → Environment-ல் ANGEL_API_KEY, ANGEL_CLIENT_ID, ANGEL_MPIN, ANGEL_TOTP_SECRET சேருங்க." : "Settings-ல் Angel One details கொடுங்க."; }
   if (f){
@@ -424,7 +424,7 @@ function render(s){
   if (s.full_error) sub = "Error: " + s.full_error;
   $("headline").innerHTML = `<span class="dot${s.market_open?' live':''}" style="background:${color}"></span>${esc(head)}`;
   $("subline").textContent = sub;
-  $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>Last full scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
+  $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   renderFull(s);
 
@@ -436,7 +436,7 @@ function render(s){
   $("angelForm").style.display = s.hosted ? "none" : "";
   $("ceState").textContent = s.chartink?.ce_saved ? "· saved" : "· auto";
   $("peState").textContent = s.chartink?.pe_saved ? "· saved" : "· auto";
-  clearTimeout(pollT); pollT = setTimeout(load, (s.full_running||s.scanning) ? 4000 : 30000);
+  clearTimeout(pollT); pollT = setTimeout(load, s.market_open ? 10000 : 30000);
 }
 async function load(){
   try { const r = await fetch("/api/status",{cache:"no-store"}); render(await r.json()); }

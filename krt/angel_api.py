@@ -1,5 +1,5 @@
 """Angel One session — login (நாளுக்கு ஒருமுறை), throttle, candles, quotes, OI buildup."""
-import time
+import threading, time
 import pandas as pd
 from .data.angel_provider import angel_login
 from .instruments import ist_today
@@ -8,19 +8,23 @@ from .instruments import ist_today
 class Angel:
     def __init__(self):
         self.api, self.day, self._last = None, None, 0.0
+        self._lk = threading.Lock()
 
     def ensure(self):
-        if self.api is None or self.day != ist_today():
+        with self._lk:
+            need = self.api is None or self.day != ist_today()
+        if need:
             self.api, _ = angel_login()
             self.day = ist_today()
 
     def _wait(self, gap):
-        d = time.time() - self._last
-        if d < gap:
-            time.sleep(gap - d)
-        self._last = time.time()
+        with self._lk:
+            d = time.time() - self._last
+            if d < gap:
+                time.sleep(gap - d)
+            self._last = time.time()
 
-    def _call(self, fn, *a, gap=0.4, tries=3):
+    def _call(self, fn, *a, gap=0.35, tries=2):
         self.ensure()
         err = None
         for i in range(tries):
@@ -36,7 +40,7 @@ class Angel:
                 if res.get("errorcode") in ("AG8001", "AG8002", "AG8003"):  # token expired
                     self.api = None
                     self.ensure()
-            time.sleep(1 + i)
+            time.sleep(0.8)
         raise RuntimeError(err or "Angel One response இல்லை")
 
     def candles(self, exch, token, interval, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:

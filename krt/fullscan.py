@@ -90,7 +90,7 @@ def ensure_orb(ag, inst, names, session, live, now, prog):
     if C["orb_session"] != session:
         C.update(orb_session=session, orb={}, orb_try={})
     t0 = session + pd.Timedelta(hours=9, minutes=15)
-    todo = [n for n in names if C["orb"].get(n) is None and C.setdefault("orb_try", {}).get(n, 0) < 3][:120]
+    todo = [n for n in names if C["orb"].get(n) is None and C.setdefault("orb_try", {}).get(n, 0) < 2][:40]
     for i, n in enumerate(todo):
         C["orb_try"][n] = C["orb_try"].get(n, 0) + 1
         if i % 10 == 0:
@@ -376,10 +376,20 @@ def run_full(ag, prog=lambda m: None) -> dict:
 
     # Stage 2: top candidates-க்கு 5-min candle close confirmation
     cands.sort(key=lambda r: -r["vol_ratio"])
-    for i, r in enumerate(cands[:30]):
+    slot = str(now.floor("5min"))
+    cc = C.setdefault("confirm_cache", {})
+    if cc.get("slot") != slot:
+        cc.clear()
+        cc["slot"] = slot
+    for i, r in enumerate(cands[:20]):
         if i % 5 == 0:
-            prog(f"5-min confirmation {i}/{min(30, len(cands))}")
+            prog(f"5-min confirmation {i}/{min(20, len(cands))}")
+        key = f"{r['symbol']}|{r['side']}|{r['ref_level']}"
+        if key in cc:
+            r.update(cc[key])
+            continue
         _confirm(ag, inst, r, session, live, now)
+        cc[key] = {k: r.get(k) for k in ("confirmed", "break_time", "sl") if k in r}
     for r in cands:
         r["targets"] = _targets(r["symbol"], r["side"], r["price"])
         r["status"] = _status(r)
@@ -530,3 +540,83 @@ def import_cache(d):
         C.update(orb_session=pd.Timestamp(d["orb_session"]), orb={k: tuple(v) if v else None for k, v in d.get("orb", {}).items()},
                  orb_try={})
     return True
+
+
+def fast_tick(ag, res):
+    """Deep scan-க்கு இடையில் ~30 sec-க்கு ஒருமுறை: LTP, % change, vol ratio, option LTP, calls T1/SL update.
+    Candle / OI chain எதுவும் இல்லை — light & fast."""
+    if not res:
+        return res
+    inst = load_inst(ROOT / "data" / "cache")
+    names = [n for n in inst["fno"] if n in inst["eq"]]
+    toks = {"NSE": [inst["eq"][n] for n in names]}
+    for ex, tok in INDEX_SPOT.values():
+        toks.setdefault(ex, []).append(tok)
+    opt_rows = []
+    for key in ("best", "ce", "pe", "orb_up", "orb_dn"):
+        opt_rows += [r for r in res.get(key) or [] if (r.get("option") or {}).get("token")]
+    for side in ("CE", "PE"):
+        opt_rows += [r for r in (res.get("volume_oi_picks") or {}).get(side, []) if (r.get("option") or {}).get("token")]
+    for k in ("5", "10"):
+        opt_rows += [r for r in (res.get("swing") or {}).get(k, []) if (r.get("option") or {}).get("token")]
+    for r in opt_rows:
+        o = r["option"]
+        toks.setdefault(o["exch"], []).append(o["token"])
+    toks = {k: list(dict.fromkeys(v)) for k, v in toks.items()}
+    qs = ag.quotes(toks)
+    now = _now()
+    session = pd.Timestamp(res["session"])
+    _, live, mins = _session(qs.get(INDEX_SPOT["NIFTY"][1]), now)
+    share = _vol_share(mins)
+    live_q = {}
+    for n in names:
+        q = qs.get(inst["eq"][n])
+        if q:
+            avg = C["avgvol"].get(n) or 0
+            vol = _f(q.get("tradeVolume"))
+            live_q[n] = {"ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")), "volume": int(vol),
+                         "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0}
+    seen = set()
+    for key in ("best", "ce", "pe", "orb_up", "orb_dn", "high_volume"):
+        for r in res.get(key) or []:
+            if id(r) in seen:
+                continue
+            seen.add(id(r))
+            q = live_q.get(r["symbol"])
+            if not q:
+                continue
+            if "price" in r:
+                r["price"] = q["ltp"]
+            if "ltp" in r:
+                r["ltp"] = q["ltp"]
+            r["pct"], r["vol_ratio"] = q["pct"], q["vol_ratio"]
+            if "volume" in r:
+                r["volume"] = q["volume"]
+            if r.get("ref_level"):
+                r["ext"] = round(abs(q["ltp"] - r["ref_level"]) / r["ref_level"] * 100, 2)
+                beyond = q["ltp"] > r["ref_level"] if r.get("side") == "CE" else q["ltp"] < r["ref_level"]
+                if not beyond:
+                    r["status"] = "WATCH"
+                    r["live_note"] = "Price level-க்கு உள்ளே திரும்பி வந்துவிட்டது"
+                elif r.get("status") == "CONFIRMED" and r["ext"] > 1.0:
+                    r["status"] = "EXTENDED"
+    for r in opt_rows:
+        o = r["option"]
+        q = qs.get(o["token"])
+        if q:
+            o["ltp"] = _f(q.get("ltp"))
+            b, a = _depth(q)
+            if b and a:
+                o["bid"], o["ask"] = b, a
+    for x in res.get("index") or []:
+        q = qs.get(INDEX_SPOT.get(x.get("index"), (None, None))[1])
+        if q:
+            x["spot"], x["pct"] = _f(q.get("ltp")), _f(q.get("percentChange"))
+    try:
+        from .calls import update_calls
+        tr = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False)
+        res["tracking"] = tr
+    except Exception:
+        pass
+    res["tick_time"] = str(now if not live else pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None).floor("s"))
+    return res
