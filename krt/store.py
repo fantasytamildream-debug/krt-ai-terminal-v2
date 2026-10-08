@@ -9,10 +9,11 @@ LOCAL = ROOT / "logs" / "calls.json"
 
 
 class Store:
-    def __init__(self):
+    def __init__(self, path="calls.json", default=None, min_gap=120):
         self.token = os.getenv("GITHUB_TOKEN", "").strip()
         self.repo = os.getenv("GITHUB_DATA_REPO", "").strip()
-        self.path = "calls.json"
+        self.path, self.default, self.min_gap = path, default, min_gap
+        self.local = LOCAL.parent / path
         self.sha, self.data, self.dirty, self.last_save = None, None, False, 0.0
         self.lock = threading.Lock()
         self.error = None
@@ -39,27 +40,30 @@ class Store:
                     self.error = f"GitHub load {r.status_code}"
             except Exception as e:
                 self.error = f"GitHub load: {e}"
-        if data is None and LOCAL.exists():
+        if data is None and self.local.exists():
             try:
-                data = json.loads(LOCAL.read_text(encoding="utf-8"))
+                data = json.loads(self.local.read_text(encoding="utf-8"))
             except Exception:
                 data = None
-        self.data = data or {"calls": {}, "published": {}}
-        self.data.setdefault("calls", {})
-        self.data.setdefault("published", {})
+        if self.default is None:
+            self.data = data or {"calls": {}, "published": {}}
+            self.data.setdefault("calls", {})
+            self.data.setdefault("published", {})
+        else:
+            self.data = data or dict(self.default)
         return self.data
 
     def save(self, force=False):
         if not self.dirty and not force:
             return
-        if not force and time.time() - self.last_save < 120:
+        if not force and time.time() - self.last_save < self.min_gap:
             return
-        body = json.dumps(self.data, default=str, ensure_ascii=False, indent=1)
-        LOCAL.parent.mkdir(parents=True, exist_ok=True)
-        LOCAL.write_text(body, encoding="utf-8")
+        body = json.dumps(self.data, default=str, ensure_ascii=False, separators=(",", ":"))
+        self.local.parent.mkdir(parents=True, exist_ok=True)
+        self.local.write_text(body, encoding="utf-8")
         if self.remote:
             try:
-                p = {"message": "KRT calls update", "content": base64.b64encode(body.encode("utf-8")).decode()}
+                p = {"message": f"KRT {self.path} update", "content": base64.b64encode(body.encode("utf-8")).decode()}
                 if self.sha:
                     p["sha"] = self.sha
                 r = requests.put(f"https://api.github.com/repos/{self.repo}/contents/{self.path}", headers=self._h(), json=p, timeout=30)
@@ -81,3 +85,4 @@ class Store:
 
 
 STORE = Store()
+SNAP = Store("snapshot.json", default={}, min_gap=600)  # கடைசி scan result + daily cache (restart-க்கு பின் உடனே காட்ட)

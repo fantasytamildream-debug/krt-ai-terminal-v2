@@ -59,6 +59,17 @@ def do_full():
         with API_LOCK:
             res = run_full(ANGEL, lambda m: STATE.update(progress=m))
         STATE.update(full=res, full_error=None)
+        try:
+            from krt.store import SNAP
+            from krt.fullscan import export_cache
+            snap = dict(res)
+            snap["tracking"] = {k: v for k, v in (res.get("tracking") or {}).items() if k != "history"}
+            SNAP.load()
+            SNAP.data = {"result": snap, "cache": export_cache(), "saved": str(now_ist())}
+            SNAP.dirty = True
+            SNAP.save()
+        except Exception:
+            traceback.print_exc()
     except Exception as e:
         traceback.print_exc()
         STATE["full_error"] = str(e)
@@ -223,7 +234,24 @@ def do_scan_async(at=None):
     return True
 
 
+def restore():
+    """Restart ஆனதும் கடைசி scan result-ஐ உடனே காட்டு + daily cache load."""
+    try:
+        from krt.store import SNAP
+        from krt.fullscan import import_cache
+        d = SNAP.load()
+        if d.get("result"):
+            r = d["result"]
+            r["restored"] = d.get("saved")
+            STATE.update(full=r, full_last=d.get("saved"))
+        import_cache(d.get("cache"))
+        print(" Snapshot restored:", d.get("saved"), flush=True)
+    except Exception:
+        traceback.print_exc()
+
+
 if __name__ == "__main__":
+    restore()
     threading.Thread(target=scheduler, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()

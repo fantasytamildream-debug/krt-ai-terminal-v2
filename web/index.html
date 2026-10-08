@@ -347,8 +347,9 @@ function renderFull(s){
   if(!f){ const m = s.full_running ? "Full scan நடக்கிறது…" : (s.full_error? "Error: "+esc(s.full_error) : "“Full market scan” click பண்ணுங்க.");
     ["ov","bo","bd","orb","vol","ix"].forEach(k=>$("p-"+k).innerHTML=`<div class="empty">${m}</div>`); return; }
   TRK = {}; (f.tracking?.today||[]).forEach(t=>TRK[t.symbol+"|"+t.contract]=t);
+  const restored = f.restored ? `<li>Server restart ஆனது — ${esc(hm(f.restored))} scan result காட்டப்படுகிறது. புது scan பின்னால் ஓடுது.</li>` : "";
   const late = !f.live ? `<li>Market மூடியிருக்கு — ${esc(f.session)} session-ன் கடைசி data காட்டப்படுகிறது.</li>`:"";
-  $("p-ov").innerHTML = `<ul class="summary">${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+  $("p-ov").innerHTML = `<ul class="summary">${restored}${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
     ${(f.tracking?.jackpot_today||[]).length?`<h2 class="sec">🎯 இன்றைய Jackpot</h2>${f.tracking.jackpot_today.map(callCard).join("")}`:""}
     <h2 class="sec">Best setups (rule-based ranking)</h2>${list(f.best,"CONFIRMED setup இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.")}
     <h2 class="sec">Index OI</h2><div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>

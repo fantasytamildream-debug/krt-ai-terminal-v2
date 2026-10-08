@@ -500,3 +500,33 @@ def run_full(ag, prog=lambda m: None) -> dict:
             "errors": errors, "seconds": round(time.time() - t_start)}
 
 
+
+
+def export_cache():
+    """Daily levels / features / ORB — session-க்கு ஒருமுறை கணக்கிட்டது (restart-க்கு பின் மீண்டும் எடுக்க வேண்டாம்)."""
+    if C["session"] is None:
+        return None
+    nd = C.get("nifty_daily")
+    return {"session": str(C["session"].date()), "levels": C["levels"], "avgvol": C["avgvol"],
+            "swings": C["swings"], "feat": C.get("feat", {}),
+            "orb_session": str(C["orb_session"].date()) if C.get("orb_session") is not None else None,
+            "orb": C.get("orb", {}),
+            "nifty": None if nd is None or nd.empty else {"t": [str(x.date()) for x in nd.index], "c": nd["close"].tolist(),
+                                                           "h": nd["high"].tolist(), "l": nd["low"].tolist()}}
+
+
+def import_cache(d):
+    if not d or not d.get("session"):
+        return False
+    s = pd.Timestamp(d["session"])
+    nd = None
+    if d.get("nifty"):
+        n = d["nifty"]
+        nd = pd.DataFrame({"open": n["c"], "high": n["h"], "low": n["l"], "close": n["c"], "volume": 0.0},
+                          index=pd.to_datetime(n["t"]))
+    C.update(session=s, levels=d.get("levels", {}), avgvol=d.get("avgvol", {}), swings=d.get("swings", {}),
+             feat=d.get("feat", {}), nifty_daily=nd)
+    if d.get("orb_session"):
+        C.update(orb_session=pd.Timestamp(d["orb_session"]), orb={k: tuple(v) if v else None for k, v in d.get("orb", {}).items()},
+                 orb_try={})
+    return True

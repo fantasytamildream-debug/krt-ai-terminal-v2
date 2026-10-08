@@ -31,12 +31,8 @@ def swing_levels(daily: pd.DataFrame, as_of: pd.Timestamp, window: int = 3, look
         return []
     """Target-க்கு visible swing highs/lows (completed days only)."""
     d = daily[daily.index.normalize() < as_of.normalize()].tail(lookback)
-    lv = []
-    for i in range(window, len(d) - window):
-        h = d["high"].iloc[i - window:i + window + 1]
-        l = d["low"].iloc[i - window:i + window + 1]
-        if d["high"].iloc[i] == h.max():
-            lv.append(float(d["high"].iloc[i]))
-        if d["low"].iloc[i] == l.min():
-            lv.append(float(d["low"].iloc[i]))
+    w = 2 * window + 1
+    hmax = d["high"].rolling(w, center=True).max()
+    lmin = d["low"].rolling(w, center=True).min()
+    lv = d["high"][d["high"] == hmax].tolist() + d["low"][d["low"] == lmin].tolist()
     return sorted(set(round(x, 2) for x in lv))
