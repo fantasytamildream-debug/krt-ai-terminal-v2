@@ -108,11 +108,16 @@ def news_loop():
                 for r in f.get(key) or []:
                     if r["symbol"] not in syms:
                         syms.append(r["symbol"])
-            c = refresh(syms)
-            NEWS.update(items=c["items"][:80], err=c["err"], t=str(now_ist()))
+            try:
+                from krt.instruments import _MEM
+                fno = (_MEM.get("data") or {}).get("fno") or []
+            except Exception:
+                fno = []
+            c = refresh(syms, fno)
+            NEWS.update(items=c["items"], err=c["err"], t=str(now_ist()))
         except Exception as e:
             NEWS["err"] = str(e)
-        time.sleep(600)
+        time.sleep(60)
 
 
 def scheduler():

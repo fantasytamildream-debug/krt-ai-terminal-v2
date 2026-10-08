@@ -154,11 +154,27 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "net": sum(c["pnl_lot"] for c in rows)}
     summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D")}
     summary["ALL"] = stats(allc)
+    # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
+    groups = {}
+    for c in allc:
+        key = "JACKPOT" if c["kind"] == "JACKPOT" else c.get("source") or c["kind"]
+        groups.setdefault(key, []).append(c)
+    ranking = []
+    for k, rows in groups.items():
+        st = stats(rows)
+        st["source"] = k
+        st["avg"] = round(st["net"] / len(rows)) if rows else 0
+        st["t1_rate"] = round(st["t1"] / len(rows) * 100) if rows else 0
+        ranking.append(st)
+    ranking.sort(key=lambda x: (-(x["win_rate"] or 0), -x["net"]))
+    # இன்றைய best calls (live P/L)
+    today_rank = sorted([c for c in allc if c["date"] == day], key=lambda c: -c["pnl_lot"])
+    best_ids = [c["id"] for c in today_rank[:3] if c["pnl_lot"] > 0]
     today = [c for c in allc if c["date"] == day]
     return {"today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
-            "history": allc[:300], "summary": summary, "swing_published": flag.get("swing"),
+            "history": allc[:300], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
             "store": "GitHub (நிரந்தரம்)" if STORE.remote else "Server disk (restart / deploy-ல் அழியலாம்)",
             "store_error": STORE.error,
             "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}
