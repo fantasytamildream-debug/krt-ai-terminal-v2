@@ -95,6 +95,47 @@ def ticker():
 
 
 NEWS = {"items": [], "err": None, "t": None}
+GU = {"data": None, "err": None}
+
+
+def gu_loop():
+    """GAMMA-UNWIND: market நேரத்தில் 5 நிமிடத்துக்கு ஒருமுறை (candle முடிந்த 2 நிமிடம் கழித்து)."""
+    global ANGEL
+    done = None
+    while True:
+        time.sleep(20)
+        try:
+            t = now_ist()
+            slot = t.floor("5min")
+            if not (market_open(t) and angel_configured()) or t.minute % 5 != 2 or done == slot:
+                continue
+            if t.hour * 60 + t.minute < 9 * 60 + 20:
+                continue
+            done = slot
+            from krt.angel_api import Angel
+            from krt.fullscan import C
+            from krt.instruments import load as load_inst, contracts
+            from krt import gamma_unwind as G
+            from krt.calls import update_calls
+            if not C.get("bars"):
+                GU["err"] = "Daily data இன்னும் load ஆகவில்லை (deep scan முடிய காத்திருக்கிறது)"
+                continue
+            ANGEL = ANGEL or Angel()
+            inst = load_inst(ROOT / "data" / "cache")
+            ltp_of = {}
+            mins = t.hour * 60 + t.minute
+            need_sel = (mins >= 13 * 60 + 15 and "13:15" not in G.ST["sel"]) or ("09:20" not in G.ST["sel"] and "13:15" not in G.ST["sel"]) or G.ST["day"] != str(t.date())
+            if need_sel:
+                names = [n for n in inst["fno"] if n in inst["eq"]]
+                qs = ANGEL.quotes({"NSE": [inst["eq"][n] for n in names]})
+                ltp_of = {n: float((qs.get(inst["eq"][n]) or {}).get("ltp") or 0) for n in names}
+            snap = G.run(ANGEL, inst, C, ltp_of, contracts, t)
+            entries = [s_ for s_ in snap["signals"] if s_["tier"] == "ENTRY"]
+            update_calls(ANGEL, pd.Timestamp(t.date()), t, True, [], [], [], [], {"10": [], "5": []}, add=False, gu=entries)
+            GU.update(data=snap, err=None)
+        except Exception as e:
+            traceback.print_exc()
+            GU["err"] = str(e)
 
 
 def news_loop():
@@ -193,7 +234,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full", "full_error",
                                          "full_running", "full_last", "progress")},
-                "news": NEWS,
+                "news": NEWS, "gu": GU, "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(),
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
@@ -299,6 +340,7 @@ if __name__ == "__main__":
     threading.Thread(target=scheduler, daemon=True).start()
     threading.Thread(target=ticker, daemon=True).start()
     threading.Thread(target=news_loop, daemon=True).start()
+    threading.Thread(target=gu_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"
