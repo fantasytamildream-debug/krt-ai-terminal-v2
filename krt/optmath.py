@@ -65,3 +65,20 @@ def plan(prem, S, K, expiry, typ, ul_sl, ul_targets, now, lot, charges=150, cap=
     return {"entry": entry, "entry_zone": [r05(entry * 0.99), r05(entry * 1.01)], "sl": sl,
             "targets": tg, "iv": round(sig * 100, 1), "risk": risk,
             "risk_ok": risk <= cap, "estimated": True}
+
+
+def delta(S, K, T, sig, typ):
+    if T <= 0 or sig <= 0 or S <= 0 or K <= 0:
+        return 1.0 if (typ == "CE" and S > K) or (typ == "PE" and S < K) else 0.0
+    d1 = (math.log(S / K) + (R + sig * sig / 2) * T) / (sig * math.sqrt(T))
+    return _N(d1) if typ == "CE" else _N(d1) - 1
+
+
+def greeks_from_price(prem, S, K, expiry_iso, typ, now):
+    """IV, delta, 1-நாள் theta (premium-ல் %)."""
+    T = years_to_expiry(expiry_iso, now)
+    sig = iv(prem, S, K, T, typ)
+    d = delta(S, K, T, sig, typ)
+    t1 = max(T - 1 / 365, 1 / (365 * 24))
+    theta_pct = (prem - bs(S, K, t1, sig, typ)) / prem * 100 if prem else 0
+    return {"iv": round(sig * 100, 1), "delta": round(abs(d), 2), "theta_pct": round(theta_pct, 1)}

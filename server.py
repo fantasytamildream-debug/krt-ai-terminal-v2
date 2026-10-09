@@ -129,8 +129,12 @@ def gu_loop():
                 names = [n for n in inst["fno"] if n in inst["eq"]]
                 qs = ANGEL.quotes({"NSE": [inst["eq"][n] for n in names]})
                 ltp_of = {n: float((qs.get(inst["eq"][n]) or {}).get("ltp") or 0) for n in names}
-            snap = G.run(ANGEL, inst, C, ltp_of, contracts, t)
-            entries = [s_ for s_ in snap["signals"] if s_["tier"] == "ENTRY"]
+            regime = {"trend": (STATE.get("full") or {}).get("trend")}
+            from krt.store import STORE
+            sl_today = sum(1 for c_ in STORE.load()["calls"].values()
+                           if c_["kind"].startswith("GU-") and c_["date"] == str(t.date()) and c_["status"] == "SL HIT")
+            snap = G.run(ANGEL, inst, C, ltp_of, t, regime, sl_today)
+            entries = [s_ for s_ in snap["signals"] if s_["tier"] == "PRO ENTRY"]
             update_calls(ANGEL, pd.Timestamp(t.date()), t, True, [], [], [], [], {"10": [], "5": []}, add=False, gu=entries)
             GU.update(data=snap, err=None)
         except Exception as e:

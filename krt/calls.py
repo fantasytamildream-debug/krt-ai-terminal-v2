@@ -47,24 +47,27 @@ def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, p
 
 
 def _gu_call(sig, now, day):
+    """V3 PRO: INTRADAY (hard SL, 15:20 exit) / HOLDING (hard SL, T1→SL entry, T2→SL T1, max 5 days / expiry-1)."""
     e, sl = sig["entry"], sig["sl"]
-    risk = round((e - sl) * sig["lot"] + 150)
+    eng = sig.get("engine", "INTRADAY")
     opt = {"token": sig["token"], "exch": sig["exch"], "contract": sig["contract"], "strike": sig["strike"],
            "type": sig["side"], "expiry": sig["expiry"], "lot": sig["lot"],
-           "plan": {"entry": e, "sl": sl, "targets": sig["targets"], "risk": risk, "risk_ok": risk <= 2500}}
-    r = {"symbol": sig["symbol"], "price": sig.get("ul_ltp"), "sl": None, "targets": [], "stars": 5,
-         "confidence": f"{sig['score']}/4 {sig['tier']}",
-         "reasons": [f"{sig['tag']} · {sig['hoi']}", f"Trigger {sig['trigger']} @ {sig['time']}",
-                     f"Zone {sig['zone'][0]}–{sig['zone'][1]}",
-                     "Checks: " + ", ".join(k + ("✓" if v else "✗") for k, v in sig["checks"].items())]}
-    c = _new("GAMMA-UNWIND", "Gamma unwind", r, opt, now, day)
+           "plan": {"entry": e, "sl": sl, "targets": sig["targets"], "risk": sig["risk"], "risk_ok": sig["risk"] <= 2500}}
+    r = {"symbol": sig["symbol"], "price": sig.get("ul_close"), "sl": sig["edge"], "targets": [], "stars": 5,
+         "confidence": f"{sig['score']}/100 {sig['tier']}",
+         "reasons": [f"{sig['setup']} · {sig['trigger']} @ {sig['time']}", f"Zone {sig['zone'][0]}–{sig['zone'][1]}",
+                     f"OI drop {(sig.get('oi') or {}).get('drop', '–')}% · RV {sig.get('rv')}×", f"ID {sig['id']}"]}
+    c = _new("GU-" + eng, "Gamma unwind V3", r, opt, now, day)
     if not c:
         return None
-    c.update(no_sl_before_t1=True, trail_after_t1=True, zone=sig["zone"], ul_token=sig.get("ul_token"),
-             intraday=sig["expiry_days"] <= 1)
-    if not c["intraday"]:
+    c.update(trail_after_t1=True, trail_after_t2=(eng == "HOLDING"), zone=sig["zone"], ul_token=sig.get("ul_token"),
+             intraday=(eng == "INTRADAY"), signal_id=sig["id"], engine=eng)
+    if eng == "HOLDING":
         hu = pd.bdate_range(now.normalize(), periods=6)[-1].date()
-        c["hold_until"] = min(str(hu), sig["expiry"])
+        exp_minus1 = (pd.Timestamp(sig["expiry"]) - pd.tseries.offsets.BDay(1)).date()
+        c["hold_until"] = str(min(hu, exp_minus1))
+    tg(f"🚀 GU {eng} ENTRY tracked: {c['symbol']} {c['strike']:g} {c['side']} @ {e} · SL {sl} · " +
+       " · ".join(f"T{i+1} {t}" for i, t in enumerate(c["targets"])), f"trk|{c['id']}")
     return c
 
 
@@ -154,7 +157,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         if ltp:
             c["ltp"] = ltp
             c["updated"] = now.strftime("%d-%m %H:%M")
-            gu_ = c["kind"] == "GAMMA-UNWIND"
+            gu_ = c["kind"].startswith("GU") or c["kind"] == "GAMMA-UNWIND"
             if ltp <= c["sl"] and not (c.get("no_sl_before_t1") and not c["hits"]):
                 c["hits"].append(f"SL {now:%d-%m %H:%M}")
                 _close(c, "SL HIT" if not c["hits"][:-1] else "TRAIL SL", ltp, str(now))
@@ -168,13 +171,28 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     c["status"] = f"T{i} HIT"
                     if i == 1 and c.get("trail_after_t1"):
                         c["sl"] = c["entry"]  # T1 பின் SL → entry
+                        if gu_:
+                            tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
+                    if i == 2 and c.get("trail_after_t2"):
+                        c["sl"] = c["targets"][0]
+                        if gu_:
+                            tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
                     if gu_:
                         tg(f"GAMMA-UNWIND T{i} HIT ✅ {c['symbol']} {c['strike']} {c['side']} @ {ltp}" + (" · SL → entry" if i == 1 else ""))
                     changed = True
             if c["status"] == f"T{len(c['targets'])} HIT":
                 _close(c, f"T{len(c['targets'])} DONE", ltp, str(now))
                 continue
-            if gu_ and c.get("zone") and not c["hits"] and mins >= 15 * 60 + 25:
+            if c["kind"].startswith("GU-") and c.get("zone") and c.get("ul_token"):
+                uq = qs.get(c["ul_token"])
+                u = _f(uq.get("ltp")) if uq else 0
+                inv = u and ((u < c["zone"][0]) if c["side"] == "CE" else (u > c["zone"][1]))
+                if inv and (c.get("intraday") or mins >= 15 * 60 + 25):
+                    _close(c, "INVALIDATED", ltp, str(now))
+                    tg(f"❌ Signal invalidated (stock back in zone): {c['symbol']} {c['strike']:g} {c['side']} @ {ltp} · P/L/lot ₹{c['pnl_lot']}")
+                    changed = True
+                    continue
+            if c["kind"] == "GAMMA-UNWIND" and c.get("zone") and not c["hits"] and mins >= 15 * 60 + 25:
                 uq = qs.get(c.get("ul_token")) if c.get("ul_token") else None
                 u = _f(uq.get("ltp")) if uq else 0
                 if u:
@@ -189,10 +207,14 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         c["pnl_lot"] = round((c["ltp"] - c["entry"]) * c["lot"])
         if live and (c["kind"] in INTRA or c.get("intraday")) and mins >= 15 * 60 + 20 and c["status"] in OPEN:
             _close(c, "EOD EXIT", c["ltp"], str(now))
+            if c["kind"].startswith("GU"):
+                tg(f"🕒 15:20 exit: {c['symbol']} {c['strike']:g} {c['side']} @ {c['ltp']} · P/L/lot ₹{c['pnl_lot']}")
             changed = True
         if c.get("hold_until") and c["status"] in OPEN and (
                 day > c["hold_until"] or (day == c["hold_until"] and mins >= 15 * 60 + 20)):
             _close(c, "TIME EXIT", c["ltp"], str(now))
+            if c["kind"].startswith("GU"):
+                tg(f"⏱ Time/expiry exit: {c['symbol']} {c['strike']:g} {c['side']} @ {c['ltp']} · P/L/lot ₹{c['pnl_lot']}")
             changed = True
 
     if changed:
@@ -208,7 +230,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GAMMA-UNWIND")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}
