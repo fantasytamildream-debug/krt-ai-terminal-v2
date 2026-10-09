@@ -171,28 +171,38 @@ def stars(score):
     return 5 if score >= 85 else 4 if score >= 70 else 3 if score >= 55 else 2 if score >= 40 else 1
 
 
-def fill_targets(price, sl, side, tg):
-    """Structure targets 3-க்கு குறைவு என்றால் 1R/2R/3R கொண்டு நிரப்பு (label உடன்)."""
-    tg, kinds = list(tg)[:3], ["level"] * min(3, len(tg))
+def fill_targets(price, sl, side, tg, atr=None):
+    """Realistic targets: structure levels — ஆனால் intraday-ல் ஒரு நாள் ATR-க்கு மேல் போகாது.
+    குறைந்தால் ATR பங்குகள் (0.35 / 0.6 / 0.85 ATR); ATR தெரியலைன்னா 1R/1.5R/2R."""
+    sgn = 1 if side == "CE" else -1
     risk = abs(price - sl) or price * 0.005
-    k = 1
-    while len(tg) < 3:
-        t = price + k * risk if side == "CE" else price - k * risk
-        if t <= 0 or k > 12:
+    cap = atr * 1.0 if atr else None
+    lv = [t for t in tg if (t - price) * sgn > 0 and (cap is None or abs(t - price) <= cap)]
+    lv = sorted(lv, key=lambda t: abs(t - price))[:3]
+    kinds = ["level"] * len(lv)
+    steps = [(0.35, "0.35 ATR"), (0.6, "0.6 ATR"), (0.85, "0.85 ATR")] if atr else [(1, "1R"), (1.5, "1.5R"), (2, "2R")]
+    for m, lab in steps:
+        if len(lv) >= 3:
             break
-        if all((t > x) if side == "CE" else (t < x) for x in tg):
-            tg.append(round(t, 2))
-            kinds.append(f"{k}R")
-        k += 1
-    return tg, kinds
+        t = price + sgn * m * (atr if atr else risk)
+        if t > 0 and all(abs(t - x) > price * 0.001 and (t - x) * sgn > 0 for x in lv):
+            lv.append(round(t, 2))
+            kinds.append(lab)
+    order = sorted(range(len(lv)), key=lambda i: abs(lv[i] - price))
+    lv, kinds = [lv[i] for i in order], [kinds[i] for i in order]
+    return lv, kinds
 
 
-def attach_plan(r, opt, now):
-    """r: price, sl, targets, side → opt['plan'] (premium ESTIMATE)."""
+def attach_plan(r, opt, now, source=None):
+    """r: price, sl, targets, side → opt['plan'] (premium ESTIMATE) + history-calibrated targets."""
     if not opt or "none" in opt:
         return
-    tg, kinds = fill_targets(r["price"], r["sl"], r["side"], r.get("targets") or [])
+    atr = ((C.get("feat") or {}).get(r.get("symbol")) or {}).get("atr")
+    tg, kinds = fill_targets(r["price"], r["sl"], r["side"], r.get("targets") or [], atr)
     r["targets"], r["target_kinds"] = tg, kinds
+    risk_ul = abs(r["price"] - r["sl"]) or 1e-9
+    r["rr"] = round(abs(tg[0] - r["price"]) / risk_ul, 2) if tg else 0
+    r["low_rr"] = r["rr"] < 1.0   # T1 ≥ 1R இல்லைன்னா தரம் குறைவு
     cfg = load_settings().get("risk", {})
     prem = opt.get("ask") or opt.get("ltp")
     try:
@@ -201,6 +211,9 @@ def attach_plan(r, opt, now):
                             cfg.get("max_risk_per_trade", 2500))
     except Exception:
         opt["plan"] = None
+    if source and opt.get("plan"):
+        from .calls import calibrate_plan
+        calibrate_plan(source, opt["plan"])
 
 
 def pick_options(ag, inst, rows):
@@ -303,7 +316,7 @@ def index_oi(ag, inst, spot_q):
             opt = {"token": next((c[0] for c in sel if c[3] == atm and c[4] == sd), None),
                    "exch": INDEX_OPT_EXCH[idx], "contract": o["contract"], "strike": atm, "expiry": exp,
                    "type": sd, "lot": o["lot"], "bid": o["bid"], "ask": o["ask"], "ltp": o["ltp"], "moneyness": "ATM"}
-            attach_plan(pr, opt, _now())
+            attach_plan(pr, opt, _now(), "Index OI")
             plans[sd] = {"ul_sl": pr["sl"], "ul_targets": pr["targets"], "kinds": pr.get("target_kinds"), "option": opt}
         out.append({"index": idx, "spot": spot, "pct": pct, "expiry": exp,
                     "day_high": _f((q or {}).get("high")) or spot, "day_low": _f((q or {}).get("low")) or spot,
@@ -519,10 +532,17 @@ def run_full(ag, prog=lambda m: None) -> dict:
                                            r["invalidation"], r["targets"], now.to_pydatetime(), o_["lot"],
                                            cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
                                            hold_days=3, sl_days=1)
+                    from .calls import calibrate_plan
+                    calibrate_plan("Chart pattern", o_["plan"])
                 except Exception:
                     o_["plan"] = None
             continue
-        attach_plan(r, r.get("option"), now)
+        src_ = ("5-min ORB" if r in orb_up or r in orb_dn else "Volume+OI" if r in voi["CE"] or r in voi["PE"]
+                else "Breakout/Breakdown")
+        attach_plan(r, r.get("option"), now, src_)
+        if r.get("low_rr"):
+            r["stars"] = max(1, r.get("stars", 1) - 1)
+            r["strong"] = False
 
     prog("Index option OI")
     try:
@@ -548,7 +568,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
         got = sum(1 for n in names if C["orb"].get(n))
         if got < len(names) * 0.8:
             errors.append(f"5-min ORB data {got}/{len(names)} stocks மட்டும் கிடைத்தது — அடுத்த scan-ல் மீதி எடுக்கும்")
-    best = [r for r in ce + pe if r["status"] == "CONFIRMED" and "none" not in (r.get("option") or {"none": 1})]
+    best = [r for r in ce + pe if r["status"] == "CONFIRMED" and "none" not in (r.get("option") or {"none": 1})
+            and not r.get("low_rr")]
     best.sort(key=lambda r: -r["score"])
     nifty = next((x for x in idx if x.get("index") == "NIFTY"), {})
     summary = [

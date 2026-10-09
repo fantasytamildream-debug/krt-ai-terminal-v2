@@ -293,6 +293,7 @@ function optHTML(o, sym){
   return `<div class="plan">${head}${quote}
     <div class="lv num"><span>Entry <b>${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>
     ${p.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}</div>
+    ${p.calibrated?`<div class="hint">🎯 <b class="up">Calibrated targets</b> — ${esc(p.calibrated)} (model: ${(p.model_targets||[]).map(n2).join(" / ")})</div>`:`<div class="hint">Targets = model estimate (20 closed calls ஆன பின் history வைத்து தானா calibrate ஆகும்)</div>`}
     <div class="lv"><span>1 lot ≈ ₹${n2(p.entry*o.lot)}</span><span>Risk/lot ≈ ₹${n2(p.risk)}</span><span>IV ${n2(p.iv)}%</span>
     ${p.risk_ok?"":`<span class="skip">SKIP — RISK ABOVE ₹2,500</span>`}</div>
     ${trackHTML(sym,o)}
@@ -309,7 +310,7 @@ function setupRow(r){
    <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stock SL</span>${n2(r.sl)}</div>
    <div><span>Vol ratio*</span>${n2(r.vol_ratio)}×</div><div><span>Score</span>${esc(r.score)}/100</div></div>
    <div class="targets">Stock targets: ${t}</div>
-   <div class="tags">${r.levels&&r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb===true?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.oi_tag?`<em>${esc(r.oi_tag)}</em>`:""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
+   <div class="tags">${r.levels&&r.levels.length>1?"<em>LEVEL CONFLUENCE</em>":""}${r.gap_only?"<em>GAP — retest வேண்டும்</em>":""}${r.orb===true?"<em>5-min ORB aligned</em>":""}${r.vol_ratio>=2?"<em>HIGH PARTICIPATION</em>":""}${r.oi_tag?`<em>${esc(r.oi_tag)}</em>`:""}${r.rr?`<em>R:R 1:${n2(r.rr)}</em>`:""}${r.low_rr?'<em style="color:var(--pe);border-color:var(--pe)">LOW R:R — skip</em>':""}${r.break_time?`<em>Break ${hm(r.break_time)}</em>`:""}</div>
    ${optHTML(r.option, r.symbol)}
    <div class="hint">${esc(r.live_note||STATUS_HELP[st]||"")}</div></div>`;
 }
@@ -374,9 +375,9 @@ function guSection(s){
   const intra=by("PRO ENTRY").filter(x=>x.engine==="INTRADAY"), hold=by("PRO ENTRY").filter(x=>x.engine==="HOLDING");
   const st=s=>s&&s.calls!=null?`${s.calls} calls · win ${s.win_rate==null?"–":s.win_rate+"%"} · net <b class="${s.net>=0?'up':'dn'}">₹${n2(s.net)}</b>`:"–";
   const sm=tr.summary||{}, h=g.health||{};
-  const cTbl=(rows)=>simpleTbl(rows,[["Contract",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Engine",c=>esc(c.engine+" "+c.pick)],["DTE",c=>c.dte],["Spread",c=>n2(c.spread)+"%"],["Δ",c=>n2((c.greeks||{}).delta)],
+  const cTbl=(rows)=>simpleTbl(rows,[["Contract",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Engine",c=>esc(c.engine||"")],["DTE",c=>c.dte],["Spread",c=>n2(c.spread)+"%"],["Δ",c=>n2((c.greeks||{}).delta)],
       ["OI drop",c=>c.eval&&c.eval.oi&&c.eval.oi.ok?n2(c.eval.oi.drop)+"%":"–"],["A",c=>ok(c.eval&&c.eval.A)],["B",c=>ok(c.eval&&c.eval.B)],["C",c=>ok(c.eval&&c.eval.C)],["H",c=>ok(c.eval&&c.eval.H)],
-      ["Stock break",c=>ok(c.eval&&c.eval.ul_break)],["Score",c=>c.eval&&c.eval.score?c.eval.score:"–"],
+      ["Stock break",c=>ok(c.eval&&c.eval.ul_break)],["Score I / H",c=>{const b=(c.eval||{}).by_engine||{}; const f=k=>b[k]?`${k[0]} <b>${b[k].score}</b>${b[k].hard_ok?"":"<span class='hint'>*</span>"}`:""; return [f("INTRADAY"),f("HOLDING")].filter(Boolean).join(" / ")||"–"}],
       ["Status",c=>{const e=c.eval||{}; if(e.note) return `<span class="hint">${esc(e.note)}</span>`; if(e.armed) return '<b class="up">ARMED</b>'+(e.trigger?" · "+esc(e.trigger):" · trigger காத்திருக்கு");
         if(e.armed_status==="EXPIRED") return '<span class="hint">ARMED expired</span>'; const m=["A","B","C","H"].filter(k=>!e[k]); return m.length===1?`<b style="color:var(--watch)">NEAR ARMED</b> <span class="hint">· ${m[0]}</span>`:`<span class="hint">${4-m.length}/4</span>`}]],
       c=>c.eval&&c.eval.armed?"uprow":(c.eval&&["A","B","C","H"].filter(k=>c.eval[k]).length===3?"nearrow":""));
@@ -388,7 +389,7 @@ function guSection(s){
     <h3 class="sec">E. Zone breakout candidates</h3>${simpleTbl(g.zones||[],[["Stock",z=>`<b>${esc(z.symbol)}</b>`],["Setup",z=>`<span class="${z.side==='CE'?'up':'dn'}">${esc(z.setup)}</span>`],["LTP",z=>n2(z.ltp)],["Zone",z=>n2(z.zone[0])+"–"+n2(z.zone[1])],["Dist",z=>n2(z.dist)+"% (≤"+n2(z.thr)+")"],
       ["Rank",z=>z.zone_rank],["Tests",z=>z.tests],["Age",z=>z.age+"d"],["Structure",z=>esc([z.structure.trend,z.structure.bos,z.structure.choch,z.structure.sweep].filter(Boolean).join(" · "))]])}
     <h3 class="sec">F. OI unwinding leaderboard</h3>${simpleTbl(g.oi_leaders||[],[["Contract",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Peak→Now",c=>big(c.eval.oi.peak)+" → "+big(c.eval.oi.now)],["Drop",c=>n2(c.eval.oi.drop)+"%"],["5m",c=>n2(c.eval.oi.chg5)+"%"],["15m",c=>n2(c.eval.oi.chg15)+"%"],["30m",c=>c.eval.oi.chg30==null?"–":n2(c.eval.oi.chg30)+"%"],["Accel",c=>c.eval.oi.accel?"✓":"–"],["Read (probable)",c=>esc(c.eval.oi.class)]])}
-    <h3 class="sec">Live monitor</h3>${cTbl(g.contracts||[])}
+    <h3 class="sec">Live monitor</h3><div class="hint">ஒரே strike-ஐ INTRADAY (அருகிலுள்ள expiry) + HOLDING (≥8 days expiry) இரண்டும் தனித்தனியா check பண்ணும். Score I / H — * = ஏதோ hard filter fail (entry window, daily structure, theta…).</div>${cTbl(g.contracts||[])}
     <h3 class="sec">G. Target / SL tracker (இன்று)</h3>${simpleTbl(gu,[["Time",c=>esc(c.time)],["Engine",c=>esc(c.engine||c.kind)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell]], callCls)}
     <h3 class="sec">H/I. Performance (theoretical, 1 lot)</h3><div class="kpis"><div class="kpi"><span>GU INTRADAY</span>${st(sm["GU-INTRADAY"])}</div><div class="kpi"><span>GU HOLDING</span>${st(sm["GU-HOLDING"])}</div></div>
     <h3 class="sec">J. Data provider health</h3><div class="hint">Last cycle ${esc(h.time||"–")} · ${h.seconds??"–"}s · checked ${h.checked??0} · stale quotes ${h.stale??0} · API errors ${h.api_fail??0}${err?" · ⚠ "+esc(err):""}</div>
@@ -523,6 +524,11 @@ function renderFull(s){
     <h2 class="sec">5 days holding</h2>${(swp["5"]||[]).length?swp["5"].map(swingRow).join(""):`<div class="empty">Rules-க்கு பொருந்தும் 5-day pick இல்லை.</div>`}
     <h2 class="sec">Open swing calls (முந்தைய நாட்கள்)</h2>${(tr.swing_open||[]).length?tr.swing_open.map(callCard).join(""):`<div class="empty">Open swing call இல்லை.</div>`}`;
   $("p-hi").innerHTML = `<div class="hint">Storage: ${esc(tr.store||"")} ${tr.store_error?"· ⚠ "+esc(tr.store_error):""}</div>
+    <h2 class="sec">🎯 Target accuracy (setup வாரியாக)</h2>
+    ${simpleTbl(tr.ranking||[],[["Setup",r=>`<b>${esc(r.source)}</b>`],["Calls",r=>r.calls],["T1 hit",r=>(r.t1_rate??0)+"%"],["T2 hit",r=>(r.t2_rate??0)+"%"],["T3 hit",r=>(r.t3_rate??0)+"%"],["SL hit",r=>(r.sl_rate??0)+"%"],
+      ["Median max profit",r=>r.mfe_med==null?"–":n2(r.mfe_med)+"%"],["Avg P/L (closed)",r=>r.expectancy==null?"–":`<span class="${r.expectancy>=0?'up':'dn'}">₹${n2(r.expectancy)}</span>`],
+      ["Auto targets",r=>r.calib?r.calib.map(x=>"+"+n2(x)+"%").join(" / "):"–"],["Edge",r=>r.edge==="POSITIVE"?'<b class="up">POSITIVE</b>':r.edge==="NEGATIVE"?'<b class="dn">NEGATIVE — Jackpot-ல் வராது</b>':`<span class="hint">${esc(r.edge||"")}</span>`]], r=>r.edge==="POSITIVE"?"uprow":r.edge==="NEGATIVE"?"slrow":"")}
+    <div class="hint">Auto targets: ஒரு setup-க்கு 20 closed calls ஆன பின், வரலாற்றில் 60% / 40% / 20% calls உண்மையில் அடைந்த max லாப % அளவுக்கு T1 / T2 / T3 தானா மாறும். அதனால் target "கனவு" இல்லாம data-வை வைத்து வரும். Edge NEGATIVE ஆன setup Jackpot-க்கு வராது.</div>
     <h2 class="sec">🏆 Best setup ranking (எந்த setup உண்மையில் வேலை செய்கிறது)</h2>
     ${simpleTbl(tr.ranking||[],[["#",(r)=>(tr.ranking.indexOf(r)+1)],["Setup",r=>esc(r.source)],["Calls",r=>r.calls],["Closed",r=>r.closed],["Win rate",r=>r.win_rate==null?"–":r.win_rate+"%"],["T1 reached",r=>r.t1_rate+"%"],["Avg P/L",r=>`<span class="${r.avg>=0?'up':'dn'}">₹${n2(r.avg)}</span>`],["Net P/L",r=>`<span class="${r.net>=0?'up':'dn'}">₹${n2(r.net)}</span>`]], r=>tr.ranking.indexOf(r)===0&&r.net>0?"bestrow":"")}
     <div class="hint">Green glow = இன்றைய top 3 லாபம் தரும் calls (live-ஆ மாறும்). Light green = இப்போ லாபத்தில் உள்ள open calls. Ranking நம்பகமாக இருக்க குறைந்தது 20–30 closed calls வேண்டும்.</div>

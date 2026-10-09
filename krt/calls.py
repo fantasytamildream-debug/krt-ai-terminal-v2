@@ -10,6 +10,18 @@ OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
 INTRA = ("JACKPOT", "INTRADAY", "GAMMA")
 
 
+def calibrate_plan(source, plan):
+    """≥20 closed calls உள்ள setup-க்கு: premium targets = வரலாற்றில் 60% / 40% / 20% calls அடைந்த max லாப % அளவு."""
+    cal = (STORE.data or {}).get("calib", {}).get(source)
+    if not cal or not plan or not plan.get("entry"):
+        return plan
+    e = plan["entry"]
+    plan["model_targets"] = plan["targets"]
+    plan["targets"] = [round(round(e * (1 + q / 100) / 0.05) * 0.05, 2) for q in cal["t_pct"]]
+    plan["calibrated"] = f"{source}: {cal['n']} closed calls அடிப்படையில்"
+    return plan
+
+
 def _f(x):
     try:
         return float(x)
@@ -22,6 +34,8 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     if not p or not opt.get("token"):
         return None
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
+    if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
+        p = calibrate_plan(src, dict(p))
     c = {"id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
          "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],
@@ -29,7 +43,8 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
          "entry": p["entry"], "sl": p["sl"], "targets": p["targets"], "risk": p["risk"], "risk_ok": p["risk_ok"],
          "score": r.get("score"), "stars": r.get("stars"), "confidence": r.get("confidence") or f"{r.get('stars', 0)}★",
          "reasons": r.get("reasons") or ([f"{'+'.join(r['levels'])} break"] if r.get("levels") else []),
-         "ltp": p["entry"], "status": "OPEN", "hits": [], "exit": None, "exit_time": None, "pnl_lot": 0}
+         "ltp": p["entry"], "status": "OPEN", "hits": [], "exit": None, "exit_time": None, "pnl_lot": 0,
+         "calibrated": bool(p.get("calibrated"))}
     if hold:
         c["hold_days"] = hold
         c["hold_until"] = str(pd.bdate_range(session, periods=hold + 1)[-1].date())
@@ -94,10 +109,11 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         for side in ("CE", "PE"):
             if flag.get(f"jackpot_{side}"):
                 continue
-            c = [r for r in best if r["side"] == side and r.get("stars", 0) >= 4
-                 and ((r.get("option") or {}).get("plan") or {}).get("risk_ok")]
+            c = [r for r in best if r["side"] == side and r.get("stars", 0) >= 4 and not r.get("low_rr")
+                 and ((r.get("option") or {}).get("plan") or {}).get("risk_ok")
+                 and d.get("edge", {}).get("Breakout/Breakdown") != "NEGATIVE"]
             if c:
-                cid = add(_new("JACKPOT", "Best setup", c[0], c[0]["option"], now, day))
+                cid = add(_new("JACKPOT", "Breakout/Breakdown", c[0], c[0]["option"], now, day))
                 if cid:
                     flag[f"jackpot_{side}"] = cid
         for r in best:
@@ -157,6 +173,10 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         if ltp:
             c["ltp"] = ltp
             c["updated"] = now.strftime("%d-%m %H:%M")
+            c["max_ltp"] = max(c.get("max_ltp") or c["entry"], ltp)
+            c["min_ltp"] = min(c.get("min_ltp") or c["entry"], ltp)
+            c["mfe_pct"] = round((c["max_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
+            c["mae_pct"] = round((c["min_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
             gu_ = c["kind"].startswith("GU") or c["kind"] == "GAMMA-UNWIND"
             if ltp <= c["sl"] and not (c.get("no_sl_before_t1") and not c["hits"]):
                 c["hits"].append(f"SL {now:%d-%m %H:%M}")
@@ -244,6 +264,39 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         st["avg"] = round(st["net"] / len(rows)) if rows else 0
         st["t1_rate"] = round(st["t1"] / len(rows) * 100) if rows else 0
         ranking.append(st)
+    import numpy as _np
+    for k, rows in groups.items():
+        st_ = next(x for x in ranking if x["source"] == k)
+        n_ = len(rows) or 1
+        for i in (1, 2, 3):
+            st_[f"t{i}_rate"] = round(sum(any(h.startswith(f"T{i} ") for h in c["hits"]) for c in rows) / n_ * 100)
+        st_["sl_rate"] = round(sum(c["status"] == "SL HIT" for c in rows) / n_ * 100)
+        closed = [c for c in rows if c["status"] not in OPEN and c.get("mfe_pct") is not None]
+        if closed:
+            st_["mfe_med"] = round(float(_np.median([c["mfe_pct"] for c in closed])), 1)
+            st_["expectancy"] = round(sum(c["pnl_lot"] for c in closed) / len(closed))
+        st_["closed_mfe"] = len(closed)
+    # Calibration: source வாரியாக (Jackpot calls-ம் அதன் source-க்குள் சேரும்)
+    calib, edge = {}, {}
+    by_src = {}
+    for c in allc:
+        by_src.setdefault(c.get("source") or c["kind"], []).append(c)
+    for k, rows in by_src.items():
+        closed = [c for c in rows if c["status"] not in OPEN and c.get("mfe_pct") is not None]
+        if len(closed) >= 20:
+            m = _np.array([c["mfe_pct"] for c in closed])
+            q = [max(5.0, round(float(_np.quantile(m, x)), 1)) for x in (0.4, 0.6, 0.8)]
+            exp_ = sum(c["pnl_lot"] for c in closed) / len(closed)
+            calib[k] = {"n": len(closed), "t_pct": q}
+            edge[k] = "POSITIVE" if exp_ > 0 else "NEGATIVE"
+        else:
+            edge[k] = f"DATA {len(closed)}/20"
+    for st_ in ranking:
+        src_ = st_["source"] if st_["source"] != "JACKPOT" else "Breakout/Breakdown"
+        st_["edge"] = edge.get(src_, "DATA 0/20")
+        st_["calib"] = (calib.get(src_) or {}).get("t_pct")
+    d["calib"] = calib
+    d["edge"] = edge
     ranking.sort(key=lambda x: (-(x["win_rate"] or 0), -x["net"]))
     # இன்றைய best calls (live P/L)
     today_rank = sorted([c for c in allc if c["date"] == day], key=lambda c: -c["pnl_lot"])

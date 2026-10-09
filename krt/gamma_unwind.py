@@ -25,8 +25,12 @@ CFG = {
     "pro": 85, "strong": 70,
 }
 ENG = {
-    "INTRADAY": {"targets": [0.15, 0.25, 0.40], "min_dte": 1, "kind": "GU-INTRADAY"},
-    "HOLDING": {"targets": [0.20, 0.40, 0.60], "min_dte": 8, "kind": "GU-HOLDING"},
+    # INTRADAY: அருகிலுள்ள expiry மட்டும், delta 0.30–0.50, theta ≤10%/day, புது entry 09:30–14:45
+    "INTRADAY": {"targets": [0.15, 0.25, 0.40], "min_dte": 1, "kind": "GU-INTRADAY",
+                 "delta": (0.30, 0.50), "theta": 10, "window": (9 * 60 + 30, 14 * 60 + 45)},
+    # HOLDING: expiry ≥8 trading days, delta 0.25–0.45, theta ≤6%/day, daily structure ஒத்துப்போகணும், entry 10:00–15:10
+    "HOLDING": {"targets": [0.20, 0.40, 0.60], "min_dte": 8, "kind": "GU-HOLDING",
+                "delta": (0.25, 0.45), "theta": 6, "window": (10 * 60, 15 * 60 + 10)},
 }
 ST = {"day": None, "sel": {}, "zones": [], "contracts": [], "signals": {}, "armed": {}, "last": None,
       "health": {}, "regime": {}, "entries": 0, "cool": {}}
@@ -160,12 +164,20 @@ def select(ag, inst, C, ltp_of, now, regime):
     for _, r in want:
         toks.setdefault(r[6], []).append(r[0])
     qs = ag.quotes(toks) if toks else {}
-    groups = {}
+    nearest = {}
+    for w, r in want:
+        e0 = nearest.get(w["symbol"])
+        nearest[w["symbol"]] = r[2] if e0 is None or r[2] < e0 else e0
+    groups, info = {}, {}
     for w, r in want:
         q = qs.get(r[0]) or {}
         dte = _tdays(today, pd.Timestamp(r[2]).date())
-        eng = "HOLDING" if dte >= ENG["HOLDING"]["min_dte"] else "INTRADAY" if dte >= ENG["INTRADAY"]["min_dte"] else None
-        if not eng:
+        engines = []
+        if r[2] == nearest[w["symbol"]] and dte >= ENG["INTRADAY"]["min_dte"]:
+            engines.append("INTRADAY")
+        if dte >= ENG["HOLDING"]["min_dte"]:
+            engines.append("HOLDING")
+        if not engines:
             continue
         oi, lot, ltp = _f(q.get("opnInterest")), r[5] or 1, _f(q.get("ltp"))
         d = q.get("depth") or {}
@@ -181,19 +193,26 @@ def select(ag, inst, C, ltp_of, now, regime):
             gk = {"iv": None, "delta": None, "theta_pct": None}
         dlt = gk.get("delta") or 0
         th = gk.get("theta_pct") if gk.get("theta_pct") is not None else 99
-        rank = (30 * (1 - min(spread / CFG["max_spread_pct"], 1)) + 15 * min(value / 1e7, 1) + 20 * min(oi / (500 * lot), 1)
-                + 25 * (1 if 0.2 <= dlt <= 0.45 else 0.4) + 10 * (1 if th <= (10 if eng == "INTRADAY" else 6) else 0))
-        groups.setdefault((w["symbol"], w["side"], eng), []).append(
-            {**{k: w[k] for k in ("symbol", "side", "setup", "zone", "edge", "zone_rank", "structure", "ul_token", "levels")},
-             "engine": eng, "token": r[0], "exch": r[6], "contract": r[1], "strike": r[3], "expiry": r[2], "lot": lot,
-             "dte": dte, "oi": int(oi), "value": round(value), "spread": round(spread, 2), "bid": bid, "ask": ask,
-             "ltp": ltp, "greeks": gk, "strike_rank": int(rank)})
-    cons = []
-    for k, lst in groups.items():
-        lst.sort(key=lambda x: -x["strike_rank"])
-        for i, x in enumerate(lst[:2]):
-            x["pick"] = f"#{i+1}"
-            cons.append(x)
+        base = {**{k: w[k] for k in ("symbol", "side", "setup", "zone", "edge", "zone_rank", "structure", "ul_token", "levels")},
+                "token": r[0], "exch": r[6], "contract": r[1], "strike": r[3], "expiry": r[2], "lot": lot,
+                "dte": dte, "oi": int(oi), "value": round(value), "spread": round(spread, 2), "bid": bid, "ask": ask,
+                "ltp": ltp, "greeks": gk}
+        info[r[1]] = base
+        for eng in engines:
+            lo, hi = ENG[eng]["delta"]
+            rank = (30 * (1 - min(spread / CFG["max_spread_pct"], 1)) + 15 * min(value / 1e7, 1) + 20 * min(oi / (500 * lot), 1)
+                    + 25 * (1 if lo <= dlt <= hi else 0.4) + 10 * (1 if th <= ENG[eng]["theta"] else 0))
+            groups.setdefault((w["symbol"], w["side"], eng), []).append((int(rank), r[1]))
+    merged = {}
+    for (sym, side, eng), lst in groups.items():
+        lst.sort(key=lambda x: -x[0])
+        for i, (rank, con) in enumerate(lst[:2]):
+            m = merged.setdefault(con, {**info[con], "engines": {}})
+            m["engines"][eng] = {"pick": f"#{i+1}", "rank": rank}
+    cons = list(merged.values())
+    for c_ in cons:
+        c_["strike_rank"] = max(v["rank"] for v in c_["engines"].values())
+        c_["engine"] = " + ".join(f"{e} {v['pick']}" for e, v in c_["engines"].items())
     cons.sort(key=lambda x: -(x["zone_rank"] + x["strike_rank"]))
     return cands, cons[:CFG["max_contracts"]]
 
@@ -294,31 +313,45 @@ def evaluate(ag, c, now, ul, q, regime):
     sl = r05(base_l if ev["trigger"] == "PREMIUM BREAKOUT" else min(base_l, float(l[-1])))
     risk = round((entry - sl) * c["lot"] + CFG["charges"]) if entry > sl else 10 ** 9
     ev.update(entry=entry, sl=sl, risk=risk, spread=round(spread, 2))
-    hard = {"Fresh data": _fresh(q, now), "Underlying breakout": ul_break,
-            "Liquidity": spread <= CFG["max_spread_pct"] and c["oi"] >= 50 * c["lot"],
-            "Expiry": c["dte"] >= ENG[c["engine"]]["min_dte"], "Risk ≤ cap": risk <= CFG["risk_cap"],
-            "Data sane": bool(bid <= ask and entry > 0 and sl > 0)}
-    ev["hard"] = hard
     gk = c.get("greeks") or {}
-    sc = 0.0
     stc = (c.get("structure") or {}).get("trend")
-    sc += 12 * c.get("zone_rank", 0) / 100 + (8 if (stc == "BULL" and ce) or (stc == "BEAR" and not ce) else 3 if stc == "SIDEWAYS" else 0)
+    bos = (c.get("structure") or {}).get("bos")
+    daily_ok = (stc == "BULL" or bos == "BOS-UP") if ce else (stc == "BEAR" or bos == "BOS-DOWN")
+    common = 12 * c.get("zone_rank", 0) / 100 + (8 if (stc == "BULL" and ce) or (stc == "BEAR" and not ce) else 3 if stc == "SIDEWAYS" else 0)
     if oi.get("ok"):
-        sc += 12 * min(oi["drop"] / 12, 1) + (4 if oi["chg15"] < 0 else 0) + (4 if oi.get("accel") else 0)
-    sc += 8 * min(rv / 2, 1) + (7 if spread <= 2 else 4 if spread <= 4 else 0)
+        common += 12 * min(oi["drop"] / 12, 1) + (4 if oi["chg15"] < 0 else 0) + (4 if oi.get("accel") else 0)
+    common += 8 * min(rv / 2, 1) + (7 if spread <= 2 else 4 if spread <= 4 else 0)
     vw_ok = bool(ulc) and ((ulc > ul["vwap"]) if ce else (ulc < ul["vwap"]))
-    sc += (8 if vw_ok else 0) + (7 if ul.get("trend15") == ("UP" if ce else "DOWN") else 0)
-    sc += (8 if ev["trigger"] else 0) + (4 if body >= 0.5 else 0) + (3 if rejections < 2 else 0)
+    common += (8 if vw_ok else 0) + (7 if ul.get("trend15") == ("UP" if ce else "DOWN") else 0)
+    common += (8 if ev["trigger"] else 0) + (4 if body >= 0.5 else 0) + (3 if rejections < 2 else 0)
+    rg = (regime or {}).get("trend")
+    common += 5 if (rg == "TRENDING UP" and ce) or (rg == "TRENDING DOWN" and not ce) else 2 if rg in ("RANGE-BOUND", None) else 0
     th = gk.get("theta_pct") if gk.get("theta_pct") is not None else 99
     iv_ = gk.get("iv") or 0
-    sc += 4 + (3 if th <= (10 if c["engine"] == "INTRADAY" else 6) else 0) + (3 if 0 < iv_ < 60 else 0)
-    rg = (regime or {}).get("trend")
-    sc += 5 if (rg == "TRENDING UP" and ce) or (rg == "TRENDING DOWN" and not ce) else 2 if rg in ("RANGE-BOUND", None) else 0
-    ev["score"] = int(round(min(sc, 100)))
-    ev["hard_ok"] = all(hard.values())
-    if ev["armed"] and ev["trigger"]:
-        ev["tier"] = ("PRO ENTRY" if ev["hard_ok"] and ev["score"] >= CFG["pro"]
-                      else "STRONG WATCHLIST" if ev["score"] >= CFG["strong"] else "WATCHLIST")
+    dl = gk.get("delta") or 0
+    mins = now.hour * 60 + now.minute
+    ev["by_engine"] = {}
+    for eng in (c.get("engines") or {}):
+        E = ENG[eng]
+        hard = {"Fresh data": _fresh(q, now), "Underlying breakout": ul_break,
+                "Liquidity": spread <= CFG["max_spread_pct"] and c["oi"] >= 50 * c["lot"],
+                "Expiry": c["dte"] >= E["min_dte"], "Risk ≤ cap": risk <= CFG["risk_cap"],
+                "Data sane": bool(bid <= ask and entry > 0 and sl > 0),
+                "Entry window": E["window"][0] <= mins <= E["window"][1]}
+        if eng == "HOLDING":
+            hard["Daily structure"] = bool(daily_ok)
+            hard["Theta ≤6%/day"] = th <= E["theta"]
+        sc = common + 4 + (3 if th <= E["theta"] else 0) + (3 if 0 < iv_ < 60 else 0)
+        if not (E["delta"][0] <= dl <= E["delta"][1]):
+            sc -= 3
+        sc = int(round(max(0, min(sc, 100))))
+        ok = all(hard.values())
+        tier = "—"
+        if ev["armed"] and ev["trigger"]:
+            tier = "PRO ENTRY" if ok and sc >= CFG["pro"] else "STRONG WATCHLIST" if sc >= CFG["strong"] else "WATCHLIST"
+        ev["by_engine"][eng] = {"score": sc, "hard": hard, "hard_ok": ok, "tier": tier}
+    best = max(ev["by_engine"].values(), key=lambda x: x["score"]) if ev["by_engine"] else {"score": 0, "hard": {}, "tier": "—", "hard_ok": False}
+    ev.update(score=best["score"], hard=best["hard"], hard_ok=best["hard_ok"], tier=best["tier"])
     return ev
 
 
@@ -369,44 +402,55 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
         if a_at and not ev.get("trigger"):
             age = (now - pd.Timestamp(f"{day} {a_at}")).total_seconds() / 60
             ev["armed_status"] = "EXPIRED" if age > CFG["armed_expiry_min"] else f"ARMED {a_at}"
-        if not (ev.get("armed") and ev.get("trigger")) or key in ST["signals"]:
+        if not (ev.get("armed") and ev.get("trigger")):
             continue
-        tier, block = ev["tier"], None
-        if tier == "PRO ENTRY":
-            same = [s for s in ST["signals"].values() if s["symbol"] == c["symbol"] and s["tier"] == "PRO ENTRY"]
-            last = ST["cool"].get(c["symbol"])
-            if ST["entries"] >= CFG["max_entries_day"]:
-                block = "இன்றைய max ENTRY (3) அடைந்தது"
-            elif sl_today >= CFG["sl_pause_after"]:
-                block = "இன்று SL அதிகம் — cooldown"
-            elif any(s["side"] != c["side"] for s in same):
-                block = "முரண்பாடான CE/PE"
-            elif last and (now - pd.Timestamp(f"{day} {last}")).total_seconds() / 60 < CFG["stock_cooldown_min"]:
-                block = "Stock cooldown"
-            if block:
-                tier = "STRONG WATCHLIST"
-            else:
-                ST["entries"] += 1
-                ST["cool"][c["symbol"]] = now.strftime("%H:%M")
-        e = ev["entry"]
-        tgs = [r05(e * (1 + x)) for x in ENG[c["engine"]]["targets"]]
-        sig = {**{k: c[k] for k in ("symbol", "side", "setup", "engine", "pick", "contract", "token", "exch", "strike",
-                                    "expiry", "dte", "lot", "zone", "edge", "ul_token")},
-               "id": f"GU-{c['engine'][0]}-{day.replace('-', '')}-{len(ST['signals'])+1:03d}",
-               "time": now.strftime("%H:%M"), "tier": tier, "block": block, "score": ev["score"], "hard": ev["hard"],
-               "trigger": ev["trigger"], "entry": e, "entry_zone": [r05(e * 0.98), r05(e * 1.02)], "sl": ev["sl"],
-               "targets": tgs, "risk": ev["risk"], "oi": ev.get("oi"), "rv": ev["rv"], "greeks": c.get("greeks"),
-               "ul_close": ctx[c["symbol"]].get("close15")}
-        ST["signals"][key] = sig
-        if tier in ("PRO ENTRY", "STRONG WATCHLIST"):
-            head = f"🔥 {sig['symbol']} {sig['strike']:g} {sig['side']} – {sig['engine']} " + ("CALL" if tier == "PRO ENTRY" else "STRONG WATCHLIST")
-            tg("🚀 GAMMA-UNWIND V3 PRO\n\n" + head +
-               f"\n\nEntry Zone: ₹{sig['entry_zone'][0]}–₹{sig['entry_zone'][1]}\n" +
-               "".join(f"🎯 T{i+1}: ₹{t}\n" for i, t in enumerate(tgs)) +
-               f"\n🛑 Must Follow SL: ₹{sig['sl']}\n\nOI Unwind: {(sig['oi'] or {}).get('drop', '–')}%\n"
-               f"Relative Volume: {sig['rv']}x\nPro Score: {sig['score']}/100\nTrigger: {sig['trigger']} @ {sig['time']}\n"
-               f"Risk: High Risk – 1 Lot (≈₹{sig['risk']})\nExpiry: {sig['expiry']}\n" +
-               (f"⚠ {block}\n" if block else "") + "\nAlert only · not advice · ID " + sig["id"], key)
+        # ஒரே contract-க்கு இரண்டு engine-ம் qualify ஆனால் — அதிக score உள்ள engine முதலில்
+        engs = sorted((ev.get("by_engine") or {}).items(), key=lambda kv: -kv[1]["score"])
+        for eng, be in engs:
+            skey = f"{key}|{eng}"
+            if skey in ST["signals"]:
+                continue
+            tier, block = be["tier"], None
+            if tier == "PRO ENTRY":
+                same = [s_ for s_ in ST["signals"].values() if s_["symbol"] == c["symbol"] and s_["tier"] == "PRO ENTRY"]
+                last = ST["cool"].get(c["symbol"])
+                if any(s_["contract"] == c["contract"] for s_ in same):
+                    block = "Duplicate exposure (மற்ற engine-ல் ஏற்கனவே ENTRY)"
+                elif ST["entries"] >= CFG["max_entries_day"]:
+                    block = "இன்றைய max ENTRY (3) அடைந்தது"
+                elif sl_today >= CFG["sl_pause_after"]:
+                    block = "இன்று SL அதிகம் — cooldown"
+                elif any(s_["side"] != c["side"] for s_ in same):
+                    block = "முரண்பாடான CE/PE"
+                elif last and (now - pd.Timestamp(f"{day} {last}")).total_seconds() / 60 < CFG["stock_cooldown_min"]:
+                    block = "Stock cooldown"
+                if block:
+                    tier = "STRONG WATCHLIST"
+                else:
+                    ST["entries"] += 1
+                    ST["cool"][c["symbol"]] = now.strftime("%H:%M")
+            if tier == "WATCHLIST" and any(k_.startswith(key) for k_ in ST["signals"]):
+                continue
+            e = ev["entry"]
+            tgs = [r05(e * (1 + x)) for x in ENG[eng]["targets"]]
+            sig = {**{k: c[k] for k in ("symbol", "side", "setup", "contract", "token", "exch", "strike",
+                                        "expiry", "dte", "lot", "zone", "edge", "ul_token")},
+                   "engine": eng, "pick": c["engines"][eng]["pick"],
+                   "id": f"GU-{eng[0]}-{day.replace('-', '')}-{len(ST['signals'])+1:03d}",
+                   "time": now.strftime("%H:%M"), "tier": tier, "block": block, "score": be["score"], "hard": be["hard"],
+                   "trigger": ev["trigger"], "entry": e, "entry_zone": [r05(e * 0.98), r05(e * 1.02)], "sl": ev["sl"],
+                   "targets": tgs, "risk": ev["risk"], "oi": ev.get("oi"), "rv": ev["rv"], "greeks": c.get("greeks"),
+                   "ul_close": ctx[c["symbol"]].get("close15")}
+            ST["signals"][skey] = sig
+            if tier in ("PRO ENTRY", "STRONG WATCHLIST"):
+                head = f"🔥 {sig['symbol']} {sig['strike']:g} {sig['side']} – {eng} " + ("CALL" if tier == "PRO ENTRY" else "STRONG WATCHLIST")
+                tg("🚀 GAMMA-UNWIND V3 PRO\n\n" + head +
+                   f"\n\nEntry Zone: ₹{sig['entry_zone'][0]}–₹{sig['entry_zone'][1]}\n" +
+                   "".join(f"🎯 T{i+1}: ₹{t}\n" for i, t in enumerate(tgs)) +
+                   f"\n🛑 Must Follow SL: ₹{sig['sl']}\n\nOI Unwind: {(sig['oi'] or {}).get('drop', '–')}%\n"
+                   f"Relative Volume: {sig['rv']}x\nPro Score: {sig['score']}/100\nTrigger: {sig['trigger']} @ {sig['time']}\n"
+                   f"Risk: High Risk – 1 Lot (≈₹{sig['risk']})\nExpiry: {sig['expiry']}\n" +
+                   (f"⚠ {block}\n" if block else "") + "\nAlert only · not advice · ID " + sig["id"], skey)
     health["seconds"] = round((pd.Timestamp.now() - t_start).total_seconds())
     health["time"] = now.strftime("%H:%M")
     ST["health"] = health

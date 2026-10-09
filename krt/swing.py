@@ -87,6 +87,8 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
                                   r["sl"], r["targets"], now.to_pydatetime(), o["lot"],
                                   cfg.get("charges_slippage", 150), cfg.get("max_risk_per_trade", 2500),
                                   hold_days=r["hold"] * 0.7, sl_days=2)
+            from .calls import calibrate_plan
+            calibrate_plan("Swing", o["plan"])
         except Exception:
             o["plan"] = None
     return out
