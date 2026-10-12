@@ -105,7 +105,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             return c["id"]
 
     mins = now.hour * 60 + now.minute
-    if add and live and mins < 15 * 60 + 15:
+    if live and mins < 15 * 60 + 15:
         for r in list(elite) + list(elite_hold):
             hold = r in elite_hold
             rr = dict(r)

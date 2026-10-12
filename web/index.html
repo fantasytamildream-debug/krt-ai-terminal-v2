@@ -537,12 +537,12 @@ function renderFull(s){
   const el=f.elite||{intraday:[],holding:[],jackpot:[],almost:[]};
   const elSm=((f.tracking||{}).summary)||{};
   const elSt=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
-  $("p-el").innerHTML = `<div class="hint">உங்கள் 2 Chartink scanner rules (Angel One data-வில் கணக்கிடப்படுகிறது, completed 15-min candle — repaint இல்லை). <b>S1</b> = GROK BEST ONE HOLDING (weekly) → 1 வாரம்–1 மாதம் holding · <b>S2</b> = FINAL SCANER MASTER → intraday. இரண்டும் pass அல்லது S2 + confidence ≥85 = <b class="up">👑 ELITE JACKPOT</b> (green alert + Telegram). PE = அதே rules தலைகீழ் (mirror).</div>
+  $("p-el").innerHTML = `<div class="hint">⚡ Last Elite check <b>${esc(el.time||"–")}</b> · ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடத்தில் (9:31, 9:46, 10:01…) தானா ஓடும்.</div><div class="hint">உங்கள் 2 Chartink scanner rules (Angel One data-வில் கணக்கிடப்படுகிறது, completed 15-min candle — repaint இல்லை). <b>S1</b> = GROK BEST ONE HOLDING (weekly) → 1 வாரம்–1 மாதம் holding · <b>S2</b> = FINAL SCANER MASTER → intraday. இரண்டும் pass அல்லது S2 + confidence ≥85 = <b class="up">👑 ELITE JACKPOT</b> (green alert + Telegram). PE = அதே rules தலைகீழ் (mirror).</div>
     <div class="kpis"><div class="kpi"><span>ELITE intraday</span>${elSt(elSm["ELITE"])}</div><div class="kpi"><span>ELITE holding</span>${elSt(elSm["ELITE HOLD"])}</div></div>
     <h2 class="sec up">👑 ELITE JACKPOT</h2>${el.jackpot.length?el.jackpot.map(r=>eliteCard(r, el.holding.some(h=>h.symbol===r.symbol&&h.side===r.side)?"S1 + S2":"S2 + high confidence")).join(""):'<div class="empty">இப்போ இல்லை — இரண்டு scanner-ம் ஒரே நேரம் pass ஆவது அரிது. அதனால் தான் இது "elite".</div>'}
     <h2 class="sec">⚡ ELITE INTRADAY (S2 pass)</h2>${el.intraday.length?el.intraday.map(r=>eliteCard(r,"Intraday · exit 3:20")).join(""):'<div class="empty">இல்லை.</div>'}
     <h2 class="sec">📅 ELITE HOLDING (S1 pass · 1 வாரம்–1 மாதம்)</h2>${el.holding.length?el.holding.map(r=>eliteCard(r,"Holding · next-month expiry")).join(""):'<div class="empty">இல்லை.</div>'}
-    <h2 class="sec">👀 Almost (1–2 rule மட்டும் குறைவு)</h2>${(el.almost||[]).length?el.almost.map(r=>eliteCard(r,"Watch only — entry இல்லை")).join(""):'<div class="empty">இல்லை.</div>'}
+    <h2 class="sec">👀 Almost — CE / PE (1–2 rule மட்டும் குறைவு)</h2>${(el.almost||[]).length?el.almost.map(r=>eliteCard(r,"Watch only — entry இல்லை")).join(""):'<div class="empty">இல்லை.</div>'}
     <div class="risk">⚠ 80%+ accuracy எந்த scanner-க்கும் guarantee இல்லை. ELITE calls History-ல் தனியா track ஆகும் — 30+ closed calls-க்கு பிறகு win rate-ஐ பாருங்க.</div>`;
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};

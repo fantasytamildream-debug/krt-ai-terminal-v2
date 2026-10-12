@@ -194,5 +194,8 @@ def scan(ag, inst, C, universe, trend, bu_tag, nifty_ret20, now, session, live, 
     for k in ("intraday", "holding"):
         out[k].sort(key=lambda r: -r["confidence"])
     out["jackpot"] = [r for r in out["intraday"] + out["holding"] if r["jackpot"]]
-    out["almost"] = sorted(out["almost"], key=lambda r: -(sum(r["s2"].values()) + sum(r["s1"].values())))[:12]
+    key_ = lambda r: -(sum(r["s2"].values()) + sum(r["s1"].values()))
+    ce_a = sorted([r for r in out["almost"] if r["side"] == "CE"], key=key_)[:6]
+    pe_a = sorted([r for r in out["almost"] if r["side"] == "PE"], key=key_)[:6]
+    out["almost"] = ce_a + pe_a      # CE, PE இரண்டும் தனித்தனியா தெரியணும்
     return out

@@ -845,3 +845,79 @@ def fast_tick(ag, res):
         pass
     res["tick_time"] = str(now if not live else pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None).floor("s"))
     return res
+
+
+def run_elite_fast(ag, res):
+    """⚡ 15-min candle முடிந்த உடனே Elite மட்டும் (deep scan-க்கு காத்திருக்காமல்) — quotes + 15m candles மட்டும்."""
+    from .elite import scan as elite_scan
+    from .calls import update_calls
+    if not res or not C.get("bars"):
+        return res
+    inst = load_inst(ROOT / "data" / "cache")
+    names = [n for n in inst["fno"] if n in inst["eq"]]
+    toks = {"NSE": [inst["eq"][n] for n in names]}
+    for ex, tok in INDEX_SPOT.values():
+        toks.setdefault(ex, []).append(tok)
+    qs = ag.quotes(toks)
+    now = _now()
+    session, live, mins = _session(qs.get(INDEX_SPOT["NIFTY"][1]), now)
+    share = _vol_share(mins)
+    universe = []
+    for n in names:
+        q = qs.get(inst["eq"][n])
+        if not q:
+            continue
+        avg = C["avgvol"].get(n) or 0
+        vol = _f(q.get("tradeVolume"))
+        universe.append({"symbol": n, "ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")),
+                         "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0, "volume": int(vol),
+                         "open": _f(q.get("open")), "high": _f(q.get("high")), "low": _f(q.get("low"))})
+    bu_tag = {}
+    for kind, rows in (res.get("oi_buildup") or {}).items():
+        for x in rows:
+            bu_tag[x["symbol"]] = kind
+    nret = 0.0
+    nd_ = C.get("nifty_daily")
+    n_spot = _f((qs.get(INDEX_SPOT["NIFTY"][1]) or {}).get("ltp"))
+    if nd_ is not None and not nd_.empty and n_spot:
+        pc_ = nd_[nd_.index < session]["close"]
+        if len(pc_) > 21:
+            nret = n_spot / float(pc_.iloc[-21]) - 1
+    el = elite_scan(ag, inst, C, universe, res.get("trend"), bu_tag, nret, now, session, live)
+    hold = []
+    for r in el["intraday"]:
+        seen("elite", r, now)
+    for r in el["holding"]:
+        hr = dict(r)
+        atr_ = r.get("atr") or r["price"] * 0.02
+        sg = 1 if r["side"] == "CE" else -1
+        hr.update(sl=r["hold_sl"], targets=[round(r["price"] + sg * m * atr_, 2) for m in (1.5, 3, 4.5)], min_days=20, hold=10)
+        seen("eliteh", hr, now)
+        hold.append(hr)
+    pick_options(ag, inst, el["intraday"][:8] + hold[:6])
+    cfg_ = load_settings().get("risk", {})
+    for r in el["intraday"][:8]:
+        attach_plan(r, r.get("option"), now, "Elite intraday")
+    for r in hold[:6]:
+        o_ = r.get("option")
+        if o_ and "none" not in o_:
+            try:
+                o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
+                                       r["sl"], r["targets"], now.to_pydatetime(), o_["lot"],
+                                       cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                       hold_days=7, sl_days=2)
+                from .calls import calibrate_plan
+                calibrate_plan("Elite holding", o_["plan"])
+            except Exception:
+                o_["plan"] = None
+    el["holding"] = hold
+    el["jackpot"] = [r for r in el["intraday"] + hold if r.get("jackpot")]
+    el["time"] = now.strftime("%H:%M")
+    res["elite"] = el
+    try:
+        res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
+                                       elite=[r for r in el["intraday"] if r.get("in_window") and r["confidence"] >= 70],
+                                       elite_hold=[r for r in hold if r["confidence"] >= 70])
+    except Exception:
+        pass
+    return res
