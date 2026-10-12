@@ -51,15 +51,45 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     return c
 
 
+IMPORTANT_KINDS = ("ELITE", "ELITE HOLD", "JACKPOT", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "SWING 5D", "SWING 10D")
+
+
+def guide(c, now):
+    """ஒவ்வொரு call-க்கும் இப்போ என்ன செய்யலாம் — rule-based வழிகாட்டல் (advice இல்லை)."""
+    st, ltp, e = c["status"], c.get("ltp") or 0, c["entry"] or 0
+    mins = now.hour * 60 + now.minute
+    intra = c["kind"] in INTRA or c.get("intraday")
+    tg_ = c.get("targets") or []
+    if st not in OPEN:
+        return "CLOSED", f"முடிந்தது — {st}"
+    if intra and mins >= 15 * 60:
+        return "EXIT", "3:20-க்கு முன் exit பண்ணுங்க (intraday)"
+    if c.get("hold_until") and str(now.date()) >= c["hold_until"]:
+        return "EXIT", "இன்று holding கடைசி நாள் — exit"
+    if any(h.startswith("T2 ") for h in c["hits"]):
+        nxt = f" · அடுத்த target ₹{tg_[2]}" if len(tg_) > 2 else ""
+        return "BOOK", f"T2 ✅ — பெரும்பகுதி book பண்ணுங்க, மீதியை trail பண்ணுங்க{nxt}"
+    if any(h.startswith("T1 ") for h in c["hits"]):
+        return "BOOK", f"T1 ✅ — பாதி book பண்ணுங்க, SL-ஐ entry ₹{e}-க்கு மாத்துங்க"
+    if intra and mins >= 14 * 60 + 45:
+        return "LATE", "நேரம் முடிந்தது — புது entry வேண்டாம்"
+    if e and ltp > e * 1.04:
+        return "LATE", f"Entry-ஐ விட {((ltp / e - 1) * 100):.0f}% மேலே — chase வேண்டாம், pullback-க்கு காத்திருங்க"
+    if e and ltp < e * 0.9:
+        return "WEAK", f"Entry-க்கு கீழே — SL ₹{c['sl']} கவனிங்க, புது entry வேண்டாம்"
+    return "ENTRY", f"Entry zone-க்குள் (₹{e}) — rules படி எடுக்கலாம், SL ₹{c['sl']}"
+
+
 def _close(c, status, price, when):
     c.update(status=status, exit=price, exit_time=when)
     c["pnl_lot"] = round((price - c["entry"]) * c["lot"])
 
 
 def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=(), gu=(),
-                 elite=(), elite_hold=()):
+                 elite=(), elite_hold=(), footprint=()):
     with CALLS_LOCK:
-        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite, elite_hold)
+        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite,
+                             elite_hold, footprint)
 
 
 def _gu_call(sig, now, day):
@@ -87,7 +117,8 @@ def _gu_call(sig, now, day):
     return c
 
 
-def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=()):
+def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=(),
+                  footprint=()):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -150,6 +181,17 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if pl and x.get("confidence") == "OI bias":
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
+    if live and 9 * 60 + 30 <= mins <= 14 * 60 + 30:
+        for x in footprint:   # OI footprint: writers bias உள்ள index — ஒரு index-க்கு ஒரு நாளைக்கு ஒரு call
+            pl = x.get("plan")
+            fk = f"fp_{x['index']}"
+            if not x.get("bias") or not pl or flag.get(fk):
+                continue
+            r = {"symbol": x["index"], "price": x.get("spot"), "sl": pl.get("ul_sl"), "targets": pl.get("ul_targets"),
+                 "stars": 4, "confidence": "OI writers bias", "reasons": [x.get("why", "")]}
+            cid = add(_new("INTRADAY", "OI Footprint", r, pl.get("option"), now, day))
+            if cid:
+                flag[fk] = cid
     if live and mins < 15 * 60 + 15:
         for sig in gu:
             add(_gu_call(sig, now, day))
@@ -219,6 +261,9 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         c["sl"] = c["targets"][0]
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
+                    if c["kind"] in IMPORTANT_KINDS and not gu_:
+                        tg(f"✅ T{i} HIT · {c['kind']} · {c['symbol']} {c['strike']:g} {c['side']} @ ₹{ltp} (entry ₹{c['entry']})\n" +
+                           ("👉 பாதி book பண்ணுங்க, SL → entry" if i == 1 else "👉 பெரும்பகுதி book பண்ணுங்க, மீதியை trail"), f"t{i}|{c['id']}")
                     if gu_:
                         tg(f"GAMMA-UNWIND T{i} HIT ✅ {c['symbol']} {c['strike']} {c['side']} @ {ltp}" + (" · SL → entry" if i == 1 else ""))
                     changed = True
@@ -324,10 +369,39 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     today_rank = sorted([c for c in allc if c["date"] == day], key=lambda c: -c["pnl_lot"])
     best_ids = [c["id"] for c in today_rank[:3] if c["pnl_lot"] > 0]
     today = [c for c in allc if c["date"] == day]
-    return {"today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
+    for c in allc[:400]:
+        c["action"], c["guide"] = guide(c, now)
+    # Segment வாரியாக: இன்று / நேற்று / இந்த வாரம் / இந்த மாதம் / மொத்தம் + நாள் வாரியாக + சமீபத்திய calls
+    dts = sorted({c["date"] for c in allc}, reverse=True)
+    yday = next((d_ for d_ in dts if d_ < day), None)
+    wk = str((pd.Timestamp(day) - pd.Timedelta(days=pd.Timestamp(day).weekday())).date())
+    mo = day[:8] + "01"
+
+    def pstat(rows):
+        cl = [c for c in rows if c["status"] not in OPEN]
+        return {"calls": len(rows), "wins": sum(c["pnl_lot"] > 0 for c in cl), "closed": len(cl),
+                "net": sum(c["pnl_lot"] for c in rows),
+                "win_rate": round(sum(c["pnl_lot"] > 0 for c in cl) / len(cl) * 100) if cl else None}
+    segments = {}
+    for src, rows in by_src.items():
+        daily = {}
+        for c in rows:
+            daily.setdefault(c["date"], []).append(c)
+        segments[src] = {
+            "periods": {"today": pstat([c for c in rows if c["date"] == day]),
+                        "yday": pstat([c for c in rows if c["date"] == yday]) if yday else pstat([]),
+                        "week": pstat([c for c in rows if c["date"] >= wk]),
+                        "month": pstat([c for c in rows if c["date"] >= mo]), "all": pstat(rows)},
+            "daily": [{"date": d_, **pstat(v)} for d_, v in sorted(daily.items(), reverse=True)[:15]],
+            "recent": rows[:30]}
+    seg_rank = sorted([{"source": k, **v["periods"]["all"],
+                        "avg": round(v["periods"]["all"]["net"] / max(v["periods"]["all"]["calls"], 1))}
+                       for k, v in segments.items() if v["periods"]["all"]["closed"] >= 10],
+                      key=lambda x: (-(x["win_rate"] or 0) * 0 - x["avg"]))
+    return {"segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
-            "history": allc[:300], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
+            "history": allc[:150], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
             "store": "GitHub (நிரந்தரம்)" if STORE.remote else "Server disk (restart / deploy-ல் அழியலாம்)",
             "store_error": STORE.error,
             "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}

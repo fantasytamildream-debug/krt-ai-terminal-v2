@@ -654,7 +654,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],
                              elite=[r for r in elite["intraday"] if r.get("in_window") and r["confidence"] >= 70],
-                             elite_hold=[r for r in elite_hold if r["confidence"] >= 70])
+                             elite_hold=[r for r in elite_hold if r["confidence"] >= 70],
+                             footprint=footprint.get("index") or [])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
         errors.append(f"Tracking: {e}")

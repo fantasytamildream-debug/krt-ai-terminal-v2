@@ -465,6 +465,15 @@ def snapshot():
     cons = ST["contracts"]
     lead = sorted([c for c in cons if ((c.get("eval") or {}).get("oi") or {}).get("ok")],
                   key=lambda c: -c["eval"]["oi"]["drop"])[:10]
-    return {"day": ST["day"], "selected": ST["sel"], "last": ST["last"], "zones": ST["zones"], "contracts": cons,
+    why = {k: 0 for k in ("A", "B", "C", "H", "armed", "trigger", "stock")}
+    for c in cons:
+        e = c.get("eval") or {}
+        for k in ("A", "B", "C", "H"):
+            why[k] += bool(e.get(k))
+        why["armed"] += bool(e.get("armed"))
+        why["trigger"] += bool(e.get("trigger"))
+        why["stock"] += bool(e.get("ul_break"))
+    why["total"] = len(cons)
+    return {"why": why, "day": ST["day"], "selected": ST["sel"], "last": ST["last"], "zones": ST["zones"], "contracts": cons,
             "signals": sigs, "armed": [c for c in cons if (c.get("eval") or {}).get("armed")],
             "oi_leaders": lead, "health": ST["health"], "regime": ST["regime"], "entries": ST["entries"], "cfg": CFG}

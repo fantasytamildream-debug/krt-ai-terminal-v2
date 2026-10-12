@@ -389,6 +389,7 @@ function guSection(s){
         if(e.armed_status==="EXPIRED") return '<span class="hint">ARMED expired</span>'; const m=["A","B","C","H"].filter(k=>!e[k]); return m.length===1?`<b style="color:var(--watch)">NEAR ARMED</b> <span class="hint">· ${m[0]}</span>`:`<span class="hint">${4-m.length}/4</span>`}]],
       c=>c.eval&&c.eval.armed?"uprow":(c.eval&&["A","B","C","H"].filter(k=>c.eval[k]).length===3?"nearrow":""));
   return head+`<div class="hint">Selection ${Object.entries(g.selected||{}).map(([k,v])=>k+"→"+v).join(" · ")||"–"} · Last ${esc(g.last||"–")} · இன்று ENTRY ${g.entries||0}/${(g.cfg||{}).max_entries_day||3} · Regime ${esc((g.regime||{}).trend||"–")} · Telegram ${s.telegram?'<b class="up">ON</b>':'OFF'}</div>
+    ${g.why?`<div class="suggest">ஏன் ENTRY இல்லை? ${g.why.total} contracts check ஆனது → A (OI unwind) ✓ ${g.why.A} · B (volume) ✓ ${g.why.B} · <b>C (consolidation) ✓ ${g.why.C}</b> · H ✓ ${g.why.H} · ARMED ${g.why.armed} · trigger ${g.why.trigger} · stock break ✓ ${g.why.stock}. நான்கும் ஒரே contract-ல் ✓ ஆனா தான் ARMED. Expiry gamma (கீழே) expiry நாளில் மட்டும் — அடுத்த expiry calendar பாருங்க.</div>`:""}
     <h3 class="sec">A. Live INTRADAY signals</h3>${intra.length?intra.map(sigCard).join(""):'<div class="empty">இல்லை — தரமான setup இல்லாத நாளில் zero ENTRY தான் சரி.</div>'}
     <h3 class="sec">B. Live HOLDING signals (2–5 days)</h3>${hold.length?hold.map(sigCard).join(""):'<div class="empty">இல்லை.</div>'}
     <h3 class="sec">C. ARMED setups</h3>${(g.armed||[]).length?cTbl(g.armed):'<div class="empty">இல்லை.</div>'}
@@ -428,6 +429,23 @@ function eliteCard(r, mode){
    <div class="hint" style="margin-top:6px"><b>S1 Weekly holding scanner</b></div><div class="chk">${ck(r.s1)}</div>
    <div class="hint" style="margin-top:4px"><b>S2 Final master scanner</b></div><div class="chk">${ck(r.s2)}</div>
    <ul class="reasons">${(r.why||[]).map(w=>`<li>${esc(w)}</li>`).join("")}</ul></div>`;
+}
+const ACT_CLS={ENTRY:"up",BOOK:"up",LATE:"dn",WEAK:"dn",EXIT:"dn",CLOSED:"hint"};
+const ACT_ICON={ENTRY:"🟢 ENTRY OK",BOOK:"💰 BOOK",LATE:"⏭ SKIP",WEAK:"⚠ WATCH SL",EXIT:"🚪 EXIT",CLOSED:"✔ CLOSED"};
+const guideCell=c=>c.action?`<b class="${ACT_CLS[c.action]||''}">${ACT_ICON[c.action]||c.action}</b><div class="hint" style="white-space:normal;max-width:260px">${esc(c.guide||"")}</div>`:"–";
+function segBlock(tr, srcs, title, sideF){
+  const S=(tr.segments||{}); const segs=srcs.map(x=>S[x]).filter(Boolean);
+  if(!segs.length) return `<h2 class="sec">📊 ${esc(title)} — calls & லாபம்</h2><div class="empty">இந்த setup-க்கு இன்னும் calls இல்லை.</div>`;
+  const P=k=>segs.reduce((a,sg)=>{const p=sg.periods[k]||{};a.calls+=p.calls||0;a.net+=p.net||0;a.wins+=p.wins||0;a.closed+=p.closed||0;return a},{calls:0,net:0,wins:0,closed:0});
+  const kp=(lab,k)=>{const p=P(k);return `<div class="kpi"><span>${lab}</span><b class="${p.net>=0?'up':'dn'}">₹${n2(p.net)}</b><span>${p.calls} calls · win ${p.closed?Math.round(p.wins/p.closed*100)+"%":"–"}</span></div>`};
+  let recent=segs.flatMap(sg=>sg.recent||[]); if(sideF) recent=recent.filter(c=>c.side===sideF);
+  recent.sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const dmap={}; segs.forEach(sg=>(sg.daily||[]).forEach(d=>{const x=dmap[d.date]||(dmap[d.date]={date:d.date,calls:0,net:0,wins:0,closed:0});x.calls+=d.calls;x.net+=d.net;x.wins+=d.wins;x.closed+=d.closed}));
+  const daily=Object.values(dmap).sort((a,b)=>b.date.localeCompare(a.date));
+  return `<h2 class="sec">📊 ${esc(title)} — calls & லாபம் (1 lot, paper)</h2>
+   <div class="kpis">${kp("இன்று","today")}${kp("நேற்று","yday")}${kp("இந்த வாரம்","week")}${kp("இந்த மாதம்","month")}${kp("மொத்தம்","all")}</div>
+   <h3 class="sec">நாள் வாரியாக</h3>${simpleTbl(daily,[["Date",d=>esc(d.date.slice(8,10)+"-"+d.date.slice(5,7))],["Calls",d=>d.calls],["Win",d=>d.closed?Math.round(d.wins/d.closed*100)+"%":"–"],["Net P/L",d=>`<b class="${d.net>=0?'up':'dn'}">₹${n2(d.net)}</b>`]], d=>d.net>0?"uprow":d.net<0?"slrow":"")}
+   <h3 class="sec">சமீபத்திய calls${sideF?" ("+sideF+")":""}</h3>${simpleTbl(recent,[["Date",c=>sDate(c.date,c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["இப்போ என்ன செய்யலாம்",guideCell]], callCls)}`;
 }
 function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
 function idxCard(x){
@@ -490,11 +508,13 @@ function renderFull(s){
     <h2 class="sec">Index OI</h2><div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>
     <div class="hint">${f.universe_count} F&O stocks scan ஆனது · ${f.seconds}s · *Vol ratio = இன்றைய volume ÷ 20-நாள் சராசரியின் அதே நேர பங்கு (approx)</div>
     ${(f.errors||[]).map(e=>`<div class="hint">⚠ ${esc(e)}</div>`).join("")}`;
-  $("p-bo").innerHTML = `<div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
-  $("p-bd").innerHTML = `<div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
+  const TR=f.tracking||{};
+  $("p-bo").innerHTML = `<div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}${segBlock(TR,["Breakout/Breakdown"],"Breakout CE","CE")}`;
+  $("p-bd").innerHTML = `<div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}${segBlock(TR,["Breakout/Breakdown"],"Breakdown PE","PE")}`;
   $("p-orb").innerHTML = f.orb_ready ? `<div class="hint">Entry = 5-min high/low break · SL = range மறுபக்கம் · Targets = range-ன் 1×/2×/3×. Top 5-க்கு option plan.</div>
     <h2 class="sec up">முதல் 5-min candle HIGH break (CE)</h2>${list(f.orb_up,"இப்போ எதுவும் இல்லை.")}
     <h2 class="sec dn">முதல் 5-min candle LOW break (PE)</h2>${list(f.orb_dn,"இப்போ எதுவும் இல்லை.")}` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
+  $("p-orb").innerHTML += segBlock(TR,["5-min ORB"],"5-min ORB");
   const bu=f.oi_buildup||{};
   const buCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Fut OI",r=>big(r.oi)],["OI chg",r=>pc(r.oi_chg)]];
   const vp=f.volume_oi_picks||{};
@@ -506,7 +526,7 @@ function renderFull(s){
     <h2 class="sec up">Short covering (விலை ↑ OI ↓)</h2>${simpleTbl(bu["Short Covering"],buCols)}
     <h2 class="sec dn">Short build-up (விலை ↓ OI ↑)</h2>${simpleTbl(bu["Short Built Up"],buCols)}
     <h2 class="sec dn">Long unwinding (விலை ↓ OI ↓)</h2>${simpleTbl(bu["Long Unwinding"],buCols)}
-    <div class="hint">OI buildup என்பது positioning தகவல் — direction guarantee இல்லை.</div>`;
+    <div class="hint">OI buildup என்பது positioning தகவல் — direction guarantee இல்லை.</div>${segBlock(TR,["Volume+OI"],"Volume + OI")}`;
   const pts=f.patterns||[];
   const near=pts.filter(p=>p.status==="NEAR BREAKOUT"), trig=pts.filter(p=>p.status==="TRIGGERED"||p.status==="CONFIRMED");
   $("p-pt").innerHTML = `<div class="hint">Daily chart pivots-ல் இருந்து: Ascending/Descending Triangle, Double Top/Bottom, Head & Shoulders, Inverse H&S, Bull/Bear Flag, Rising/Falling Wedge, Rectangle. FORMING → NEAR BREAKOUT (2%-க்குள்) → TRIGGERED (live) → CONFIRMED (daily close). Pattern = guarantee இல்லை.</div>
@@ -516,6 +536,7 @@ function renderFull(s){
   const fp=f.footprint||{index:[],stocks:[]};
   $("p-fp").innerHTML = `<div class="hint">⚠ உண்மையான institution order-ஐ யாராலும் public data-வில் பார்க்க முடியாது. இது option OI writing (sellers) + futures buildup + அதிக volume வைத்து செய்த ஊகம் (proxy) மட்டும்.</div>
     <h2 class="sec">Index option footprint (இன்று OI மாற்றம்)</h2><div class="idxgrid">${fp.index.map(fpCard).join("")}</div>
+    ${segBlock(f.tracking||{},["OI Footprint"],"OI Footprint index calls")}
     <h2 class="sec">Stock footprint alerts (Volume ≥3× + OI buildup)</h2>${simpleTbl(fp.stocks,[["Time",r=>esc((r.signal_time||"").slice(11))],["Stock",r=>esc(r.symbol)],["Side",r=>`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>`],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Vol",r=>n2(r.vol_ratio)+"×"],["OI",r=>esc(r.oi_tag)]])}`;
   const nw=s.news||{items:[]}, setupSyms=new Set([...(f.best||[]),...(f.ce||[]),...(f.pe||[]),...pts].map(r=>r.symbol));
   BEST=new Set((f.tracking||{}).best_ids||[]);
@@ -530,7 +551,9 @@ function renderFull(s){
     <h2 class="sec">💥 Stock gamma (monthly expiry நாள்)</h2>${gm.stocks.length?gm.stocks.map(gammaCard).join(""):`<div class="empty">இன்று stock expiry setup இல்லை.</div>`}`;
   const guEnt=(((s.gu||{}).data||{}).signals||[]).filter(x=>x.tier==="PRO ENTRY");
   const elJ=((f.elite||{}).jackpot)||[];
-  $("p-lb").innerHTML = `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  const bs=((f.tracking||{}).best_setup)||[];
+  const bsHTML=bs.length?`<div class="suggest">🏆 <b>இப்போது வரை best setup:</b> ${bs.map((b,i)=>`${i+1}. <b>${esc(b.source)}</b> (avg ₹${n2(b.avg)}/call · win ${b.win_rate??"–"}% · ${b.closed} closed)`).join(" &nbsp; ")}<div class="hint">குறைந்தது 10 closed calls உள்ள setups மட்டும், சராசரி லாபம் வைத்து.</div></div>`:"";
+  $("p-lb").innerHTML = bsHTML + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -539,6 +562,12 @@ function renderFull(s){
   const elSt=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
   $("p-el").innerHTML = `<div class="hint">⚡ Last Elite check <b>${esc(el.time||"–")}</b> · ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடத்தில் (9:31, 9:46, 10:01…) தானா ஓடும்.</div><div class="hint">உங்கள் 2 Chartink scanner rules (Angel One data-வில் கணக்கிடப்படுகிறது, completed 15-min candle — repaint இல்லை). <b>S1</b> = GROK BEST ONE HOLDING (weekly) → 1 வாரம்–1 மாதம் holding · <b>S2</b> = FINAL SCANER MASTER → intraday. இரண்டும் pass அல்லது S2 + confidence ≥85 = <b class="up">👑 ELITE JACKPOT</b> (green alert + Telegram). PE = அதே rules தலைகீழ் (mirror).</div>
     <div class="kpis"><div class="kpi"><span>ELITE intraday</span>${elSt(elSm["ELITE"])}</div><div class="kpi"><span>ELITE holding</span>${elSt(elSm["ELITE HOLD"])}</div></div>
+    <h2 class="sec">📋 இன்றைய Elite calls — rank, LTP, target, என்ன செய்யலாம்</h2>
+    ${(()=>{const T=((f.tracking||{}).today||[]).filter(c=>c.kind==="ELITE"||c.kind==="ELITE HOLD");
+      const sc=c=>parseInt(String(c.confidence||"0"))||0; T.sort((a,b)=>sc(b)-sc(a)||b.pnl_lot-a.pnl_lot);
+      return simpleTbl(T,[["#",c=>T.indexOf(c)+1],["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Conf",c=>esc(c.confidence)],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],
+        ["Targets",c=>c.targets.map((t,i)=>`<span class="${c.hits.some(h=>h.startsWith("T"+(i+1)+" "))?'hit':''}">${n2(t)}</span>`).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["இப்போ என்ன செய்யலாம்",guideCell]], callCls)})()}
+    ${segBlock(f.tracking||{},["Elite intraday","Elite holding"],"Elite")}
     <h2 class="sec">🏆 Top Elite calls — ranking</h2>
     ${(()=>{const rows=[...el.intraday.map(r=>({...r,_t:"Intraday"})),...el.holding.map(r=>({...r,_t:"Holding"}))];
       const pr=r=>{const p=(r.option||{}).plan; return p&&p.entry?((p.targets[0]-p.entry)/p.entry*100):null};
@@ -574,7 +603,7 @@ function renderFull(s){
       const sum=H.reduce((a,c)=>a+(c.pnl_lot||0),0), open=H.filter(c=>!["SL HIT","EOD EXIT","TIME EXIT","INVALIDATED","T3 DONE","T5 DONE","T2 DONE","TRAIL SL"].includes(c.status));
       return `<div class="kpis"><div class="kpi"><span>Holding calls</span><b>${H.length}</b></div><div class="kpi"><span>Open</span><b>${open.length}</b></div><div class="kpi"><span>Net P/L (1 lot each)</span><b class="${sum>=0?'up':'dn'}">₹${n2(sum)}</b></div></div>`+
       simpleTbl(H,[["Entry date",c=>sDate(c.date,c.time)],["Type",c=>esc(sType(c.kind))],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Expiry",c=>esc(c.expiry)],["Entry",c=>n2(c.entry)],["LTP / Exit",c=>n2(c.exit??c.ltp)],
-        ["P/L %",c=>{const v=((c.exit??c.ltp)-c.entry)/c.entry*100;return `<b class="${v>=0?'up':'dn'}">${v>=0?"+":""}${n2(v)}%</b>`}],["P/L lot",plCell],["Days",c=>days(c)],["Hold till",c=>esc(c.hold_until||"–")],["Status",statusCell]], callCls)})()}
+        ["P/L %",c=>{const v=((c.exit??c.ltp)-c.entry)/c.entry*100;return `<b class="${v>=0?'up':'dn'}">${v>=0?"+":""}${n2(v)}%</b>`}],["P/L lot",plCell],["Days",c=>days(c)],["Hold till",c=>esc(c.hold_until||"–")],["Status",statusCell],["இப்போ என்ன செய்யலாம்",guideCell]], callCls)})()}
     <div class="hint">5D / 10D swing calls 3:00 PM-க்கு publish ஆன நாள் தான் "Entry date". Entry price = அன்றைய option premium (paper).</div>`;
   $("p-hi").innerHTML = `<div class="hint">Storage: ${esc(tr.store||"")} ${tr.store_error?"· ⚠ "+esc(tr.store_error):""}</div>
     <h2 class="sec">🎯 Target accuracy (setup வாரியாக)</h2>
@@ -591,10 +620,10 @@ function renderFull(s){
     <div class="hint">P/L = ஒவ்வொரு call-க்கும் 1 lot, estimated entry-ல் வாங்கியதாக (paper). Charges / slippage சேர்க்கவில்லை.</div>`;
   $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>புது setup confirm ஆனால் மட்டுமே புது call சேரும். ஏற்கனவே உள்ள call-களின் LTP / T1 / SL ஒவ்வொரு scan-லும் update ஆகும்.</li><li>${esc(tr.note||"")}</li></div>`+
     simpleTbl(tr.today,[["Time",t=>esc(t.time)],["Type",t=>esc(sType(t.kind))],["Source",t=>esc(t.source)],["Call",t=>`<b>${esc(t.symbol+" "+t.strike+" "+t.side)}</b>`],
-      ["Entry",t=>n2(t.entry)],["SL",t=>n2(t.sl)],["Targets",t=>t.targets.map(n2).join(" / ")],["LTP",t=>n2(t.exit??t.ltp)],["P/L lot",plCell],["Status",statusCell],
+      ["Entry",t=>n2(t.entry)],["SL",t=>n2(t.sl)],["Targets",t=>t.targets.map(n2).join(" / ")],["LTP",t=>n2(t.exit??t.ltp)],["P/L lot",plCell],["Status",statusCell],["Guide",guideCell],
       ["Risk",t=>t.risk_ok?"✓":`<span class="skip">SKIP</span>`]], callCls);
   $("p-ix").innerHTML = `<div class="idxgrid">${(f.index||[]).map(idxCard).join("")}</div>${(f.index||[]).map(chainTbl).join("")}
-    <div class="hint">OI chg = இன்று server முதலில் பார்த்த OI-லிருந்து மாற்றம். Max OI = support/resistance என்பது ஒரு பார்வை மட்டும்.</div>`;
+    <div class="hint">OI chg = இன்று server முதலில் பார்த்த OI-லிருந்து மாற்றம். Max OI = support/resistance என்பது ஒரு பார்வை மட்டும்.</div>${segBlock(TR,["Index OI"],"Index OI")}`;
 }
 
 function rowHTML(r){
