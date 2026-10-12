@@ -354,7 +354,10 @@ def restore():
             r["restored"] = d.get("saved")
             STATE.update(full=r, full_last=d.get("saved"))
         import_cache(d.get("cache"))
-        print(" Snapshot restored:", d.get("saved"), flush=True)
+        from krt.store import BARS
+        from krt.fullscan import import_bars
+        ok = import_bars(BARS.load())
+        print(" Snapshot restored:", d.get("saved"), "· bars:", ok, flush=True)
     except Exception:
         traceback.print_exc()
 

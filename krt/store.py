@@ -35,7 +35,13 @@ class Store:
                 if r.status_code == 200:
                     j = r.json()
                     self.sha = j["sha"]
-                    data = json.loads(base64.b64decode(j["content"]).decode("utf-8"))
+                    if j.get("content"):
+                        data = json.loads(base64.b64decode(j["content"]).decode("utf-8"))
+                    else:   # 1MB-க்கு மேல் → raw ஆக எடு
+                        rr = requests.get(f"https://api.github.com/repos/{self.repo}/contents/{self.path}",
+                                          headers={**self._h(), "Accept": "application/vnd.github.raw+json"}, timeout=60)
+                        if rr.status_code == 200:
+                            data = json.loads(rr.text)
                 elif r.status_code != 404:
                     self.error = f"GitHub load {r.status_code}"
             except Exception as e:
@@ -85,4 +91,5 @@ class Store:
 
 
 STORE = Store()
-SNAP = Store("snapshot.json", default={}, min_gap=600)  # கடைசி scan result + daily cache (restart-க்கு பின் உடனே காட்ட)
+SNAP = Store("snapshot.json", default={}, min_gap=600)
+BARS = Store("bars.json", default={}, min_gap=3600)   # 213 stocks daily bars — restart-க்கு பின் 210 API calls தவிர்க்க  # கடைசி scan result + daily cache (restart-க்கு பின் உடனே காட்ட)

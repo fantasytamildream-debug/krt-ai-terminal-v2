@@ -539,6 +539,20 @@ function renderFull(s){
   const elSt=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
   $("p-el").innerHTML = `<div class="hint">⚡ Last Elite check <b>${esc(el.time||"–")}</b> · ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடத்தில் (9:31, 9:46, 10:01…) தானா ஓடும்.</div><div class="hint">உங்கள் 2 Chartink scanner rules (Angel One data-வில் கணக்கிடப்படுகிறது, completed 15-min candle — repaint இல்லை). <b>S1</b> = GROK BEST ONE HOLDING (weekly) → 1 வாரம்–1 மாதம் holding · <b>S2</b> = FINAL SCANER MASTER → intraday. இரண்டும் pass அல்லது S2 + confidence ≥85 = <b class="up">👑 ELITE JACKPOT</b> (green alert + Telegram). PE = அதே rules தலைகீழ் (mirror).</div>
     <div class="kpis"><div class="kpi"><span>ELITE intraday</span>${elSt(elSm["ELITE"])}</div><div class="kpi"><span>ELITE holding</span>${elSt(elSm["ELITE HOLD"])}</div></div>
+    <h2 class="sec">🏆 Top Elite calls — ranking</h2>
+    ${(()=>{const rows=[...el.intraday.map(r=>({...r,_t:"Intraday"})),...el.holding.map(r=>({...r,_t:"Holding"}))];
+      const pr=r=>{const p=(r.option||{}).plan; return p&&p.entry?((p.targets[0]-p.entry)/p.entry*100):null};
+      const pr3=r=>{const p=(r.option||{}).plan; return p&&p.entry?((p.targets[p.targets.length-1]-p.entry)/p.entry*100):null};
+      const tradable=r=>{const o=r.option||{}; return !o.none && o.spread_pct!=null && o.spread_pct<=3 && (o.oi||0)>0};
+      const verdict=r=>{const p=(r.option||{}).plan||{}; if(!tradable(r)) return '<b class="dn">SKIP</b> <span class="hint">option liquidity</span>';
+        if(r.confidence>=80 && p.risk_ok && !r.low_rr) return '<b class="up">TAKE ✓</b>'; if(r.confidence>=70) return '<b style="color:var(--watch)">WATCH</b>'; return '<b class="dn">SKIP</b>'};
+      rows.sort((a,b)=>b.confidence-a.confidence);
+      return simpleTbl(rows,[["#",r=>rows.indexOf(r)+1],["Stock",r=>`<b>${esc(r.symbol)}</b>`],["Side",r=>`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>${r.mirror?' <span class="hint">mirror</span>':''}`],["Type",r=>r._t],
+        ["Confidence",r=>`<b>${r.confidence}%</b>`],["Rating",r=>starHTML(r.stars)],["Volume",r=>n2(r.vol_ratio)+"×"],["Option",r=>{const o=r.option||{};return o.none?"–":`${n2(o.strike)} ${o.type} · spread ${n2(o.spread_pct)}%`}],
+        ["Tradable",r=>tradable(r)?'<span class="up">✓</span>':'<span class="dn">✗</span>'],["Profit potential",r=>pr(r)==null?"–":`T1 +${n2(pr(r))}% · T3 +${n2(pr3(r))}%`],
+        ["R:R",r=>r.rr?("1:"+n2(r.rr)):"–"],["Risk/lot",r=>{const p=(r.option||{}).plan;return p?("₹"+n2(p.risk)):"–"}],["Since",r=>esc((r.signal_time||"").slice(11))],["Verdict",verdict]],
+        r=>verdict(r).includes("TAKE")?"bestrow":"")})()}
+    <div class="hint">Verdict: <b class="up">TAKE</b> = confidence ≥80% + option liquid (spread ≤3%) + risk ≤ ₹2,500 + R:R ≥1 · <b>WATCH</b> = 70–79% · <b>SKIP</b> = மற்றவை. இது rule-based ranking மட்டும் — guarantee இல்லை.</div>
     <h2 class="sec up">👑 ELITE JACKPOT</h2>${el.jackpot.length?el.jackpot.map(r=>eliteCard(r, el.holding.some(h=>h.symbol===r.symbol&&h.side===r.side)?"S1 + S2":"S2 + high confidence")).join(""):'<div class="empty">இப்போ இல்லை — இரண்டு scanner-ம் ஒரே நேரம் pass ஆவது அரிது. அதனால் தான் இது "elite".</div>'}
     <h2 class="sec">⚡ ELITE INTRADAY (S2 pass)</h2>${el.intraday.length?el.intraday.map(r=>eliteCard(r,"Intraday · exit 3:20")).join(""):'<div class="empty">இல்லை.</div>'}
     <h2 class="sec">📅 ELITE HOLDING (S1 pass · 1 வாரம்–1 மாதம்)</h2>${el.holding.length?el.holding.map(r=>eliteCard(r,"Holding · next-month expiry")).join(""):'<div class="empty">இல்லை.</div>'}
@@ -554,7 +568,14 @@ function renderFull(s){
   $("p-sw").innerHTML = `<div class="hint">Daily chart rules: EMA20/EMA50 trend + PDH/PWH/PMH break + relative strength + volume. SL / T1–T5 = ATR அடிப்படையில். ${tr.swing_published?`இன்றைய list ${esc(tr.swing_published)}-க்கு publish ஆனது (saved).`:"3:00 PM-க்கு பிறகு publish + save ஆகும். அதுவரை இது live watchlist."}</div>
     <h2 class="sec">10 days holding</h2>${(swp["10"]||[]).length?swp["10"].map(swingRow).join(""):`<div class="empty">Rules-க்கு பொருந்தும் 10-day pick இல்லை.</div>`}
     <h2 class="sec">5 days holding</h2>${(swp["5"]||[]).length?swp["5"].map(swingRow).join(""):`<div class="empty">Rules-க்கு பொருந்தும் 5-day pick இல்லை.</div>`}
-    <h2 class="sec">Open swing calls (முந்தைய நாட்கள்)</h2>${(tr.swing_open||[]).length?tr.swing_open.map(callCard).join(""):`<div class="empty">Open swing call இல்லை.</div>`}`;
+    <h2 class="sec">📒 Holding calls tracker (எந்த நாள் call · இப்போ லாபமா நஷ்டமா)</h2>
+    ${(()=>{const H=(tr.history||[]).filter(c=>c.hold_until||["SWING 5D","SWING 10D","ELITE HOLD","GU-HOLDING","PATTERN 5D"].includes(c.kind));
+      const days=c=>{const a=new Date(c.date),b=c.exit_time?new Date(String(c.exit_time).slice(0,10)):new Date();return Math.max(0,Math.round((b-a)/864e5))};
+      const sum=H.reduce((a,c)=>a+(c.pnl_lot||0),0), open=H.filter(c=>!["SL HIT","EOD EXIT","TIME EXIT","INVALIDATED","T3 DONE","T5 DONE","T2 DONE","TRAIL SL"].includes(c.status));
+      return `<div class="kpis"><div class="kpi"><span>Holding calls</span><b>${H.length}</b></div><div class="kpi"><span>Open</span><b>${open.length}</b></div><div class="kpi"><span>Net P/L (1 lot each)</span><b class="${sum>=0?'up':'dn'}">₹${n2(sum)}</b></div></div>`+
+      simpleTbl(H,[["Entry date",c=>sDate(c.date,c.time)],["Type",c=>esc(sType(c.kind))],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Expiry",c=>esc(c.expiry)],["Entry",c=>n2(c.entry)],["LTP / Exit",c=>n2(c.exit??c.ltp)],
+        ["P/L %",c=>{const v=((c.exit??c.ltp)-c.entry)/c.entry*100;return `<b class="${v>=0?'up':'dn'}">${v>=0?"+":""}${n2(v)}%</b>`}],["P/L lot",plCell],["Days",c=>days(c)],["Hold till",c=>esc(c.hold_until||"–")],["Status",statusCell]], callCls)})()}
+    <div class="hint">5D / 10D swing calls 3:00 PM-க்கு publish ஆன நாள் தான் "Entry date". Entry price = அன்றைய option premium (paper).</div>`;
   $("p-hi").innerHTML = `<div class="hint">Storage: ${esc(tr.store||"")} ${tr.store_error?"· ⚠ "+esc(tr.store_error):""}</div>
     <h2 class="sec">🎯 Target accuracy (setup வாரியாக)</h2>
     ${simpleTbl(tr.ranking||[],[["Setup",r=>`<b>${esc(r.source)}</b>`],["Calls",r=>r.calls],["T1 hit",r=>(r.t1_rate??0)+"%"],["T2 hit",r=>(r.t2_rate??0)+"%"],["T3 hit",r=>(r.t3_rate??0)+"%"],["SL hit",r=>(r.sl_rate??0)+"%"],

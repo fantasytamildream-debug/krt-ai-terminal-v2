@@ -74,7 +74,7 @@ def ensure_daily(ag, inst, names, session, prog):
         past = df[df.index < session]
         C["avgvol"][n] = float(past["volume"].tail(20).mean()) if len(past) else 0.0
         C["swings"][n] = swing_levels(df, session)
-        tail = past.tail(160)
+        tail = past.tail(130)
         C.setdefault("bars", {})[n] = {"t": [str(x.date()) for x in tail.index], "o": tail["open"].round(2).tolist(),
                                        "h": tail["high"].round(2).tolist(),
                                        "l": tail["low"].round(2).tolist(), "c": tail["close"].round(2).tolist(),
@@ -364,7 +364,17 @@ def run_full(ag, prog=lambda m: None) -> dict:
     qs = ag.quotes(spot_toks)
     session, live, mins = _session(qs.get(INDEX_SPOT["NIFTY"][1]), now)
 
+    _before = len(C.get("bars") or {})
     ensure_daily(ag, inst, names, session, prog)
+    if len(C.get("bars") or {}) > _before:   # புதிதாக எடுத்தது → GitHub-ல் save (restart-க்கு பின் மீண்டும் எடுக்க வேண்டாம்)
+        try:
+            from .store import BARS
+            BARS.load()
+            BARS.data = export_bars()
+            BARS.dirty = True
+            BARS.save(force=True)
+        except Exception as e:
+            errors.append(f"Bars save: {e}")
     has_orb = ensure_orb(ag, inst, names, session, live, now, prog)
     nd = C["nifty_daily"]
     trend = classify(nd, session) if nd is not None and not nd.empty else "UNCLEAR — WAIT"
@@ -921,3 +931,23 @@ def run_elite_fast(ag, res):
     except Exception:
         pass
     return res
+
+
+def export_bars():
+    if C["session"] is None or not C.get("bars"):
+        return None
+    return {"session": str(C["session"].date()), "bars": C["bars"], "levels": C["levels"], "avgvol": C["avgvol"],
+            "swings": C["swings"], "feat": C.get("feat", {})}
+
+
+def import_bars(d):
+    """bars.json → C (அதே session என்றால் மட்டும்)."""
+    if not d or not d.get("bars"):
+        return False
+    s = pd.Timestamp(d["session"])
+    if C["session"] is not None and C["session"] != s:
+        return False
+    C.update(session=s, bars=d["bars"], levels=d.get("levels") or C.get("levels") or {},
+             avgvol=d.get("avgvol") or C.get("avgvol") or {}, swings=d.get("swings") or C.get("swings") or {},
+             feat=d.get("feat") or C.get("feat") or {})
+    return True
