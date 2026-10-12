@@ -74,15 +74,18 @@ def ensure_daily(ag, inst, names, session, prog):
         past = df[df.index < session]
         C["avgvol"][n] = float(past["volume"].tail(20).mean()) if len(past) else 0.0
         C["swings"][n] = swing_levels(df, session)
-        tail = past.tail(100)
-        C.setdefault("bars", {})[n] = {"t": [str(x.date()) for x in tail.index], "h": tail["high"].round(2).tolist(),
+        tail = past.tail(160)
+        C.setdefault("bars", {})[n] = {"t": [str(x.date()) for x in tail.index], "o": tail["open"].round(2).tolist(),
+                                       "h": tail["high"].round(2).tolist(),
                                        "l": tail["low"].round(2).tolist(), "c": tail["close"].round(2).tolist(),
                                        "v": tail["volume"].tolist()}
         c = past["close"]
         if len(c) >= 60:
             e20, e50 = c.ewm(span=20).mean(), c.ewm(span=50).mean()
             tr = pd.concat([past["high"] - past["low"], (past["high"] - c.shift()).abs(), (past["low"] - c.shift()).abs()], axis=1).max(axis=1)
+            e200 = c.ewm(span=200).mean()
             C.setdefault("feat", {})[n] = {"ema20": float(e20.iloc[-1]), "ema50": float(e50.iloc[-1]),
+                                           "ema200": float(e200.iloc[-1]), "n_days": int(len(c)),
                                            "ema20_5": float(e20.iloc[-6]), "atr": float(tr.tail(14).mean()),
                                            "c20": float(c.iloc[-21]), "hi52": float(past["high"].tail(250).max()),
                                            "lo52": float(past["low"].tail(250).min())}
@@ -383,7 +386,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
         orb_up = bool(orb and ltp > orb[0])
         orb_dn = bool(orb and ltp < orb[1])
         universe.append({"symbol": n, "ltp": ltp, "pct": pct, "vol_ratio": vr, "volume": int(vol),
-                         "high": _f(q.get("high")), "low": _f(q.get("low")),
+                         "high": _f(q.get("high")), "low": _f(q.get("low")), "open": op,
                          "orb_up": orb_up, "orb_dn": orb_dn, "orb": orb})
         for side, keys, beyond, gapf in (("CE", UP, lambda l: ltp > l, lambda l: op > l),
                                          ("PE", DN, lambda l: ltp < l, lambda l: op < l)):
@@ -520,9 +523,54 @@ def run_full(ag, prog=lambda m: None) -> dict:
     for p_ in pat_pick:
         p_["min_days"] = 10
 
-    picks = top_ce + top_pe + orb_up[:5] + orb_dn[:5] + voi["CE"] + voi["PE"] + pat_pick
+    # ---- 👑 ELITE (user's 2 Chartink scanners) ----
+    prog("Elite scan")
+    elite = {"intraday": [], "holding": [], "jackpot": [], "almost": [], "checked": 0}
+    elite_hold = []
+    try:
+        from .elite import scan as elite_scan
+        nd_ = C.get("nifty_daily")
+        nret = 0.0
+        if nd_ is not None and not nd_.empty:
+            pc_ = nd_[nd_.index < session]["close"]
+            n_spot = _f((qs.get(INDEX_SPOT["NIFTY"][1]) or {}).get("ltp"))
+            if len(pc_) > 21 and n_spot:
+                nret = n_spot / float(pc_.iloc[-21]) - 1
+        elite = elite_scan(ag, inst, C, universe, trend, bu_tag, nret, now, session, live)
+        for r in elite["intraday"]:
+            seen("elite", r, now)
+        for r in elite["holding"]:
+            hr = dict(r)
+            atr_ = r.get("atr") or r["price"] * 0.02
+            sg = 1 if r["side"] == "CE" else -1
+            hr.update(sl=r["hold_sl"], targets=[round(r["price"] + sg * m * atr_, 2) for m in (1.5, 3, 4.5)],
+                      min_days=20, hold=10)
+            seen("eliteh", hr, now)
+            elite_hold.append(hr)
+        elite["holding"] = elite_hold
+    except Exception as e:
+        errors.append(f"Elite: {e}")
+
+    picks = top_ce + top_pe + orb_up[:5] + orb_dn[:5] + voi["CE"] + voi["PE"] + pat_pick + elite["intraday"][:8] + elite_hold[:6]
     pick_options(ag, inst, picks)
     for r in picks:
+        if any(r is x for x in elite_hold):
+            o_ = r.get("option")
+            if o_ and "none" not in o_:
+                cfg_ = load_settings().get("risk", {})
+                try:
+                    o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
+                                           r["sl"], r["targets"], now.to_pydatetime(), o_["lot"],
+                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                           hold_days=7, sl_days=2)
+                    from .calls import calibrate_plan
+                    calibrate_plan("Elite holding", o_["plan"])
+                except Exception:
+                    o_["plan"] = None
+            continue
+        if any(r is x for x in elite["intraday"]):
+            attach_plan(r, r.get("option"), now, "Elite intraday")
+            continue
         if r in pat_pick:
             o_ = r.get("option")
             if o_ and "none" not in o_:
@@ -594,7 +642,9 @@ def run_full(ag, prog=lambda m: None) -> dict:
     try:
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
-                             gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"])
+                             gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],
+                             elite=[r for r in elite["intraday"] if r.get("in_window") and r["confidence"] >= 70],
+                             elite_hold=[r for r in elite_hold if r["confidence"] >= 70])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
         errors.append(f"Tracking: {e}")
@@ -602,7 +652,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
     for key_ in ("10", "5"):
         for r in swing.get(key_, []):
             seen("swing", r, now)
-    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
+    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "elite": elite, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),

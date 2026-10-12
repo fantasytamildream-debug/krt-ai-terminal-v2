@@ -7,7 +7,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE")
 
 
 def calibrate_plan(source, plan):
@@ -56,9 +56,10 @@ def _close(c, status, price, when):
     c["pnl_lot"] = round((price - c["entry"]) * c["lot"])
 
 
-def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=(), gu=()):
+def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=(), gu=(),
+                 elite=(), elite_hold=()):
     with CALLS_LOCK:
-        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu)
+        return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite, elite_hold)
 
 
 def _gu_call(sig, now, day):
@@ -86,7 +87,7 @@ def _gu_call(sig, now, day):
     return c
 
 
-def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu):
+def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=()):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -104,6 +105,27 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             return c["id"]
 
     mins = now.hour * 60 + now.minute
+    if add and live and mins < 15 * 60 + 15:
+        for r in list(elite) + list(elite_hold):
+            hold = r in elite_hold
+            rr = dict(r)
+            rr["reasons"] = (["👑 ELITE JACKPOT — இரண்டு scanner"] if r.get("jackpot") else []) + (r.get("why") or [])
+            rr["confidence"] = f"{r['confidence']}%"
+            c = _new("ELITE HOLD" if hold else "ELITE", "Elite holding" if hold else "Elite intraday", rr, r.get("option"),
+                     now, day, 10 if hold else 0, session)
+            if c and hold:
+                exp2 = (pd.Timestamp(c["expiry"]) - pd.tseries.offsets.BDay(2)).date()
+                c["hold_until"] = min(c["hold_until"], str(exp2))
+            cid = add(c)
+            if cid and r.get("jackpot"):
+                o = r.get("option") or {}
+                p = o.get("plan") or {}
+                tg("🟢👑 ELITE JACKPOT\n" + f"{r['symbol']} {o.get('strike', ''):g} {r['side']} — {'HOLDING' if hold else 'INTRADAY'}" +
+                   (" (mirror PE)" if r.get("mirror") else "") +
+                   f"\nEntry ₹{p.get('entry')} · SL ₹{p.get('sl')}\n" +
+                   " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(p.get("targets") or [])) +
+                   f"\nConfidence {r['confidence']}% · Expiry {o.get('expiry')}\n" + "\n".join("• " + w for w in r.get("why", [])[:5]) +
+                   "\n(Paper/alert only — not advice)", f"elite|{cid}")
     if add and live and mins < 15 * 60 + 15:
         # Jackpot: ஒரு நாளுக்கு ஒரு CE + ஒரு PE — 4★+, CONFIRMED, liquid option, risk limit உள்ளே
         for side in ("CE", "PE"):
@@ -250,7 +272,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}

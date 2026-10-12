@@ -126,6 +126,11 @@ tr.slrow td{background:rgba(255,107,107,.08)}
 @media (prefers-reduced-motion:no-preference){tr.bestrow td{animation:glow 2s ease-in-out infinite}@keyframes glow{50%{background:rgba(60,207,142,.32)}}}
 .risk{border:1px solid var(--pe);border-radius:10px;padding:12px 14px;background:rgba(255,107,107,.08);font-size:13.5px;margin-bottom:14px}
 .boom{border:1px solid var(--watch)!important;box-shadow:0 0 22px rgba(245,185,66,.35)!important}
+.elite{border:2px solid var(--ce)!important;border-radius:14px;padding:16px!important;margin:12px 0;background:rgba(60,207,142,.08);
+  box-shadow:0 0 0 1px rgba(60,207,142,.5),0 0 30px rgba(60,207,142,.45)}
+@media (prefers-reduced-motion:no-preference){.elite{animation:egl 2.4s ease-in-out infinite}@keyframes egl{50%{box-shadow:0 0 0 1px rgba(60,207,142,.7),0 0 44px rgba(60,207,142,.7)}}}
+.chk{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12.5px;margin-top:6px}
+.chk span{white-space:nowrap}
 .suggest{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,185,66,.1);font-size:13px}
 .idxgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-bottom:22px}
 .idx{border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -169,6 +174,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="lb" aria-selected="true">⚡ Live Board</button>
+    <button role="tab" data-p="el">👑 Elite</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -185,6 +191,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   </nav>
 
   <section class="pane" id="p-lb"></section>
+  <section class="pane" id="p-el" hidden></section>
   <section class="pane" id="p-ov" hidden></section>
   <section class="pane" id="p-bo" hidden></section>
   <section class="pane" id="p-bd" hidden></section>
@@ -408,6 +415,20 @@ function gammaCard(g){
       ${trackHTML(g.name,o)}
       ${st==="TRIGGERED"?"":`<div class="hint">⚠ TRIGGERED ஆகும் வரை entry இல்லை.</div>`}</div>`:""}</div>`;
 }
+function eliteCard(r, mode){
+  const o=r.option||{}, p=o.plan;
+  const ck=(obj)=>Object.entries(obj||{}).map(([k,v])=>`<span class="${v?'up':'dn'}">${v?'✓':'✗'} ${esc(k)}</span>`).join("");
+  const tg=p?p.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join(""):"";
+  return `<div class="row ${r.jackpot?'elite':r.confidence>=70?'strong':''}">
+   <div class="top"><div><span class="sym">${esc(r.symbol)}</span>${starHTML(r.stars)}<span class="strongtag" style="${r.jackpot?'':'background:var(--watch)'}">${esc(r.label)}</span>${r.mirror?'<span class="when">mirror PE</span>':''}${r.signal_time?`<span class="when">⏱ ${esc(r.signal_time.slice(11))}</span>`:""}
+   <span class="lvl">${mode} · ${esc(r.side)}</span></div><span class="status s-CONFIRMED">${r.confidence}% conf</span></div>
+   <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stock SL</span>${n2(r.sl)}</div><div><span>Vol ratio</span>${n2(r.vol_ratio)}×</div><div><span>W RSI / 15m RSI</span>${n2((r.s1_info||{}).w_rsi)} / ${n2((r.s2_info||{}).rsi15)}</div></div>
+   ${(r.targets||[]).length?`<div class="targets">Stock targets: ${r.targets.map((t,i)=>`T${i+1} <b class="num">${n2(t)}</b>`).join(" · ")}</div>`:""}
+   ${o.none?`<div class="opt">${esc(o.none)}</div>`:optHTML(o, r.symbol)}
+   <div class="hint" style="margin-top:6px"><b>S1 Weekly holding scanner</b></div><div class="chk">${ck(r.s1)}</div>
+   <div class="hint" style="margin-top:4px"><b>S2 Final master scanner</b></div><div class="chk">${ck(r.s2)}</div>
+   <ul class="reasons">${(r.why||[]).map(w=>`<li>${esc(w)}</li>`).join("")}</ul></div>`;
+}
 function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
 function idxCard(x){
   if(x.error) return `<div class="idx"><h3>${esc(x.index)}</h3><div class="hint">${esc(x.error)}</div></div>`;
@@ -437,7 +458,7 @@ function simpleTbl(rows, cols, rowCls){
   return `<div class="tbl"><table class="num"><tr>${cols.map(c=>`<th>${c[0]}</th>`).join("")}</tr>${rows.map(r=>`<tr class="${rowCls?rowCls(r):""}">${cols.map(c=>`<td>${c[1](r)}</td>`).join("")}</tr>`).join("")}</table></div>`;
 }
 let BEST=new Set();
-const TYPE_SHORT={"GU-INTRADAY":"GU-I","GU-HOLDING":"GU-H","GAMMA-UNWIND":"GU","INTRADAY":"INT","PATTERN 5D":"PATT","JACKPOT":"JACK","SWING 5D":"SW5","SWING 10D":"SW10","GAMMA":"GAMMA"};
+const TYPE_SHORT={"ELITE":"ELITE","ELITE HOLD":"ELITE-H","GU-INTRADAY":"GU-I","GU-HOLDING":"GU-H","GAMMA-UNWIND":"GU","INTRADAY":"INT","PATTERN 5D":"PATT","JACKPOT":"JACK","SWING 5D":"SW5","SWING 10D":"SW10","GAMMA":"GAMMA"};
 const sType = k => TYPE_SHORT[k]||k;
 const sDate = (d,t) => `${String(d||"").slice(8,10)}-${String(d||"").slice(5,7)} ${esc(t||"")}`;
 const sHits = c => (c.hits||[]).map(h=>{const [k,dd,tt]=h.split(" ");return `${k} ${tt||dd||""}`}).join(", ");
@@ -508,10 +529,21 @@ function renderFull(s){
     <h2 class="sec">💥 Index gamma</h2>${gm.index.length?gm.index.map(gammaCard).join(""):`<div class="empty">இன்று index expiry இல்லை. மேலே calendar பாருங்க.</div>`}
     <h2 class="sec">💥 Stock gamma (monthly expiry நாள்)</h2>${gm.stocks.length?gm.stocks.map(gammaCard).join(""):`<div class="empty">இன்று stock expiry setup இல்லை.</div>`}`;
   const guEnt=(((s.gu||{}).data||{}).signals||[]).filter(x=>x.tier==="PRO ENTRY");
-  $("p-lb").innerHTML = `${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  const elJ=((f.elite||{}).jackpot)||[];
+  $("p-lb").innerHTML = `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
+  const el=f.elite||{intraday:[],holding:[],jackpot:[],almost:[]};
+  const elSm=((f.tracking||{}).summary)||{};
+  const elSt=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
+  $("p-el").innerHTML = `<div class="hint">உங்கள் 2 Chartink scanner rules (Angel One data-வில் கணக்கிடப்படுகிறது, completed 15-min candle — repaint இல்லை). <b>S1</b> = GROK BEST ONE HOLDING (weekly) → 1 வாரம்–1 மாதம் holding · <b>S2</b> = FINAL SCANER MASTER → intraday. இரண்டும் pass அல்லது S2 + confidence ≥85 = <b class="up">👑 ELITE JACKPOT</b> (green alert + Telegram). PE = அதே rules தலைகீழ் (mirror).</div>
+    <div class="kpis"><div class="kpi"><span>ELITE intraday</span>${elSt(elSm["ELITE"])}</div><div class="kpi"><span>ELITE holding</span>${elSt(elSm["ELITE HOLD"])}</div></div>
+    <h2 class="sec up">👑 ELITE JACKPOT</h2>${el.jackpot.length?el.jackpot.map(r=>eliteCard(r, el.holding.some(h=>h.symbol===r.symbol&&h.side===r.side)?"S1 + S2":"S2 + high confidence")).join(""):'<div class="empty">இப்போ இல்லை — இரண்டு scanner-ம் ஒரே நேரம் pass ஆவது அரிது. அதனால் தான் இது "elite".</div>'}
+    <h2 class="sec">⚡ ELITE INTRADAY (S2 pass)</h2>${el.intraday.length?el.intraday.map(r=>eliteCard(r,"Intraday · exit 3:20")).join(""):'<div class="empty">இல்லை.</div>'}
+    <h2 class="sec">📅 ELITE HOLDING (S1 pass · 1 வாரம்–1 மாதம்)</h2>${el.holding.length?el.holding.map(r=>eliteCard(r,"Holding · next-month expiry")).join(""):'<div class="empty">இல்லை.</div>'}
+    <h2 class="sec">👀 Almost (1–2 rule மட்டும் குறைவு)</h2>${(el.almost||[]).length?el.almost.map(r=>eliteCard(r,"Watch only — entry இல்லை")).join(""):'<div class="empty">இல்லை.</div>'}
+    <div class="risk">⚠ 80%+ accuracy எந்த scanner-க்கும் guarantee இல்லை. ELITE calls History-ல் தனியா track ஆகும் — 30+ closed calls-க்கு பிறகு win rate-ஐ பாருங்க.</div>`;
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};
   $("p-jp").innerHTML = `<div class="hint">ஒரு நாளுக்கு அதிகபட்சம் 1 CE + 1 PE. Rule: CONFIRMED + 4★ மேல் + liquid option + risk ₹2,500-க்குள். கிடைக்கலைன்னா jackpot இல்லை — WAIT.</div>
@@ -533,7 +565,7 @@ function renderFull(s){
     ${simpleTbl(tr.ranking||[],[["#",(r)=>(tr.ranking.indexOf(r)+1)],["Setup",r=>esc(r.source)],["Calls",r=>r.calls],["Closed",r=>r.closed],["Win rate",r=>r.win_rate==null?"–":r.win_rate+"%"],["T1 reached",r=>r.t1_rate+"%"],["Avg P/L",r=>`<span class="${r.avg>=0?'up':'dn'}">₹${n2(r.avg)}</span>`],["Net P/L",r=>`<span class="${r.net>=0?'up':'dn'}">₹${n2(r.net)}</span>`]], r=>tr.ranking.indexOf(r)===0&&r.net>0?"bestrow":"")}
     <div class="hint">Green glow = இன்றைய top 3 லாபம் தரும் calls (live-ஆ மாறும்). Light green = இப்போ லாபத்தில் உள்ள open calls. Ranking நம்பகமாக இருக்க குறைந்தது 20–30 closed calls வேண்டும்.</div>
     <h2 class="sec">மொத்தம்</h2>${kpis(sm.ALL)}
-    <div class="kpis">${["JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D","GAMMA","GU-INTRADAY","GU-HOLDING"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
+    <div class="kpis">${["ELITE","ELITE HOLD","JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D","GAMMA","GU-INTRADAY","GU-HOLDING"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
     ${simpleTbl(tr.history,[["Date",c=>sDate(c.date,c.time)],["Type",c=>esc(sType(c.kind))],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["LTP/Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell]], callCls)}
     <div class="hint">P/L = ஒவ்வொரு call-க்கும் 1 lot, estimated entry-ல் வாங்கியதாக (paper). Charges / slippage சேர்க்கவில்லை.</div>`;
   $("p-tr").innerHTML = `<div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>புது setup confirm ஆனால் மட்டுமே புது call சேரும். ஏற்கனவே உள்ள call-களின் LTP / T1 / SL ஒவ்வொரு scan-லும் update ஆகும்.</li><li>${esc(tr.note||"")}</li></div>`+
