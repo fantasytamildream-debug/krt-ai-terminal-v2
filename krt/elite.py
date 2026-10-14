@@ -156,6 +156,7 @@ def scan(ag, inst, C, universe, trend, bu_tag, nifty_ret20, now, session, live, 
             conf += 5; why.append(f"Futures OI: {k}")
         atr = r.get("atr") or 0
         ext = abs(r["price"] - r["f"]["ema20"]) / atr if atr else 0
+        r["ext_atr"] = round(ext, 2)
         if ext <= 2:
             conf += 5; why.append("EMA20-ல் இருந்து அதிக தூரம் இல்லை")
         else:

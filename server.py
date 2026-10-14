@@ -165,6 +165,28 @@ def news_loop():
         time.sleep(60)
 
 
+def power_loop():
+    """🎯 POWER OI: ஒவ்வொரு 5-min candle முடிந்த 3 நிமிடத்தில் (9:33, 9:38…)."""
+    global ANGEL
+    done = None
+    while True:
+        time.sleep(15)
+        try:
+            t = now_ist()
+            slot = t.floor("5min")
+            if not (market_open(t) and angel_configured() and STATE.get("full")) or t.minute % 5 != 3 or done == slot:
+                continue
+            if t.hour * 60 + t.minute < 9 * 60 + 33:
+                continue
+            done = slot
+            from krt.angel_api import Angel
+            from krt.fullscan import run_power
+            ANGEL = ANGEL or Angel()
+            STATE["full"] = run_power(ANGEL, STATE["full"])
+        except Exception:
+            traceback.print_exc()
+
+
 def elite_loop():
     """👑 Elite: ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடத்தில் (9:31, 9:46, 10:01…) — deep scan-க்கு காத்திருக்காது."""
     global ANGEL
@@ -369,6 +391,7 @@ if __name__ == "__main__":
     threading.Thread(target=news_loop, daemon=True).start()
     threading.Thread(target=gu_loop, daemon=True).start()
     threading.Thread(target=elite_loop, daemon=True).start()
+    threading.Thread(target=power_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

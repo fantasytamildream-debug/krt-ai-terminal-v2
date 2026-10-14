@@ -653,8 +653,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],
-                             elite=[r for r in elite["intraday"] if r.get("in_window") and r["confidence"] >= 70],
-                             elite_hold=[r for r in elite_hold if r["confidence"] >= 70],
+                             elite=[r for r in elite["intraday"] if elite_ok(r, now, trend)],
+                             elite_hold=[r for r in elite_hold if r["confidence"] >= 80],
                              footprint=footprint.get("index") or [])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
@@ -858,6 +858,55 @@ def fast_tick(ag, res):
     return res
 
 
+def elite_ok(r, now, trend):
+    """Elite upgrade: 9:45 பிறகு · confidence ≥80 · EMA20-ல் இருந்து ≤1.5 ATR · market regime ஒத்துப்போகணும்."""
+    from .sniper import REGIME
+    mins = now.hour * 60 + now.minute
+    if mins < 9 * 60 + 45 or r.get("confidence", 0) < 80 or (r.get("ext_atr") or 0) > 1.5 or not r.get("in_window", True):
+        return False
+    want = "CE" if r["side"] == "CE" else "PE"
+    if REGIME.get("state"):
+        if REGIME["state"] != "TRENDING":
+            return False
+        return {"UP": "CE", "DOWN": "PE"}.get(REGIME.get("dir")) == want
+    return (trend == "TRENDING UP" and want == "CE") or (trend == "TRENDING DOWN" and want == "PE")
+
+
+def run_power(ag, res):
+    """🎯 POWER OI cycle (5 நிமிடத்துக்கு ஒருமுறை)."""
+    from .sniper import run as sniper_run
+    from .calls import update_calls
+    if not res or not C.get("levels"):
+        return res
+    inst = load_inst(ROOT / "data" / "cache")
+    names = [n for n in inst["fno"] if n in inst["eq"]]
+    toks = {"NSE": [inst["eq"][n] for n in names]}
+    for ex, tok in INDEX_SPOT.values():
+        toks.setdefault(ex, []).append(tok)
+    qs = ag.quotes(toks)
+    now = _now()
+    session, live, mins = _session(qs.get(INDEX_SPOT["NIFTY"][1]), now)
+    share = _vol_share(mins)
+    universe = []
+    for n in names:
+        q = qs.get(inst["eq"][n])
+        if not q:
+            continue
+        avg = C["avgvol"].get(n) or 0
+        vol = _f(q.get("tradeVolume"))
+        universe.append({"symbol": n, "ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")),
+                         "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0})
+    today_calls = ((res.get("tracking") or {}).get("today")) or []
+    pw = sniper_run(ag, inst, C, universe, now, session, contracts, today_calls)
+    res["power"] = pw
+    try:
+        res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
+                                       power=pw["signals"])
+    except Exception:
+        pass
+    return res
+
+
 def run_elite_fast(ag, res):
     """⚡ 15-min candle முடிந்த உடனே Elite மட்டும் (deep scan-க்கு காத்திருக்காமல்) — quotes + 15m candles மட்டும்."""
     from .elite import scan as elite_scan
@@ -927,8 +976,8 @@ def run_elite_fast(ag, res):
     res["elite"] = el
     try:
         res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
-                                       elite=[r for r in el["intraday"] if r.get("in_window") and r["confidence"] >= 70],
-                                       elite_hold=[r for r in hold if r["confidence"] >= 70])
+                                       elite=[r for r in el["intraday"] if elite_ok(r, now, res.get("trend"))],
+                                       elite_hold=[r for r in hold if r["confidence"] >= 80])
     except Exception:
         pass
     return res

@@ -7,7 +7,8 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B")
+SKIPPED = {"day": None, "n": 0, "items": []}
 
 
 def calibrate_plan(source, plan):
@@ -32,6 +33,14 @@ def _f(x):
 def _new(kind, src, r, opt, now, day, hold=0, session=None):
     p = (opt or {}).get("plan")
     if not p or not opt.get("token"):
+        return None
+    if p.get("risk_ok") is False:      # 1 lot risk budget-ஐ தாண்டினா SKIP — track செய்ய மாட்டோம் (executable signal மட்டும்)
+        if SKIPPED["day"] != day:
+            SKIPPED.update(day=day, n=0, items=[])
+        k = f"{kind}|{r.get('symbol')}|{opt.get('contract')}"
+        if k not in SKIPPED["items"]:
+            SKIPPED["items"].append(k)
+            SKIPPED["n"] += 1
         return None
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
     if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
@@ -86,10 +95,10 @@ def _close(c, status, price, when):
 
 
 def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=(), gu=(),
-                 elite=(), elite_hold=(), footprint=()):
+                 elite=(), elite_hold=(), footprint=(), power=()):
     with CALLS_LOCK:
         return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite,
-                             elite_hold, footprint)
+                             elite_hold, footprint, power)
 
 
 def _gu_call(sig, now, day):
@@ -118,7 +127,7 @@ def _gu_call(sig, now, day):
 
 
 def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=(),
-                  footprint=()):
+                  footprint=(), power=()):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -182,6 +191,23 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
     if live and 9 * 60 + 30 <= mins <= 14 * 60 + 30:
+        for r in power:   # 🎯 POWER OI: gates எல்லாம் pass ஆன ENTRY CONFIRMED மட்டும்
+            o = r.get("option")
+            if not o or not o.get("plan"):
+                continue
+            kind = "POWER-B" if r.get("model") == "B" else "POWER-A"
+            rr = {"symbol": r["symbol"], "price": r["ltp"], "sl": r["ul_inval"], "targets": [], "stars": 5,
+                  "confidence": f"{r['grade']} {r['score']}",
+                  "reasons": [f"Model {r['model']} · {r.get('level_name')} {r['level']}", f"Retest {r.get('retest_bar', '–')} · entry bar {r.get('entry_bar', '–')}",
+                              f"RVOL {r['rvol']}× · RS {r['rs_vs_nifty']:+.2f}%"]}
+            c = _new(kind, "POWER OI" if kind == "POWER-A" else "POWER OI (reversal research)", rr, o, now, day)
+            if c:
+                c.update(ul_token=r.get("ul_token"), ul_inval=r["ul_inval"], exit_at=2, trail_after_t1=True,
+                         time_stop=str(now + pd.Timedelta(minutes=5 * 6)))
+                if add(c):
+                    tg(f"🎯 POWER OI {r['grade']} ENTRY · Model {r['model']}\n{r['symbol']} {o['strike']:g} {r['side']} ({o['moneyness']}, Δ {o.get('delta')})\n"
+                       f"Entry ₹{o['plan']['entry']} · SL ₹{o['plan']['sl']} · T1 ₹{o['plan']['targets'][0]} · T2 ₹{o['plan']['targets'][1]} · T3 ₹{o['plan']['targets'][2]}\n"
+                       f"Stock invalidation {r['ul_inval']} · Risk ₹{o['plan']['risk']} · Score {r['score']}\n(Paper/alert only)", f"pw|{c['id']}")
         for x in footprint:   # OI footprint: writers bias உள்ள index — ஒரு index-க்கு ஒரு நாளைக்கு ஒரு call
             pl = x.get("plan")
             fk = f"fp_{x['index']}"
@@ -270,6 +296,26 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if c["status"] == f"T{len(c['targets'])} HIT":
                 _close(c, f"T{len(c['targets'])} DONE", ltp, str(now))
                 continue
+            if c.get("exit_at") and any(h.startswith(f"T{c['exit_at']} ") for h in c["hits"]):
+                _close(c, f"T{c['exit_at']} EXIT", ltp, str(now))
+                changed = True
+                continue
+            if c["kind"].startswith("POWER"):
+                uq = qs.get(c.get("ul_token")) if c.get("ul_token") else None
+                u = _f(uq.get("ltp")) if uq else 0
+                if u and ((u < c["ul_inval"]) if c["side"] == "CE" else (u > c["ul_inval"])):
+                    _close(c, "INVALIDATED", ltp, str(now))
+                    tg(f"❌ POWER OI invalidated: {c['symbol']} {c['strike']:g} {c['side']} @ ₹{ltp} · P/L/lot ₹{c['pnl_lot']}")
+                    changed = True
+                    continue
+                if c.get("time_stop") and str(now) >= c["time_stop"] and not c["hits"] and ltp < c["entry"] * 1.05:
+                    _close(c, "TIME STOP", ltp, str(now))
+                    changed = True
+                    continue
+                if mins >= 15 * 60 + 15:
+                    _close(c, "EOD EXIT", ltp, str(now))
+                    changed = True
+                    continue
             if c["kind"].startswith("GU-") and c.get("zone") and c.get("ul_token"):
                 uq = qs.get(c["ul_token"])
                 u = _f(uq.get("ltp")) if uq else 0
@@ -317,7 +363,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}
@@ -398,7 +444,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         "avg": round(v["periods"]["all"]["net"] / max(v["periods"]["all"]["calls"], 1))}
                        for k, v in segments.items() if v["periods"]["all"]["closed"] >= 10],
                       key=lambda x: (-(x["win_rate"] or 0) * 0 - x["avg"]))
-    return {"segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
+    return {"skipped_today": SKIPPED["n"] if SKIPPED["day"] == day else 0, "segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
             "history": allc[:150], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
