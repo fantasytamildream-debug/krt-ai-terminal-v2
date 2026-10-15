@@ -795,6 +795,10 @@ def fast_tick(ag, res):
         o = it.get("option") or {}
         if o.get("token"):
             toks.setdefault(o["exch"], []).append(o["token"])
+    for a_ in res.get("all_rounder") or []:
+        o_ = a_.get("option") or {}
+        if o_.get("token") and o_.get("exch"):
+            toks.setdefault(o_["exch"], []).append(o_["token"])
     toks = {k: list(dict.fromkeys(v)) for k, v in toks.items()}
     qs = ag.quotes(toks)
     now = _now()
@@ -861,6 +865,18 @@ def fast_tick(ag, res):
         q = qs.get(INDEX_SPOT.get(x.get("index"), (None, None))[1])
         if q:
             x["spot"], x["pct"] = _f(q.get("ltp")), _f(q.get("percentChange"))
+    for a_ in res.get("all_rounder") or []:    # 🏅 All rounder: live stock + option LTP, T1 tick, volume light
+        try:
+            q_ = live_q.get(a_["symbol"])
+            if q_:
+                a_["price"], a_["vol_ratio"] = q_["ltp"], q_["vol_ratio"]
+            o_ = a_.get("option") or {}
+            oq_ = qs.get(o_.get("token")) if o_.get("token") else None
+            if oq_:
+                o_["ltp"] = _f(oq_.get("ltp"))
+            ar_live(a_, now)
+        except Exception:
+            pass
     if g_items:
         from .gamma import retick
         spot_q = {}
@@ -1044,6 +1060,60 @@ AR_PRI = ["POWER OI", "Elite", "Gamma unwind", "Best setup", "Breakout/Breakdown
           "Chart pattern", "Index OI", "OI Footprint"]
 
 
+AR_MAX = {"day": None, "m": {}}
+
+
+def ar_live(a, now=None):
+    """All-rounder row-க்கு live: option LTP, T1/T2/T3 tick (sticky — தொட்டா tick இருக்கும்), SL touch, volume light."""
+    now = now or _now()
+    o = a.get("option") or {}
+    p = o.get("plan") or {}
+    day = str(pd.Timestamp(now).date())
+    if AR_MAX["day"] != day:
+        AR_MAX.update(day=day, m={})
+    ltp = o.get("ltp")
+    if not ltp and o.get("bid") and o.get("ask"):
+        ltp = round((o["bid"] + o["ask"]) / 2, 2)
+    e, sl, tg = p.get("entry"), p.get("sl"), (p.get("targets") or [])[:3]
+    vr = a.get("vol_ratio")
+    hhmm = pd.Timestamp(now).strftime("%H:%M")
+    live = {"ltp": ltp, "vol": vr, "t_hits": [False] * 3, "t_times": [None] * 3, "sl_hit": False, "since": hhmm}
+    key = o.get("contract")
+    if ltp and key:
+        m = AR_MAX["m"].setdefault(key, {"max": ltp, "min": ltp, "t": [None] * 3, "since": hhmm})
+        m["max"], m["min"] = max(m["max"], ltp), min(m["min"], ltp)
+        for i, t in enumerate(tg):
+            if m["t"][i] is None and m["max"] >= t:
+                m["t"][i] = hhmm
+        live.update(t_hits=[x is not None for x in m["t"]], t_times=m["t"], since=m["since"],
+                    sl_hit=bool(sl and m["min"] <= sl))
+    prog = round((ltp - e) / (tg[0] - e) * 100) if (ltp and e and tg and tg[0] > e) else None
+    live["t1_prog"] = prog
+    live["t1_state"] = "HIT" if live["t_hits"][0] else "NEAR" if (prog is not None and prog >= 60) else "WAIT"
+    why = []
+    if not p:
+        light = "red"
+        why.append("Option plan இல்லை")
+    else:
+        ok_risk, ok_rw = bool(p.get("risk_ok")), p.get("reward_ok", True)
+        if live["sl_hit"]:
+            why.append("SL touch ஆச்சு")
+        if not ok_risk:
+            why.append("Risk > ₹2,500")
+        if not ok_rw:
+            why.append("T1 unrealistic")
+        if vr is None:
+            why.append("Volume data இல்லை (index)")
+        else:
+            why.append(f"Volume {vr}× " + ("✓" if vr >= 1.5 else "குறைவு"))
+        bad = live["sl_hit"] or not ok_risk or not ok_rw or (vr is not None and vr < 1.0)
+        light = "red" if bad else ("green" if (vr is not None and vr >= 1.5) else "yellow")
+    live["light"], live["why"] = light, why
+    live["hot"] = light == "green" and live["t1_state"] in ("HIT", "NEAR")
+    a["live"] = live
+    return a
+
+
 def compute_all_rounder(res):
     agg = {}
 
@@ -1055,12 +1125,15 @@ def compute_all_rounder(res):
             a["modules"][mod] = {"strength": strength, "note": note}
         if row and row.get("price") is not None:
             a["price"] = a["price"] or row.get("price")
+        vr_ = (row or {}).get("vol_ratio")
+        if vr_ is not None and (mod != "POWER OI" or a.get("vol_ratio") is None):
+            a["vol_ratio"] = vr_
         o = opt or (row or {}).get("option")
         if o and "none" not in o and o.get("plan") and mod not in a["options"]:
             a["options"][mod] = o
     for r in (res.get("power") or {}).get("rows") or []:
         if r["grade"] in ("A+", "STRONG", "WATCH") and r["state"] in ("ENTRY CONFIRMED", "RETEST HELD", "RETEST PENDING"):
-            add(r["symbol"], r["side"], "POWER OI", {"price": r["ltp"]}, r.get("option"),
+            add(r["symbol"], r["side"], "POWER OI", {"price": r["ltp"], "vol_ratio": r.get("rvol")}, r.get("option"),
                 1.0 if r["state"] == "ENTRY CONFIRMED" else 0.6, f"{r['grade']} {r['score']} · {r['state']}")
     el = res.get("elite") or {}
     for r in (el.get("intraday") or []) + (el.get("holding") or []):
@@ -1085,7 +1158,7 @@ def compute_all_rounder(res):
             add(p["symbol"], p["side"], "Chart pattern", p, None, 1.0 if p["status"] != "NEAR BREAKOUT" else 0.5,
                 f"{p['pattern']} {p['status']}")
     for s in (res.get("footprint") or {}).get("stocks") or []:
-        add(s["symbol"], s["side"], "OI Footprint", {"price": s.get("ltp")}, None, 1.0, s.get("oi_tag", ""))
+        add(s["symbol"], s["side"], "OI Footprint", {"price": s.get("ltp"), "vol_ratio": s.get("vol_ratio")}, None, 1.0, s.get("oi_tag", ""))
     for x in (res.get("footprint") or {}).get("index") or []:
         if x.get("bias") and x.get("plan"):
             add(x["index"], x["bias"], "OI Footprint", {"price": x.get("spot")}, x["plan"].get("option"), 1.0, "writers bias")
@@ -1127,6 +1200,7 @@ def compute_all_rounder(res):
         a["verdict"] = ("TAKE" if n >= 3 and a["confidence"] >= 50 and p.get("risk_ok") and p.get("reward_ok", True) else
                         "WATCH" if n >= 2 and p else "UNDERLYING ONLY")
         a.pop("options")
+        ar_live(a)
         out.append(a)
     out.sort(key=lambda a: (-a["count"], -a["confidence"]))
     res["all_rounder"] = out[:25]

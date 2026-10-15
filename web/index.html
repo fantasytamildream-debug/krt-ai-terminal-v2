@@ -107,6 +107,16 @@ tr.atm td{background:rgba(245,185,66,.08)}
 .skip{color:var(--pe);font-weight:700}
 .jp{border:1px solid var(--watch);border-radius:12px;padding:16px;margin-bottom:16px;background:rgba(245,185,66,.05)}
 .jp h3{margin:0 0 6px;font-size:20px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;color:var(--muted)}
+.pill.on{border-color:var(--ce);color:var(--ce);background:rgba(60,207,142,.1);font-weight:700}
+.headline{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0;font-size:17px;font-weight:800}
+.headline.ok{border-color:var(--ce);background:rgba(60,207,142,.08)} .headline.bad{border-color:var(--pe);background:rgba(255,107,107,.07)}
+.invbox{border:1px solid var(--ce);border-radius:12px;padding:14px 16px;margin:12px 0;background:rgba(60,207,142,.06)}
+.invbox input{background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:140px;font-size:16px;font-weight:700}
+.invbox button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:2px;cursor:pointer}
+.invbig{font-size:22px;font-weight:800}
+details.tech{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0} details.tech summary{cursor:pointer;font-weight:700}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:10px 0 18px}
 .kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .kpi span{display:block;color:var(--muted);font-size:12px}
@@ -454,31 +464,43 @@ function powerPane(f){
   const P=f.power, TR=f.tracking||{};
   const chk=o=>Object.entries(o||{}).map(([k,v])=>`<span class="${v?'up':'dn'}">${v?'✓':'✗'} ${esc(k)}</span>`).join("");
   if(!P) return `<div class="empty">Market நேரத்தில் 9:33-க்கு பிறகு 5 நிமிடத்துக்கு ஒருமுறை ஓடும்.</div>`;
-  const R=P.regime||{};
-  const card=r=>`<div class="row ${r.executable?'elite':r.grade==='STRONG'||r.grade==='A+'?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span>
+  const R=P.regime||{}, H=P.headline||{ok:false,text:"—"}, FN=P.funnel||{};
+  const card=r=>`<div class="row ${r.executable?'elite':'strong'}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span>
       <span class="strongtag" style="${r.grade==='A+'?'':'background:var(--watch)'}">${esc(r.grade)} · ${r.score}</span><span class="when">⏱ ${esc(r.first_seen||"")}</span>
-      <span class="lvl">Model ${r.model}${r.model==='B'?' (reversal · research)':' (trend continuation)'} · ${r.side}</span></div><span class="status ${r.state==='ENTRY CONFIRMED'?'s-CONFIRMED':'s-WATCH'}">${esc(r.state)}</span></div>
+      <span class="lvl">Model ${r.model}${r.model==='B'?' (reversal · research)':' (trend continuation)'} · ${r.side}</span></div><span class="status s-CONFIRMED">${esc(r.state)}</span></div>
     <div class="grid num"><div><span>LTP</span>${n2(r.ltp)}</div><div><span>Level</span>${n2(r.level)} <span class="hint">${esc(r.level_name||"")}</span></div><div><span>Same-slot RVOL</span>${n2(r.rvol)}×</div><div><span>RS vs NIFTY</span>${r.rs_vs_nifty>=0?"+":""}${n2(r.rs_vs_nifty)}%</div></div>
-    <div class="hint">Breakout ${esc(r.breakout_bar||r.sweep_bar||"–")} · Retest ${esc(r.retest_bar||"–")} · Entry bar ${esc(r.entry_bar||"–")} · Ext ${n2(r.ext_atr)} ATR · 15m ${esc(r.trend15)} · RSI5 ${n2(r.rsi5)} · VWAP ${n2(r.vwap)} ${r.fvg?"· FVG ✓":""} ${r.order_block?"· Order block ✓":""} ${r.why?"· "+esc(r.why):""}</div>
     <div class="chk">${Object.entries(r.parts||{}).map(([k,v])=>`<span>${esc(k)} <b>${v}</b></span>`).join("")}</div>
     ${r.gates?`<div class="hint" style="margin-top:6px"><b>Safety gates</b></div><div class="chk">${chk(r.gates)}</div>`:""}
-    ${r.underlying_only?`<div class="opt"><b>${esc(r.underlying_only)}</b></div>`:r.option?`<div class="plan"><div class="buy">BUY ${n2(r.option.strike)} ${r.option.type} <span class="hint">(${esc(r.option.moneyness)} · Δ ${n2(r.option.delta)} · IV ${n2(r.option.iv)}% · expiry ${esc(r.option.expiry)} · lot ${r.option.lot})</span></div>
+    ${r.underlying_only?`<div class="opt"><b>${esc(r.underlying_only)}</b></div>`:r.option?`<div class="plan"><div class="buy">BUY ${n2(r.option.strike)} ${r.option.type} <span class="hint">(${esc(r.option.moneyness)} · Δ ${n2(r.option.delta)} · expiry ${esc(r.option.expiry)} · lot ${r.option.lot})</span></div>
       <div class="hint">Bid ${n2(r.option.bid)} / Ask ${n2(r.option.ask)} · spread ${n2(r.option.spread_pct)}% · ask depth ${big(r.option.ask_depth)} · OI ${big(r.option.oi)}</div>
       ${r.option.plan?`<div class="lv num"><span>Entry ≤ <b>${n2(r.option.plan.entry)}</b></span><span>SL <b class="dn">${n2(r.option.plan.sl)}</b></span>${r.option.plan.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(r.option.plan.risk)}</span>${r.option.plan.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>${moneyLine(r.option.plan)}
-      <div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 bars-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
+      <div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 candle-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
   </div>`;
-  const ent=(P.rows||[]).filter(r=>r.state==="ENTRY CONFIRMED"), pend=(P.rows||[]).filter(r=>["RETEST HELD","RETEST PENDING","BREAKOUT","SWEEP+CHOCH"].includes(r.state)), dead=(P.rows||[]).filter(r=>["EXPIRED","INVALIDATED","WEAK DISPLACEMENT"].includes(r.state));
+  const pills=r=>(r.steps||[]).map((st,i)=>`<span class="pill ${st.ok?'on':''}">${i+1}. ${esc(st.name)} ${st.ok?'✓':'…'}</span>`).join("");
+  const easyRow=r=>`<div class="row ${r.progress>=2?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span> <b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>
+      <span class="hint">Model ${r.model}${r.model==='B'?' (research)':''} · ⏱ ${esc(r.first_seen||"")}</span></div><span class="strongtag" style="background:var(--watch)">${esc(r.grade)} ${r.score}</span></div>
+    <div class="pills">${pills(r)}</div>
+    <div style="margin-top:8px">👉 <b>${esc((r.blockers||[])[0]||"")}</b></div>
+    ${(r.blockers||[]).length>1?`<div class="hint">❌ இன்னும் குறை: ${(r.blockers||[]).slice(1).map(esc).join(" · ")}</div>`:""}
+    <div class="hint">LTP ${n2(r.ltp)} · Level ${n2(r.level)} · Volume ${n2(r.rvol)}×</div></div>`;
+  const rows=P.rows||[];
+  const ent=rows.filter(r=>r.state==="ENTRY CONFIRMED"), live=rows.filter(r=>!r.dead&&r.state!=="ENTRY CONFIRMED").sort((a,b)=>b.progress-a.progress||b.score-a.score), dead=rows.filter(r=>r.dead);
   const st=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
-  const sm=TR.summary||{};
-  return `<div class="risk">🎯 POWER OI = KRT Institutional Sniper V2.0. No setup = No trade. Gates fail = signal இல்லை. Score = alignment மட்டும், win probability இல்லை. BOS/CHOCH/FVG/Order block = price-action proxy, institution நிரூபணம் இல்லை. Sector data இல்லை (NIFTY மட்டும் compare). Backtest இல்லை — paper மட்டும்.</div>
-   <div class="idxgrid"><div class="idx"><h3><span>Market regime</span><span>${esc(R.state||"–")}${R.dir?" "+R.dir:""}</span></h3><div class="hint">ADX ${n2(R.adx)} · EMA slope ${n2(R.slope_atr)} ATR · sep ${n2(R.sep_atr)} · ATR ratio ${n2(R.atr_ratio)} · VWAP crosses ${R.vwap_crosses??"–"}</div>
-     <div style="margin-top:6px;font-weight:800">${R.state==="TRENDING"?`Model A ${P.want_side} மட்டும் allowed`:"Trending இல்லை → Model A trade இல்லை (Model B research மட்டும்)"}</div></div>
-     <div class="idx"><h3><span>Capital protection</span></h3><div class="chk">${chk(P.protect)}</div></div>
-     <div class="idx"><h3><span>Performance (paper)</span></h3><div class="hint">Model A: ${st(sm["POWER-A"])}</div><div class="hint">Model B (research): ${st(sm["POWER-B"])}</div><div class="hint">Last check ${esc(P.last||"–")} · ${P.checked} stocks</div></div></div>
-   <h2 class="sec up">✅ ENTRY CONFIRMED</h2>${ent.length?ent.map(card).join(""):'<div class="empty">இல்லை — No setup = No trade.</div>'}
-   <h2 class="sec">⏳ Setup state (BREAKOUT → RETEST PENDING → RETEST HELD)</h2>${pend.length?pend.map(card).join(""):'<div class="empty">இல்லை.</div>'}
-   <h2 class="sec">Expired / Invalidated</h2>${simpleTbl(dead,[["Stock",r=>esc(r.symbol)],["Model",r=>r.model],["Side",r=>r.side],["Level",r=>n2(r.level)],["State",r=>esc(r.state)],["Why",r=>esc(r.why||"")]])}
-   ${segBlock(TR,["POWER OI"],"POWER OI Model A")}`;
+  const sm=TR.summary||{}, kp=(t,v)=>`<div class="kpi"><span>${t}</span><b>${v}</b></div>`;
+  return `<div class="headline ${H.ok?'ok':'bad'}">${esc(H.text)}
+      <div class="hint" style="font-weight:500;margin-top:6px">POWER OI = 3 படி: <b>① Breakout</b> (level உடைப்பு) → <b>② Retest</b> (திரும்பி level-ஐ தொட்டு தாங்குது) → <b>③ Confirm candle</b>. 3-ம் முடிஞ்சு, safety gates எல்லாம் ✓ ஆனா தான் ENTRY call. இல்லைன்னா "No trade" — அது சரி தான்.</div></div>
+   <div class="kpis">${kp("Check ஆன stocks",FN.checked??P.checked)}${kp("Setup தெரிஞ்சது",FN.setups??0)}${kp("Retest ஆனது",FN.retest??0)}${kp("Confirm ஆனது",FN.confirmed??0)}${kp("Call ஆனது",FN.calls??0)}</div>
+   <h2 class="sec up">✅ ENTRY CONFIRMED (இது தான் call)</h2>${ent.length?ent.map(card).join(""):'<div class="empty">இப்போ இல்லை — No setup = No trade.</div>'}
+   <h2 class="sec">⏳ Setup list — எந்த stock எந்த படியில் இருக்கு</h2>
+   <div class="hint">ஒவ்வொரு stock-க்கும்: 3 படியில் எத்தனை முடிஞ்சுது + <b>என்ன குறை</b> (அதனால் தான் call வரல).</div>
+   ${live.length?live.map(easyRow).join(""):'<div class="empty">இப்போ எந்த stock-லும் breakout / sweep setup இல்லை.</div>'}
+   ${dead.length?`<h3 class="sec">❌ முடிந்த / reject ஆன setups</h3>${simpleTbl(dead,[["Stock",r=>esc(r.symbol)],["Side",r=>r.side],["Model",r=>r.model],["ஏன்",r=>esc((r.blockers||[])[0]||r.state)]])}`:""}
+   <details class="tech"><summary>⚙ Technical details (regime · protection · performance)</summary>
+     <div class="hint">ADX ${n2(R.adx)} · EMA slope ${n2(R.slope_atr)} ATR · separation ${n2(R.sep_atr)} · ATR ratio ${n2(R.atr_ratio)} · VWAP crosses ${R.vwap_crosses??"–"} · NIFTY இன்று ${R.nifty_pct_today>=0?"+":""}${n2(R.nifty_pct_today)}%</div>
+     <div class="chk">${chk(P.protect)}</div>
+     <div class="hint">Model A: ${st(sm["POWER-A"])} · Model B (research): ${st(sm["POWER-B"])} · Last check ${esc(P.last||"–")}</div></details>
+   ${segBlock(TR,["POWER OI","POWER OI (reversal research)"],"POWER OI")}
+   <div class="risk">Score = alignment மட்டும், win probability இல்லை. BOS/CHOCH/FVG/Order block = price-action proxy. Sector data இல்லை. Backtest இல்லை — paper மட்டும்.</div>`;
 }
 function moneyLine(p){
   if(!p||!p.target_rupees) return "";
@@ -488,6 +510,17 @@ function moneyLine(p){
    <div class="hint">Stock போக வேண்டியது → ${lab.map((l,i)=>l+": "+mv(i)).join(" · ")}</div>
    ${p.reward_ok===false?'<div class="skip">⚠ T1 (₹1,200)-க்கே stock அதிகம் போகணும் — realistic இல்லை → SKIP</div>':""}`;
 }
+const lightDot=l=>l==="green"?"🟢":l==="yellow"?"🟡":"🔴";
+function arT1(a){
+  const L=a.live||{}; if(L.t1_state==null) return "–";
+  if(L.t1_state==="HIT") return `<b class="up">T1 ✅</b> <span class="hint">${esc((L.t_times||[])[0]||"")}</span>`;
+  if(L.t1_state==="NEAR") return `<b style="color:var(--watch)">T1 அருகில் ${L.t1_prog}%</b>`;
+  return `<span class="hint">T1 வரை ${L.t1_prog==null?"–":L.t1_prog+"%"}</span>`;
+}
+function arTargets(a){
+  const p=(a.option||{}).plan; if(!p) return "–"; const h=((a.live||{}).t_hits)||[];
+  return (p.targets||[]).map((t,i)=>`<span class="${h[i]?'up':''}">${h[i]?"✅":"○"} ${n2(t)}</span>`).join(" / ");
+}
 function arCard(a){
   const o=a.option||{}, p=o.plan;
   const vc=a.verdict==="TAKE"?'<b class="up">TAKE ✓</b>':a.verdict==="WATCH"?'<b style="color:var(--watch)">WATCH</b>':'<b class="dn">UNDERLYING ONLY</b>';
@@ -496,6 +529,7 @@ function arCard(a){
    <div class="chk">${Object.entries(a.modules).map(([m,v])=>`<span class="${v.strength>=1?'up':''}">✓ <b>${esc(m)}</b> <span class="hint">${esc(v.note||"")}</span></span>`).join("")}</div>
    ${p?`<div class="plan"><div class="buy">BUY ${n2(o.strike)} ${esc(o.type||a.side)} <span class="hint">(${esc(o.moneyness||"")} · expiry ${esc(o.expiry||"")} · lot ${esc(o.lot||"")} · strike from <b>${esc(a.option_from)}</b>)</span></div>
      <div class="lv num"><span>Entry <b>${n2((p.entry_zone||[p.entry])[0])}${p.entry_zone?"–"+n2(p.entry_zone[1]):""}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>${(p.targets||[]).map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(p.risk)}</span>${p.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>
+     ${a.live?`<div class="lv num"><span>${lightDot(a.live.light)} <b>${a.live.light==="green"?"GREEN":a.live.light==="yellow"?"YELLOW":"RED"}</b></span><span>Option LTP <b>${n2(a.live.ltp)}</b></span><span>${arT1(a)}</span><span>Targets ${arTargets(a)}</span></div><div class="hint">${(a.live.why||[]).map(esc).join(" · ")}</div>`:""}
      ${moneyLine(p)}${p.calibrated?`<div class="hint">🎯 Calibrated targets — ${esc(p.calibrated)}</div>`:""}${trackHTML(a.symbol,o)}</div>`:`<div class="opt">Option plan இல்லை — UNDERLYING SETUP ONLY</div>`}
    <div class="hint">Verdict: ${vc} · TAKE = 3+ modules + confidence ≥50% + risk ≤ ₹2,500 + T1 realistic</div></div>`;
 }
@@ -646,8 +680,12 @@ function renderFull(s){
   const AR=f.all_rounder||[], AR3=AR.filter(a=>a.count>=3), AR2=AR.filter(a=>a.count===2);
   $("p-jp").innerHTML = `<h2 class="sec up">🏅 ALL ROUNDER — பல scanner-களிலும் ஒரே நேரம் வந்த stocks</h2>
     <div class="hint">Live Board · POWER OI · Elite · Overview best · Gamma unwind · Swing · OI Footprint · Breakout CE · Breakdown PE · 5-min ORB · Volume+OI · Index OI · Chart pattern — இவற்றில் ஒரே stock + ஒரே side (CE/PE) வந்தால் இங்கே. Strike = அதிக தரமான module-ல் இருந்து (POWER OI → Elite → Gamma → Best → …). Confidence = எத்தனை module + அவற்றின் வலிமை (win probability இல்லை).</div>
-    ${simpleTbl(AR,[["#",a=>AR.indexOf(a)+1],["Stock",a=>`<b>${esc(a.symbol)}</b>`],["Side",a=>`<b class="${a.side==='CE'?'up':'dn'}">${a.side}</b>`],["Modules",a=>a.count],["Confidence",a=>a.confidence+"%"],["Strike",a=>a.option?n2(a.option.strike)+" "+(a.option.type||a.side):"–"],
-      ["Entry",a=>a.option&&a.option.plan?n2(a.option.plan.entry):"–"],["SL",a=>a.option&&a.option.plan?n2(a.option.plan.sl):"–"],["Targets",a=>a.option&&a.option.plan?(a.option.plan.targets||[]).map(n2).join(" / "):"–"],["Verdict",a=>a.verdict==="TAKE"?'<b class="up">TAKE</b>':esc(a.verdict)]], a=>a.verdict==="TAKE"?"bestrow":"")}
+    <div class="hint">🟢 = Volume ≥1.5× + Risk ≤₹2,500 + T1 realistic · 🟡 = Volume 1–1.5× (அல்லது index) · 🔴 = Volume &lt;1× / Risk skip / SL touch. <b>Green glow row</b> = 🟢 + T1 அருகில் (≥60%) அல்லது T1 ✅. Tick ✅ = option LTP அந்த target-ஐ தொட்டுச்சு (sticky).</div>
+    ${simpleTbl(AR,[["#",a=>AR.indexOf(a)+1],["Stock",a=>`<b>${esc(a.symbol)}</b>`],["Side",a=>`<b class="${a.side==='CE'?'up':'dn'}">${a.side}</b>`],["Modules",a=>a.count],["Conf",a=>a.confidence+"%"],
+      ["Strike",a=>a.option?n2(a.option.strike)+" "+(a.option.type||a.side):"–"],["Entry",a=>a.option&&a.option.plan?n2(a.option.plan.entry):"–"],
+      ["LTP",a=>a.live&&a.live.ltp?`<b>${n2(a.live.ltp)}</b>`:"–"],["T1 status",arT1],["SL",a=>a.option&&a.option.plan?n2(a.option.plan.sl):"–"],["Targets ✓",arTargets],
+      ["Volume",a=>a.vol_ratio==null?"<span class=\"hint\">–</span>":n2(a.vol_ratio)+"×"],["Light",a=>a.live?lightDot(a.live.light):"–"],
+      ["Verdict",a=>a.verdict==="TAKE"?'<b class="up">TAKE</b>':esc(a.verdict)]], a=>(a.live&&a.live.hot)?"bestrow":(a.verdict==="TAKE"?"uprow":""))}
     ${AR3.length?AR3.map(arCard).join(""):'<div class="empty">இப்போ 3+ modules-ல் வந்த stock இல்லை.</div>'}
     ${AR2.length?`<h3 class="sec">✌ DOUBLE CONFIRM (2 modules)</h3>${AR2.map(arCard).join("")}`:""}
     ${segBlock(f.tracking||{},["All rounder"],"All rounder")}
@@ -680,13 +718,19 @@ function renderFull(s){
     <div class="kpis">${["ALL ROUNDER","POWER-A","POWER-B","ELITE","ELITE HOLD","JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D","GAMMA","GU-INTRADAY","GU-HOLDING"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
     ${simpleTbl(tr.history,[["Date",c=>sDate(c.date,c.time)],["Type",c=>esc(sType(c.kind))],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["LTP/Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell]], callCls)}
     <div class="hint">P/L = ஒவ்வொரு call-க்கும் 1 lot, estimated entry-ல் வாங்கியதாக (paper). Charges / slippage சேர்க்கவில்லை.</div>`;
-  const TD=tr.today||[], hit=k=>TD.filter(c=>(c.hits||[]).some(h=>h.startsWith(k+" "))).length;
+  const CAP=getCap(); const TD=tr.today||[]; TD_ALL=TD; const hit=k=>TD.filter(c=>(c.hits||[]).some(h=>h.startsWith(k+" "))).length;
   const tnet=TD.reduce((a,c)=>a+(c.pnl_lot||0),0), topR=[...TD].sort((a,b)=>b.pnl_lot-a.pnl_lot);
-  const bySrc={}; TD.forEach(c=>{const k=c.source||c.kind;(bySrc[k]=bySrc[k]||{source:k,calls:0,net:0,sl:0,t1:0});bySrc[k].calls++;bySrc[k].net+=c.pnl_lot||0;bySrc[k].sl+=c.status==="SL HIT";bySrc[k].t1+=(c.hits||[]).some(h=>h.startsWith("T1 "))});
+  const bySrc={}; TD.forEach(c=>{const k=c.source||c.kind;(bySrc[k]=bySrc[k]||{source:k,calls:0,net:0,sl:0,t1:0,inv:0});bySrc[k].calls++;bySrc[k].inv+=(c.entry||0)*(c.lot||0);bySrc[k].net+=c.pnl_lot||0;bySrc[k].sl+=c.status==="SL HIT";bySrc[k].t1+=(c.hits||[]).some(h=>h.startsWith("T1 "))});
   const k_=(t,v,cls)=>`<div class="kpi"><span>${t}</span><b class="${cls||''}">${v}</b></div>`;
   $("p-tr").innerHTML = `<div class="kpis">${k_("Calls",TD.length)}${k_("Net P/L",`₹${n2(tnet)}`,tnet>=0?'up':'dn')}${k_("லாபம் calls",TD.filter(c=>c.pnl_lot>0).length,'up')}${k_("நஷ்டம் calls",TD.filter(c=>c.pnl_lot<0).length,'dn')}${k_("SL hit",TD.filter(c=>c.status==="SL HIT").length,'dn')}${k_("T1 reached",hit("T1"),'up')}${k_("T2 reached",hit("T2"),'up')}${k_("T3 reached",hit("T3"),'up')}${k_("Open",TD.filter(c=>c.status==="OPEN"||/T\d HIT/.test(c.status)).length)}${k_("Risk-க்காக SKIP (track ஆகல)",tr.skipped_today||0)}</div>
-    <h2 class="sec">🏆 இன்றைய top calls (P/L படி)</h2>${simpleTbl(topR.slice(0,10),[["#",c=>topR.indexOf(c)+1],["Time",c=>esc(c.time)],["Source",c=>esc(c.source)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell]], callCls)}
-    <h2 class="sec">Setup வாரியாக இன்று</h2>${simpleTbl(Object.values(bySrc).sort((a,b)=>b.net-a.net),[["Setup",x=>`<b>${esc(x.source)}</b>`],["Calls",x=>x.calls],["T1 reached",x=>x.t1],["SL hit",x=>x.sl],["Net P/L",x=>`<b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`]], x=>x.net>0?"uprow":x.net<0?"slrow":"")}
+    <div class="invbox"><b>💰 இன்றைய ${TD.length} calls-க்கு invest பண்ணிருந்தா?</b>
+      <div style="margin:8px 0">Capital ₹ <input id="capIn" type="number" inputmode="numeric" value="${CAP}" onchange="invSet(this.value)">
+        <button onclick="invSet(50000)">50K</button><button onclick="invSet(100000)">1 லட்சம்</button><button onclick="invSet(200000)">2 லட்சம்</button><button onclick="invSet(500000)">5 லட்சம்</button></div>
+      <div id="invOut">${invHTML(CAP)}</div></div>
+    <h2 class="sec">🏆 இன்றைய எல்லா calls — rank (P/L படி) · ${TD.length} calls</h2>${simpleTbl(topR,[["#",c=>topR.indexOf(c)+1],["Time",c=>esc(c.time)],["Source",c=>esc(c.source)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["LTP",c=>n2(c.exit??c.ltp)],
+      ["1 lot invest",c=>"₹"+n2(Math.round(c.entry*c.lot))],["Return %",c=>{const v=(c.pnl_lot||0)/(c.entry*c.lot)*100;return `<b class="${v>=0?'up':'dn'}">${v>=0?"+":""}${n2(v)}%</b>`}],["P/L lot",plCell],
+      ["Targets",c=>["T1","T2","T3"].map(k=>(c.hits||[]).some(h=>h.startsWith(k+" "))?`<span class="up">${k}✅</span>`:`<span class="hint">${k}○</span>`).join(" ")],["Status",statusCell]], callCls)}
+    <h2 class="sec">Setup வாரியாக இன்று</h2>${simpleTbl(Object.values(bySrc).sort((a,b)=>b.net-a.net),[["Setup",x=>`<b>${esc(x.source)}</b>`],["Calls",x=>x.calls],["T1 reached",x=>x.t1],["SL hit",x=>x.sl],["1 lot invest",x=>"₹"+n2(Math.round(x.inv))],["Return %",x=>x.inv?`<b class="${x.net>=0?'up':'dn'}">${x.net>=0?"+":""}${n2(x.net/x.inv*100)}%</b>`:"–"],["Net P/L",x=>`<b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`]], x=>x.net>0?"uprow":x.net<0?"slrow":"")}
     <h2 class="sec">எல்லா calls</h2><div class="summary"><li>இன்று ${(tr.today||[]).length} calls</li><li>புது setup confirm ஆனால் மட்டுமே புது call சேரும். ஏற்கனவே உள்ள call-களின் LTP / T1 / SL ஒவ்வொரு scan-லும் update ஆகும்.</li><li>${esc(tr.note||"")}</li></div>`+
     simpleTbl(tr.today,[["Time",t=>esc(t.time)],["Type",t=>esc(sType(t.kind))],["Source",t=>esc(t.source)],["Call",t=>`<b>${esc(t.symbol+" "+t.strike+" "+t.side)}</b>`],
       ["Entry",t=>n2(t.entry)],["SL",t=>n2(t.sl)],["Targets",t=>t.targets.map(n2).join(" / ")],["LTP",t=>n2(t.exit??t.ltp)],["P/L lot",plCell],["Status",statusCell],["Guide",guideCell],
@@ -705,6 +749,27 @@ function rowHTML(r){
     <div class="hint">${esc(STATUS_HELP[st]||"")}</div></div>`;
 }
 
+let TD_ALL=[];
+const getCap=()=>{try{return +localStorage.getItem("krt_cap")||100000}catch(e){return 100000}};
+function invHTML(cap){
+  const C2=TD_ALL.filter(c=>c.entry&&c.lot), n=C2.length;
+  if(!n) return '<div class="hint">இன்னும் calls இல்லை.</div>';
+  const per=cap/n, cost=c=>c.entry*c.lot;
+  const roi=C2.reduce((a,c)=>a+per*((c.pnl_lot||0)/cost(c)),0);
+  const ks=C2.map(c=>({c,k:Math.floor(per/cost(c))})), real=ks.reduce((a,x)=>a+x.k*(x.c.pnl_lot||0),0), afford=ks.filter(x=>x.k>=1).length;
+  const realInv=ks.reduce((a,x)=>a+x.k*cost(x.c),0);
+  const inv1=C2.reduce((a,c)=>a+cost(c),0), net1=C2.reduce((a,c)=>a+(c.pnl_lot||0),0);
+  const cl=v=>v>=0?'up':'dn', sg=v=>(v>=0?"+":"-")+"₹"+n2(Math.abs(Math.round(v)));
+  return `<div class="invbig ${cl(roi)}">${sg(roi)} <span class="hint" style="font-weight:600">(${roi>=0?"+":""}${n2(roi/cap*100)}%) → ₹${n2(Math.round(cap+roi))}</span></div>
+    <div class="hint">① <b>சமமாக பிரிச்சு</b>: ${n} calls × ₹${n2(Math.round(per))} வீதம் (lot-ஐ உடைச்சு கணக்கு — தோராயம்)</div>
+    <div style="margin-top:8px">② <b>முழு lot மட்டும்</b>: 1 lot சராசரி ₹${n2(Math.round(inv1/n))} — ₹${n2(Math.round(per))}-ல் ${afford}/${n} calls-க்கு தான் lot வாங்க முடியும் (₹${n2(Math.round(realInv))} invest) → <b class="${cl(real)}">${sg(real)}</b></div>
+    <div style="margin-top:4px">③ <b>ஒவ்வொரு call-லும் 1 lot</b>: ₹${n2(Math.round(inv1))} தேவை → <b class="${cl(net1)}">${sg(net1)}</b> (${net1>=0?"+":""}${n2(net1/inv1*100)}%)</div>
+    <div class="hint" style="margin-top:6px">Paper tracking — LTP target-ஐ தொட்டது = order fill ஆனது என்று இல்லை. Charges / slippage சேர்க்கவில்லை. ${n} calls-ம் எடுக்க முடியும்னு assume பண்ணி கணக்கு — நீங்க எல்லாத்தையும் எடுத்திருக்க மாட்டீங்க.</div>`;
+}
+function invSet(v){
+  v=Math.max(1000,+v||100000); try{localStorage.setItem("krt_cap",String(v))}catch(e){}
+  const i=$("capIn"); if(i) i.value=v; const o=$("invOut"); if(o) o.innerHTML=invHTML(v);
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;

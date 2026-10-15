@@ -84,7 +84,19 @@ def regime(ag, now, session):
         state = "TRENDING"
     else:
         state = "RANGE"
-    out = {"state": state, "dir": ("UP" if up else "DOWN") if state == "TRENDING" else None,
+    rs = []
+    if state == "RANGE":
+        if adx[-1] < 20:
+            rs.append(f"ADX {adx[-1]:.0f} (20 வேணும் — trend வலிமை குறைவு)")
+        if abs(slope) < 0.15:
+            rs.append("EMA slope தட்டை")
+        if abs(sep) < 0.1:
+            rs.append("EMA9 / EMA21 ஒட்டியிருக்கு")
+        if crosses > 3:
+            rs.append(f"NIFTY VWAP-ஐ {crosses} முறை மேல்/கீழ் கடந்திருக்கு (choppy — 3-க்குள் வேணும்)")
+        if (slope > 0) != up and abs(slope) >= 0.15:
+            rs.append("EMA direction ≠ DI direction")
+    out = {"why_range": rs, "state": state, "dir": ("UP" if up else "DOWN") if state == "TRENDING" else None,
            "adx": round(float(adx[-1]), 1), "slope_atr": round(float(slope), 2), "sep_atr": round(float(sep), 2),
            "atr_ratio": round(float(atr_ratio), 2), "vwap_crosses": crosses,
            "nifty_pct_today": round(float((c[-1] / today["open"].iloc[0] - 1) * 100), 2) if len(today) else 0.0}
@@ -259,6 +271,44 @@ def pick_contract(ag, inst, sym, side, spot, now, contracts_fn, lot_only=False):
     return best[1], None
 
 
+
+STATE_TXT = {
+    "BREAKOUT": "Breakout ஆச்சு — retest (level-ஐ மீண்டும் தொடுதல்) வரணும்",
+    "RETEST PENDING": "Price level-க்கு திரும்பி வரணும் (retest) — காத்திருக்கு",
+    "RETEST HELD": "Retest ஆச்சு, level தாங்கிடுச்சு — அடுத்த candle confirm ஆகணும்",
+    "SWEEP+CHOCH": "Sweep + CHOCH ஆச்சு — retest வரணும்",
+    "WEAK DISPLACEMENT": "Move பலவீனம் — இந்த setup reject",
+    "EXPIRED": "6 candle-க்குள் retest வரல — setup காலாவதி",
+    "INVALIDATED": "Price level-க்கு உள்ளே திரும்பிடுச்சு — setup முடிந்தது",
+    "ENTRY CONFIRMED": "Entry confirm ஆச்சு",
+}
+STEP_N = {"BREAKOUT": 1, "RETEST PENDING": 1, "SWEEP+CHOCH": 1, "RETEST HELD": 2, "ENTRY CONFIRMED": 3,
+          "WEAK DISPLACEMENT": 0, "EXPIRED": 0, "INVALIDATED": 0}
+
+
+def easy(row, rg):
+    """எளிய விளக்கம்: 3 படி progress + 'என்ன குறை' list."""
+    st = row["state"]
+    n = STEP_N.get(st, 0)
+    first = "Breakout" if row["model"] == "A" else "Sweep+CHOCH"
+    row["steps"] = [{"name": first, "ok": n >= 1}, {"name": "Retest", "ok": n >= 2}, {"name": "Confirm candle", "ok": n >= 3}]
+    row["progress"] = n
+    row["dead"] = st in ("EXPIRED", "INVALIDATED", "WEAK DISPLACEMENT")
+    b = []
+    if row["model"] == "A" and rg.get("state") != "TRENDING":
+        b.append(f"Market {rg.get('state', '?')} — Model A allowed இல்லை")
+    if st != "ENTRY CONFIRMED":
+        b.append(STATE_TXT.get(st, st))
+    if row["score"] < 80 and not row["dead"]:
+        b.append(f"Score {row['score']} (80 வேணும்)")
+    if row["rvol"] < CFG["rvol_min"] and not row["dead"]:
+        b.append(f"Volume {row['rvol']}× (1.5× வேணும்)")
+    if row["ext_atr"] > CFG["max_ext_atr"] and not row["dead"]:
+        b.append(f"Level-ஐ விட அதிக தூரம் ({row['ext_atr']} ATR) — late")
+    row["blockers"] = b
+    return row
+
+
 # ---------------- main
 def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
     day = str(pd.Timestamp(session).date())
@@ -313,8 +363,8 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
         for side in ("CE", "PE"):
             ce = side == "CE"
             for model in ("A", "B"):
-                if model == "A" and side != want_side:
-                    continue
+                if model == "A" and want_side and side != want_side:
+                    continue            # Trending-ல் direction-க்கு எதிர் side skip. Range-ல் இரண்டு side-ம் "பார்க்க மட்டும்" (call வராது)
                 st = model_a(today, side, atr5, lv) if model == "A" else model_b(today, side, atr5)
                 if not st:
                     continue
@@ -351,6 +401,7 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                                                  "Rel volume": round(rv), "Stock strength": strength, "Momentum/VWAP": mom},
                        "sector": "N/A (sector data இல்லை)"}
                 ST["setups"][key] = {"first_seen": st["first_seen"], "state": st["state"]}
+                easy(row, rg)
                 rows.append(row)
                 if st["state"] != "ENTRY CONFIRMED" or grade == "REJECT" or key in ST["alerts"]:
                     continue
@@ -397,5 +448,17 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
     order = ["ENTRY CONFIRMED", "RETEST HELD", "RETEST PENDING", "SWEEP+CHOCH", "BREAKOUT", "WEAK DISPLACEMENT", "EXPIRED", "INVALIDATED"]
     rows.sort(key=lambda r: (order.index(r["state"]) if r["state"] in order else 9, -r["score"]))
     ST["last"] = now.strftime("%H:%M")
+    if rg.get("state") == "TRENDING":
+        head = {"ok": True, "text": f"✅ Market TRENDING {rg.get('dir')} — Model A {want_side} calls மட்டும் வரலாம்"}
+    elif rg.get("state") == "HIGH-VOL":
+        head = {"ok": False, "text": "⚠ Market HIGH-VOLATILITY — trade வேண்டாம், அமைதியாகும் வரை காத்திருங்க"}
+    elif rg.get("state") == "UNKNOWN":
+        head = {"ok": False, "text": "NIFTY 15-min data இல்லை — POWER OI நிற்கிறது"}
+    else:
+        why_ = "; ".join(rg.get("why_range") or []) or "trend தெளிவா இல்ல"
+        head = {"ok": False, "text": f"🛑 இப்போ Market RANGE — {why_}. அதனால் Model A call வராது. Trending ஆன பிறகு தான் call."}
+    live_rows = [r for r in rows if not r["dead"]]
+    funnel = {"checked": len(stage), "setups": len(live_rows), "retest": sum(r["progress"] >= 2 for r in live_rows),
+              "confirmed": sum(r["state"] == "ENTRY CONFIRMED" for r in rows), "calls": len(signals)}
     return {"regime": rg, "protect": protect, "rows": rows[:40], "signals": signals, "last": ST["last"],
-            "want_side": want_side, "checked": len(stage), "cfg": CFG}
+            "want_side": want_side, "checked": len(stage), "cfg": CFG, "headline": head, "funnel": funnel}
