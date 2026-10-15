@@ -663,11 +663,17 @@ def run_full(ag, prog=lambda m: None) -> dict:
     for key_ in ("10", "5"):
         for r in swing.get(key_, []):
             seen("swing", r, now)
-    return {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "elite": elite, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
+    _res = {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "elite": elite, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
             "oi_buildup": bu, "index": idx, "universe_count": len(universe),
             "errors": errors, "seconds": round(time.time() - t_start)}
+    _res["gu_snap"] = (C.get("_gu_snap") or {})
+    try:
+        compute_all_rounder(_res)
+    except Exception as e:
+        _res.setdefault("errors", []).append(f"All rounder: {e}")
+    return _res
 
 
 
@@ -899,6 +905,11 @@ def run_power(ag, res):
     today_calls = ((res.get("tracking") or {}).get("today")) or []
     pw = sniper_run(ag, inst, C, universe, now, session, contracts, today_calls)
     res["power"] = pw
+    res["gu_snap"] = C.get("_gu_snap") or res.get("gu_snap")
+    try:
+        compute_all_rounder(res)
+    except Exception:
+        pass
     try:
         res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
                                        power=pw["signals"])
@@ -975,6 +986,10 @@ def run_elite_fast(ag, res):
     el["time"] = now.strftime("%H:%M")
     res["elite"] = el
     try:
+        compute_all_rounder(res)
+    except Exception:
+        pass
+    try:
         res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
                                        elite=[r for r in el["intraday"] if elite_ok(r, now, res.get("trend"))],
                                        elite_hold=[r for r in hold if r["confidence"] >= 80])
@@ -1001,3 +1016,105 @@ def import_bars(d):
              avgvol=d.get("avgvol") or C.get("avgvol") or {}, swings=d.get("swings") or C.get("swings") or {},
              feat=d.get("feat") or C.get("feat") or {})
     return True
+
+
+# ---------------- 🏅 ALL ROUNDER: பல module-களில் ஒரே stock + side வந்தால் ----------------
+AR_W = {"POWER OI": 25, "Elite": 20, "Gamma unwind": 20, "Breakout/Breakdown": 15, "Volume+OI": 15, "Swing": 15,
+        "5-min ORB": 10, "Chart pattern": 10, "OI Footprint": 10, "Best setup": 10, "Index OI": 10}
+AR_PRI = ["POWER OI", "Elite", "Gamma unwind", "Best setup", "Breakout/Breakdown", "5-min ORB", "Volume+OI", "Swing",
+          "Chart pattern", "Index OI", "OI Footprint"]
+
+
+def compute_all_rounder(res):
+    agg = {}
+
+    def add(sym, side, mod, row=None, opt=None, strength=1.0, note=""):
+        if not sym or side not in ("CE", "PE"):
+            return
+        a = agg.setdefault(f"{sym}|{side}", {"symbol": sym, "side": side, "modules": {}, "options": {}, "price": None})
+        if mod not in a["modules"] or a["modules"][mod]["strength"] < strength:
+            a["modules"][mod] = {"strength": strength, "note": note}
+        if row and row.get("price") is not None:
+            a["price"] = a["price"] or row.get("price")
+        o = opt or (row or {}).get("option")
+        if o and "none" not in o and o.get("plan") and mod not in a["options"]:
+            a["options"][mod] = o
+    for r in (res.get("power") or {}).get("rows") or []:
+        if r["grade"] in ("A+", "STRONG", "WATCH") and r["state"] in ("ENTRY CONFIRMED", "RETEST HELD", "RETEST PENDING"):
+            add(r["symbol"], r["side"], "POWER OI", {"price": r["ltp"]}, r.get("option"),
+                1.0 if r["state"] == "ENTRY CONFIRMED" else 0.6, f"{r['grade']} {r['score']} · {r['state']}")
+    el = res.get("elite") or {}
+    for r in (el.get("intraday") or []) + (el.get("holding") or []):
+        add(r["symbol"], r["side"], "Elite", r, None, 1.0 if r.get("confidence", 0) >= 80 else 0.6, f"{r.get('confidence')}% conf")
+    for r in res.get("best") or []:
+        add(r["symbol"], r["side"], "Best setup", r, None, 1.0, f"score {r.get('score')}")
+    for r in (res.get("ce") or []) + (res.get("pe") or []):
+        if r.get("status") in ("CONFIRMED", "WATCH"):
+            add(r["symbol"], r["side"], "Breakout/Breakdown", r, None, 1.0 if r["status"] == "CONFIRMED" else 0.5,
+                f"{'+'.join(r.get('levels') or [])} {r['status']}")
+    for r in (res.get("orb_up") or []) + (res.get("orb_dn") or []):
+        if r.get("status") in ("CONFIRMED", "WATCH"):
+            add(r["symbol"], r["side"], "5-min ORB", r, None, 1.0 if r["status"] == "CONFIRMED" else 0.5, r["status"])
+    for side in ("CE", "PE"):
+        for r in (res.get("volume_oi_picks") or {}).get(side, []):
+            add(r["symbol"], side, "Volume+OI", r, None, 1.0, r.get("oi_tag", ""))
+    for k in ("5", "10"):
+        for r in (res.get("swing") or {}).get(k, []):
+            add(r["symbol"], r["side"], "Swing", r, None, 1.0 if r.get("confidence") == "HIGH" else 0.7, f"{k}D hold")
+    for p in res.get("patterns") or []:
+        if p["status"] in ("CONFIRMED", "TRIGGERED", "NEAR BREAKOUT"):
+            add(p["symbol"], p["side"], "Chart pattern", p, None, 1.0 if p["status"] != "NEAR BREAKOUT" else 0.5,
+                f"{p['pattern']} {p['status']}")
+    for s in (res.get("footprint") or {}).get("stocks") or []:
+        add(s["symbol"], s["side"], "OI Footprint", {"price": s.get("ltp")}, None, 1.0, s.get("oi_tag", ""))
+    for x in (res.get("footprint") or {}).get("index") or []:
+        if x.get("bias") and x.get("plan"):
+            add(x["index"], x["bias"], "OI Footprint", {"price": x.get("spot")}, x["plan"].get("option"), 1.0, "writers bias")
+    for x in res.get("index") or []:
+        pl = (x.get("plans") or {}).get(x.get("suggest"))
+        if pl:
+            add(x["index"], x["suggest"], "Index OI", {"price": x.get("spot")}, pl.get("option"),
+                1.0 if x.get("confidence") == "OI bias" else 0.5, x.get("bias", ""))
+    for s in (res.get("gu_snap") or {}).get("signals") or []:
+        if s.get("tier") in ("PRO ENTRY", "STRONG WATCHLIST"):
+            opt = {"token": s["token"], "exch": s["exch"], "contract": s["contract"], "strike": s["strike"], "type": s["side"],
+                   "expiry": s["expiry"], "lot": s["lot"], "moneyness": s.get("pick", ""), "ask": s["entry"],
+                   "plan": {"entry": s["entry"], "entry_zone": s.get("entry_zone"), "sl": s["sl"], "targets": s["targets"],
+                            "risk": s["risk"], "risk_ok": s["risk"] <= 2500}}
+            add(s["symbol"], s["side"], "Gamma unwind", None, opt, 1.0 if s["tier"] == "PRO ENTRY" else 0.6, s["tier"])
+    out = []
+    for a in agg.values():
+        n = len(a["modules"])
+        if n < 2:
+            continue
+        conf = sum(AR_W.get(m, 10) * v["strength"] for m, v in a["modules"].items())
+        a["confidence"] = int(min(99, round(conf)))
+        a["count"] = n
+        a["tag"] = "🏅 ALL ROUNDER" if n >= 3 else "✌ DOUBLE CONFIRM"
+        best = None
+        for m in AR_PRI:
+            o = a["options"].get(m)
+            if o and (o.get("plan") or {}).get("risk_ok"):
+                best = (m, o)
+                break
+        if not best:
+            for m in AR_PRI:
+                if a["options"].get(m):
+                    best = (m, a["options"][m])
+                    break
+        a["option"], a["option_from"] = (best[1], best[0]) if best else (None, None)
+        a["stars"] = 5 if a["confidence"] >= 70 else 4 if a["confidence"] >= 50 else 3
+        p = (a["option"] or {}).get("plan") or {}
+        a["verdict"] = ("TAKE" if n >= 3 and a["confidence"] >= 50 and p.get("risk_ok") else
+                        "WATCH" if n >= 2 and p else "UNDERLYING ONLY")
+        a.pop("options")
+        out.append(a)
+    out.sort(key=lambda a: (-a["count"], -a["confidence"]))
+    res["all_rounder"] = out[:25]
+    try:
+        from .calls import add_all_rounder
+        if res.get("live"):
+            add_all_rounder(out, _now())
+    except Exception:
+        pass
+    return out

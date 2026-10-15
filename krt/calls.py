@@ -7,7 +7,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER")
 SKIPPED = {"day": None, "n": 0, "items": []}
 
 
@@ -363,7 +363,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}
@@ -451,3 +451,38 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             "store": "GitHub (நிரந்தரம்)" if STORE.remote else "Server disk (restart / deploy-ல் அழியலாம்)",
             "store_error": STORE.error,
             "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}
+
+
+
+def add_all_rounder(rows, now):
+    """🏅 ALL ROUNDER (≥3 modules + TAKE) → paper call, ஒரு stock/side-க்கு ஒரு நாளைக்கு ஒன்று."""
+    mins = now.hour * 60 + now.minute
+    if not (9 * 60 + 45 <= mins <= 14 * 60 + 30) or now.weekday() >= 5:
+        return 0
+    n = 0
+    with CALLS_LOCK:
+        d = STORE.load()
+        day = str(now.date())
+        flag = d["published"].setdefault(day, {})
+        for a in rows:
+            if a.get("verdict") != "TAKE":
+                continue
+            k = f"ar_{a['symbol']}_{a['side']}"
+            if flag.get(k):
+                continue
+            o = a.get("option") or {}
+            r = {"symbol": a["symbol"], "price": a.get("price"), "sl": None, "targets": [], "stars": a["stars"],
+                 "confidence": f"{a['confidence']}% · {a['count']} modules",
+                 "reasons": [f"{m}: {v['note']}" for m, v in a["modules"].items()] + [f"Strike from {a.get('option_from')}"]}
+            c = _new("ALL ROUNDER", "All rounder", r, o, now, day)
+            if c and c["id"] not in d["calls"]:
+                d["calls"][c["id"]] = c
+                flag[k] = c["id"]
+                STORE.dirty = True
+                n += 1
+                tg(f"🏅 ALL ROUNDER · {a['count']} modules\n{a['symbol']} {o.get('strike', ''):g} {a['side']}\n"
+                   f"Entry ₹{c['entry']} · SL ₹{c['sl']} · " + " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) +
+                   f"\nConfidence {a['confidence']}% · " + ", ".join(a["modules"].keys()) + "\n(Paper/alert only)", f"ar|{c['id']}")
+        if n:
+            STORE.save(force=True)
+    return n

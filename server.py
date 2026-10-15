@@ -58,6 +58,14 @@ def do_full():
         ANGEL = ANGEL or Angel()
         with API_LOCK:
             res = run_full(ANGEL, lambda m: STATE.update(progress=m))
+        old = STATE.get("full") or {}
+        if old.get("power") and not res.get("power"):
+            res["power"] = old["power"]          # POWER OI தனி loop — deep scan அழிக்கக்கூடாது
+            try:
+                from krt.fullscan import compute_all_rounder
+                compute_all_rounder(res)
+            except Exception:
+                pass
         STATE.update(full=res, full_error=None)
         try:
             from krt.store import SNAP
@@ -137,6 +145,7 @@ def gu_loop():
             entries = [s_ for s_ in snap["signals"] if s_["tier"] == "PRO ENTRY"]
             update_calls(ANGEL, pd.Timestamp(t.date()), t, True, [], [], [], [], {"10": [], "5": []}, add=False, gu=entries)
             GU.update(data=snap, err=None)
+            C["_gu_snap"] = snap
         except Exception as e:
             traceback.print_exc()
             GU["err"] = str(e)
