@@ -45,6 +45,13 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
     if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
         p = calibrate_plan(src, dict(p))
+    if not p.get("money") and r.get("price"):   # safety net — எல்லா calls-க்கும் ₹ targets
+        try:
+            from .optmath import money_targets
+            p = money_targets(dict(p), opt.get("lot"), r["price"], opt.get("strike"), opt.get("expiry"), opt.get("type"),
+                              now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, None, not hold)
+        except Exception:
+            pass
     c = {"id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
          "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],

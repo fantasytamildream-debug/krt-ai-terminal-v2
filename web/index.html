@@ -302,6 +302,7 @@ function optHTML(o, sym){
   return `<div class="plan">${head}${quote}
     <div class="lv num"><span>Entry <b>${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>
     ${p.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}</div>
+    ${moneyLine(p)}
     ${p.calibrated?`<div class="hint">🎯 <b class="up">Calibrated targets</b> — ${esc(p.calibrated)} (model: ${(p.model_targets||[]).map(n2).join(" / ")})</div>`:`<div class="hint">Targets = model estimate (20 closed calls ஆன பின் history வைத்து தானா calibrate ஆகும்)</div>`}
     <div class="lv"><span>1 lot ≈ ₹${n2(p.entry*o.lot)}</span><span>Risk/lot ≈ ₹${n2(p.risk)}</span><span>IV ${n2(p.iv)}%</span>
     ${p.risk_ok?"":`<span class="skip">SKIP — RISK ABOVE ₹2,500</span>`}</div>
@@ -340,7 +341,7 @@ function swingRow(r){
   const opt = o.none?`<div class="opt">${esc(o.none)}</div>`: p?`<div class="plan"><div class="buy">BUY ${esc(o.strike)} ${esc(o.type)} <span class="hint">(${esc(o.moneyness)} · expiry ${esc(o.expiry)} · lot ${esc(o.lot)})</span></div>
     <div class="lv num"><span>Entry <b>${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>${p.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}</div>
     <div class="lv"><span>Risk/lot ≈ ₹${n2(p.risk)}</span><span>IV ${n2(p.iv)}%</span>${p.risk_ok?"":`<span class="skip">RISK ABOVE ₹2,500</span>`}</div>
-    <div class="hint">Premium ESTIMATED — ${r.hold} நாள் theta கழித்து கணக்கு.</div></div>`:"";
+    ${moneyLine(p)}<div class="hint">Premium ESTIMATED — ${r.hold} நாள் theta கழித்து கணக்கு.</div></div>`:"";
   return `<div class="row ${r.strong?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span>${starHTML(r.stars)}${r.strong?'<span class="strongtag">STRONG</span>':''}${r.signal_time?`<span class="when">⏱ ${esc(r.signal_time)}</span>`:""}<span class="lvl">${r.side} · ${esc(r.hold)} days hold · confidence ${esc(r.confidence)}</span></div><span class="status s-CONFIRMED">${esc(r.score)}/100</span></div>
     <div class="grid num"><div><span>Price</span>${n2(r.price)} ${pc(r.pct)}</div><div><span>Stock SL</span>${n2(r.sl)}</div><div><span>ATR</span>${n2(r.atr)}</div><div><span>Vol ratio</span>${n2(r.vol_ratio)}×</div></div>
     <div class="targets">Stock targets: ${r.targets.map((t,i)=>`T${i+1} <b class="num">${n2(t)}</b>`).join(" · ")}</div>
@@ -463,7 +464,7 @@ function powerPane(f){
     ${r.gates?`<div class="hint" style="margin-top:6px"><b>Safety gates</b></div><div class="chk">${chk(r.gates)}</div>`:""}
     ${r.underlying_only?`<div class="opt"><b>${esc(r.underlying_only)}</b></div>`:r.option?`<div class="plan"><div class="buy">BUY ${n2(r.option.strike)} ${r.option.type} <span class="hint">(${esc(r.option.moneyness)} · Δ ${n2(r.option.delta)} · IV ${n2(r.option.iv)}% · expiry ${esc(r.option.expiry)} · lot ${r.option.lot})</span></div>
       <div class="hint">Bid ${n2(r.option.bid)} / Ask ${n2(r.option.ask)} · spread ${n2(r.option.spread_pct)}% · ask depth ${big(r.option.ask_depth)} · OI ${big(r.option.oi)}</div>
-      ${r.option.plan?`<div class="lv num"><span>Entry ≤ <b>${n2(r.option.plan.entry)}</b></span><span>SL <b class="dn">${n2(r.option.plan.sl)}</b></span>${r.option.plan.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b> (+${[20,30,40][i]}%)</span>`).join("")}<span>Risk/lot ₹${n2(r.option.plan.risk)}</span>${r.option.plan.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>
+      ${r.option.plan?`<div class="lv num"><span>Entry ≤ <b>${n2(r.option.plan.entry)}</b></span><span>SL <b class="dn">${n2(r.option.plan.sl)}</b></span>${r.option.plan.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(r.option.plan.risk)}</span>${r.option.plan.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>${moneyLine(r.option.plan)}
       <div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 bars-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
   </div>`;
   const ent=(P.rows||[]).filter(r=>r.state==="ENTRY CONFIRMED"), pend=(P.rows||[]).filter(r=>["RETEST HELD","RETEST PENDING","BREAKOUT","SWEEP+CHOCH"].includes(r.state)), dead=(P.rows||[]).filter(r=>["EXPIRED","INVALIDATED","WEAK DISPLACEMENT"].includes(r.state));
@@ -479,6 +480,14 @@ function powerPane(f){
    <h2 class="sec">Expired / Invalidated</h2>${simpleTbl(dead,[["Stock",r=>esc(r.symbol)],["Model",r=>r.model],["Side",r=>r.side],["Level",r=>n2(r.level)],["State",r=>esc(r.state)],["Why",r=>esc(r.why||"")]])}
    ${segBlock(TR,["POWER OI"],"POWER OI Model A")}`;
 }
+function moneyLine(p){
+  if(!p||!p.target_rupees) return "";
+  const lab=["T1","T2","T3"];
+  const mv=i=>p.ul_needed&&p.ul_needed[i]!=null?`${n2(p.ul_needed[i])}${p.ul_move_atr&&p.ul_move_atr[i]!=null?" ("+n2(p.ul_move_atr[i])+" ATR)":" ("+n2(p.ul_move_pct[i])+"%)"} ${p.feasible&&p.feasible[i]?'<b class="up">✓</b>':'<b class="dn">✗ கடினம்</b>'}`:"–";
+  return `<div class="lv num">${p.target_rupees.map((r,i)=>`<span>${lab[i]} லாபம் <b class="up">₹${n2(r)}</b>/lot</span>`).join("")}<span>R:R (T2) <b>1:${n2(p.rr_t2)}</b></span></div>
+   <div class="hint">Stock போக வேண்டியது → ${lab.map((l,i)=>l+": "+mv(i)).join(" · ")}</div>
+   ${p.reward_ok===false?'<div class="skip">⚠ T1 (₹1,200)-க்கே stock அதிகம் போகணும் — realistic இல்லை → SKIP</div>':""}`;
+}
 function arCard(a){
   const o=a.option||{}, p=o.plan;
   const vc=a.verdict==="TAKE"?'<b class="up">TAKE ✓</b>':a.verdict==="WATCH"?'<b style="color:var(--watch)">WATCH</b>':'<b class="dn">UNDERLYING ONLY</b>';
@@ -487,8 +496,8 @@ function arCard(a){
    <div class="chk">${Object.entries(a.modules).map(([m,v])=>`<span class="${v.strength>=1?'up':''}">✓ <b>${esc(m)}</b> <span class="hint">${esc(v.note||"")}</span></span>`).join("")}</div>
    ${p?`<div class="plan"><div class="buy">BUY ${n2(o.strike)} ${esc(o.type||a.side)} <span class="hint">(${esc(o.moneyness||"")} · expiry ${esc(o.expiry||"")} · lot ${esc(o.lot||"")} · strike from <b>${esc(a.option_from)}</b>)</span></div>
      <div class="lv num"><span>Entry <b>${n2((p.entry_zone||[p.entry])[0])}${p.entry_zone?"–"+n2(p.entry_zone[1]):""}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span>${(p.targets||[]).map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(p.risk)}</span>${p.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>
-     ${p.calibrated?`<div class="hint">🎯 Calibrated targets — ${esc(p.calibrated)}</div>`:""}${trackHTML(a.symbol,o)}</div>`:`<div class="opt">Option plan இல்லை — UNDERLYING SETUP ONLY</div>`}
-   <div class="hint">Verdict: ${vc} · TAKE = 3+ modules + confidence ≥50% + risk ≤ ₹2,500</div></div>`;
+     ${moneyLine(p)}${p.calibrated?`<div class="hint">🎯 Calibrated targets — ${esc(p.calibrated)}</div>`:""}${trackHTML(a.symbol,o)}</div>`:`<div class="opt">Option plan இல்லை — UNDERLYING SETUP ONLY</div>`}
+   <div class="hint">Verdict: ${vc} · TAKE = 3+ modules + confidence ≥50% + risk ≤ ₹2,500 + T1 realistic</div></div>`;
 }
 function list(rows, empty){ return rows&&rows.length? rows.map(setupRow).join("") : `<div class="empty">${empty}</div>` }
 function idxCard(x){

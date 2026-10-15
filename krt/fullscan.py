@@ -196,6 +196,21 @@ def fill_targets(price, sl, side, tg, atr=None):
     return lv, kinds
 
 
+def apply_money(opt, spot, now, atr=None, intraday=True):
+    """எல்லா plan-க்கும்: T1 ≥ ₹1,200 · T2 ≥ ₹3,000 · T3 ≥ ₹6,000 per lot + stock எவ்வளவு போகணும் என்ற realistic check."""
+    from .optmath import money_targets, MONEY
+    if not opt or "none" in opt or not opt.get("plan"):
+        return
+    try:
+        m = load_settings().get("money_targets")
+        if m and len(m) == 3:
+            MONEY["mins"] = tuple(m)
+        money_targets(opt["plan"], opt.get("lot"), spot, opt.get("strike"), opt.get("expiry"), opt.get("type"),
+                      now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, atr, intraday)
+    except Exception:
+        pass
+
+
 def attach_plan(r, opt, now, source=None):
     """r: price, sl, targets, side → opt['plan'] (premium ESTIMATE) + history-calibrated targets."""
     if not opt or "none" in opt:
@@ -217,6 +232,7 @@ def attach_plan(r, opt, now, source=None):
     if source and opt.get("plan"):
         from .calls import calibrate_plan
         calibrate_plan(source, opt["plan"])
+    apply_money(opt, r["price"], now, atr, intraday=not r.get("hold"))
 
 
 def pick_options(ag, inst, rows):
@@ -575,6 +591,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
                                            hold_days=7, sl_days=2)
                     from .calls import calibrate_plan
                     calibrate_plan("Elite holding", o_["plan"])
+                    apply_money(o_, r["price"], now, r.get("atr"), intraday=False)
                 except Exception:
                     o_["plan"] = None
             continue
@@ -592,6 +609,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
                                            hold_days=3, sl_days=1)
                     from .calls import calibrate_plan
                     calibrate_plan("Chart pattern", o_["plan"])
+                    apply_money(o_, r["price"], now, ((C.get("feat") or {}).get(r["symbol"]) or {}).get("atr"), intraday=False)
                 except Exception:
                     o_["plan"] = None
             continue
@@ -979,6 +997,7 @@ def run_elite_fast(ag, res):
                                        hold_days=7, sl_days=2)
                 from .calls import calibrate_plan
                 calibrate_plan("Elite holding", o_["plan"])
+                apply_money(o_, r["price"], now, r.get("atr"), intraday=False)
             except Exception:
                 o_["plan"] = None
     el["holding"] = hold
@@ -1105,7 +1124,7 @@ def compute_all_rounder(res):
         a["option"], a["option_from"] = (best[1], best[0]) if best else (None, None)
         a["stars"] = 5 if a["confidence"] >= 70 else 4 if a["confidence"] >= 50 else 3
         p = (a["option"] or {}).get("plan") or {}
-        a["verdict"] = ("TAKE" if n >= 3 and a["confidence"] >= 50 and p.get("risk_ok") else
+        a["verdict"] = ("TAKE" if n >= 3 and a["confidence"] >= 50 and p.get("risk_ok") and p.get("reward_ok", True) else
                         "WATCH" if n >= 2 and p else "UNDERLYING ONLY")
         a.pop("options")
         out.append(a)

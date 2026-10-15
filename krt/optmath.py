@@ -82,3 +82,71 @@ def greeks_from_price(prem, S, K, expiry_iso, typ, now):
     t1 = max(T - 1 / 365, 1 / (365 * 24))
     theta_pct = (prem - bs(S, K, t1, sig, typ)) / prem * 100 if prem else 0
     return {"iv": round(sig * 100, 1), "delta": round(abs(d), 2), "theta_pct": round(theta_pct, 1)}
+
+
+def solve_spot(target_prem, K, T, sig, typ, spot):
+    """Premium target-ஐ அடைய underlying எவ்வளவு போகணும் (Black-Scholes inverse, bisection)."""
+    lo, hi = (spot * 0.5, spot * 1.5)
+    f = lambda S: bs(S, K, T, sig, typ) - target_prem
+    if typ == "CE":
+        if f(hi) < 0:
+            return None
+        a, b = spot, hi
+    else:
+        if f(lo) < 0:
+            return None
+        a, b = lo, spot
+    for _ in range(60):
+        m = (a + b) / 2
+        fm = f(m)
+        if typ == "CE":
+            a, b = (m, b) if fm < 0 else (a, m)
+        else:
+            a, b = (a, m) if fm < 0 else (m, b)
+    return (a + b) / 2
+
+
+MONEY = {"mins": (1200, 3000, 6000)}   # per lot ₹ — config/settings.yaml-ல் மாற்றலாம்
+
+
+def money_targets(plan, lot, spot, strike, expiry, typ, now, atr=None, intraday=True, mins=None):
+    """Targets குறைந்தது T1 ₹1,200 / T2 ₹3,000 / T3 ₹6,000 per lot. ஒவ்வொரு target-க்கும் stock எவ்வளவு போகணும்,
+    அது realistic-ஆ (intraday ≤0.8 ATR / holding ≤2 ATR) என்று check. Realistic இல்லைன்னா reward_ok = False."""
+    if not plan or not plan.get("entry") or not lot or not spot or plan.get("money"):
+        return plan
+    mins = mins or MONEY["mins"]
+    e = plan["entry"]
+    old = list(plan.get("targets") or [])
+    while len(old) < 3:
+        old.append(old[-1] if old else e)
+    import math as _m
+    need = [round(_m.ceil(round((e + m / lot) / 0.05, 6)) * 0.05, 2) for m in mins]
+    tg = [round(max(o, n), 2) for o, n in zip(old[:3], need)]
+    for i in range(1, 3):
+        if tg[i] <= tg[i - 1]:
+            tg[i] = r05(tg[i - 1] + max(0.05, e * 0.05))
+    try:
+        T = years_to_expiry(expiry, now)
+        sig = iv(e, spot, strike, T, typ)
+        T2 = max(T - (3 / 24 if intraday else 3) / 365, 1 / (365 * 24))
+        ul = [solve_spot(t, strike, T2, sig, typ, spot) for t in tg]
+    except Exception:
+        ul = [None, None, None]
+    lim_atr = 0.8 if intraday else 2.0
+    lim_pct = 1.5 if intraday else 5.0
+    feas = []
+    for S in ul:
+        if S is None:
+            feas.append(False)
+        elif atr:
+            feas.append(abs(S - spot) <= lim_atr * atr)
+        else:
+            feas.append(abs(S - spot) / spot * 100 <= lim_pct)
+    plan.update(money=True, model_targets2=old[:3], targets=tg,
+                target_rupees=[round((t - e) * lot) for t in tg],
+                ul_needed=[round(S, 2) if S else None for S in ul],
+                ul_move_atr=[round(abs(S - spot) / atr, 2) if (S and atr) else None for S in ul],
+                ul_move_pct=[round(abs(S - spot) / spot * 100, 2) if S else None for S in ul],
+                feasible=feas, reward_ok=bool(feas and feas[0]),
+                rr_t2=round(((tg[1] - e) * lot) / max(plan.get("risk") or 1, 1), 2))
+    return plan

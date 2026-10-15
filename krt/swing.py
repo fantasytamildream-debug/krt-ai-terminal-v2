@@ -89,6 +89,8 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
                                   hold_days=r["hold"] * 0.7, sl_days=2)
             from .calls import calibrate_plan
             calibrate_plan("Swing", o["plan"])
+            from .fullscan import apply_money
+            apply_money(o, r["price"], now, r.get("atr"), intraday=False)
         except Exception:
             o["plan"] = None
     return out

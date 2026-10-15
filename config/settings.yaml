@@ -35,3 +35,6 @@ chartink:
   pe_clause: ""
   max_per_side: 25
   fno_only: true       # F&O stocks மட்டும் (option trade-க்கு)
+
+# ஒவ்வொரு call-க்கும் குறைந்தபட்ச லாப target (1 lot, ₹): T1 / T2 / T3
+money_targets: [1200, 3000, 6000]

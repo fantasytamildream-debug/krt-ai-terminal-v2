@@ -383,7 +383,10 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                     opt["plan"] = {"entry": entry, "entry_zone": [opt["ask"], entry], "sl": stop,
                                    "targets": [r05(entry * 1.2), r05(entry * 1.3), r05(entry * 1.4)],
                                    "risk": risk, "risk_ok": risk <= CFG["risk_cap"], "iv": opt.get("iv")}
+                    from .fullscan import apply_money
+                    apply_money(opt, last, now, None, intraday=True)
                     gates["Planned risk ≤ ₹2,500"] = risk <= CFG["risk_cap"]
+                    gates["T1 (₹1,200+) realistic"] = bool(opt["plan"].get("reward_ok"))
                 row["gates"] = gates
                 row["executable"] = all(gates.values()) and grade in ("A+", "STRONG") and model == "A"
                 row["research"] = model == "B"
