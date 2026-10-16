@@ -813,7 +813,8 @@ def fast_tick(ag, res):
             avg = C["avgvol"].get(n) or 0
             vol = _f(q.get("tradeVolume"))
             live_q[n] = {"ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")), "volume": int(vol),
-                         "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0}
+                         "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0,
+                         "high": _f(q.get("high")), "low": _f(q.get("low")), "open": _f(q.get("open"))}
     seen = set()
     for key in ("best", "ce", "pe", "orb_up", "orb_dn", "high_volume"):
         for r in res.get(key) or []:
@@ -866,6 +867,10 @@ def fast_tick(ag, res):
         q = qs.get(INDEX_SPOT.get(x.get("index"), (None, None))[1])
         if q:
             x["spot"], x["pct"] = _f(q.get("ltp")), _f(q.get("percentChange"))
+    try:
+        res["momentum"] = momentum_watch(live_q, now, res.get("trend"), live)
+    except Exception as e:
+        res["momentum_err"] = str(e)
     for a_ in res.get("all_rounder") or []:    # 🏅 All rounder: live stock + option LTP, T1 tick, volume light
         try:
             q_ = live_q.get(a_["symbol"])
@@ -1114,8 +1119,86 @@ def ar_live(a, now=None):
         light = "red" if bad else ("green" if (vr is not None and vr >= 1.5) else "yellow")
     live["light"], live["why"] = light, why
     live["hot"] = light == "green" and live["t1_state"] in ("HIT", "NEAR")
+    # 🟣 ENTRY NOW: green + LTP இன்னும் entry zone-க்குள் + option premium மேலே நகருது + volume ≥2× (rule-based timing)
+    live["entry_now"] = False
+    if key and ltp and e and AR_MAX["m"].get(key) is not None:
+        h_ = AR_MAX["m"][key].setdefault("hist", [])
+        if not h_ or h_[-1] != ltp:
+            h_.append(ltp)
+            del h_[:-6]
+        rising = len(h_) >= 3 and h_[-1] > h_[-3]
+        in_zone = e * 0.97 <= ltp <= e * 1.03
+        live["entry_now"] = bool(light == "green" and in_zone and rising and (vr or 0) >= 2 and not live["t_hits"][0])
+        if live["entry_now"] and not AR_MAX["m"][key].get("purple_sent"):
+            AR_MAX["m"][key]["purple_sent"] = hhmm
+            try:
+                from .telegram import send as _tg
+                _tg(f"🟣 ENTRY NOW · All Rounder\n{a['symbol']} {o.get('strike')} {a['side']} @ ₹{ltp} (entry ₹{e})\n"
+                    f"SL ₹{sl} · T1 ₹{tg[0] if tg else '-'} · Volume {vr}× · premium மேலே நகருது\n(Rule-based timing — paper/alert only)",
+                    f"purple|{key}|{day}")
+            except Exception:
+                pass
     a["live"] = live
     return a
+
+
+MOM = {"day": None, "hist": {}, "sent": set()}
+
+
+def momentum_watch(live_q, now, trend, live=True):
+    """⚡ Momentum Watch — range market-லும் news / volume-ல் வேகமா நகரும் stocks.
+    CE watch (green) = மேலே, PE watch (red) = கீழே. 🟣 ENTRY NOW = day high/low உடைப்பு + 2-min வேகம் + volume ≥2× (rule-based)."""
+    day = str(pd.Timestamp(now).date())
+    if MOM["day"] != day:
+        MOM.update(day=day, hist={}, sent=set())
+    try:
+        from .news import CACHE as NC
+        news = NC.get("items") or []
+    except Exception:
+        news = []
+    cutoff = pd.Timestamp(now).timestamp() - 6 * 3600
+    ts_now = pd.Timestamp(now).timestamp()
+    out = {"CE": [], "PE": []}
+    for n, q in live_q.items():
+        ltp, pct, vr = q.get("ltp"), q.get("pct") or 0, q.get("vol_ratio") or 0
+        if not ltp:
+            continue
+        h = MOM["hist"].setdefault(n, [])
+        h.append((ts_now, ltp))
+        del h[:-12]
+        if abs(pct) < 1.0 or vr < 1.8:
+            continue
+        side = "CE" if pct > 0 else "PE"
+        hi, lo = q.get("high") or ltp, q.get("low") or ltp
+        near = (ltp >= hi * 0.997) if side == "CE" else (ltp <= lo * 1.003)
+        past = [p for t, p in h if ts_now - t >= 100]           # ~2 நிமிடம் முன்
+        vel = round((ltp / past[-1] - 1) * 100, 2) if past else 0.0
+        nw = next((x for x in news if n in (x.get("symbols") or []) and (x.get("ts") or 0) >= cutoff), None)
+        news_ok = bool(nw and ((nw["tag"] == "POSITIVE") if side == "CE" else (nw["tag"] == "NEGATIVE")))
+        sc = min(vr / 4, 1) * 35 + min(abs(pct) / 3, 1) * 25 + (20 if near else 0) + (10 if news_ok else 0) + \
+            (10 if (vel >= 0.2 if side == "CE" else vel <= -0.2) else 0)
+        late = abs(pct) > 4.5
+        entry_now = bool(near and vr >= 2 and (vel >= 0.25 if side == "CE" else vel <= -0.25) and not late)
+        row = {"symbol": n, "side": side, "ltp": ltp, "pct": pct, "vol_ratio": vr, "near": near, "vel_2m": vel,
+               "score": int(sc), "late": late, "entry_now": entry_now, "high": hi, "low": lo,
+               "news": ({"title": nw["title"], "tag": nw["tag"], "time": nw.get("time"), "link": nw.get("link")} if nw else None)}
+        out[side].append(row)
+        if entry_now and live and (n, side) not in MOM["sent"]:
+            MOM["sent"].add((n, side))
+            row["alert_time"] = pd.Timestamp(now).strftime("%H:%M")
+            try:
+                from .telegram import send as _tg
+                _tg(f"🟣 ENTRY NOW (momentum) · {n} {side}\nLTP {ltp} ({pct:+.2f}%) · Volume {vr}× · 2-min {vel:+.2f}%\n"
+                    f"{'Day high' if side == 'CE' else 'Day low'} உடைக்குது" + (f"\n📰 {nw['title'][:90]}" if nw else "") +
+                    "\n(Watch list — strike-ஐ chart-ல் பார்த்து முடிவு. Rule-based, guarantee இல்லை)", f"mom|{n}|{side}|{day}")
+            except Exception:
+                pass
+    for k in out:
+        out[k].sort(key=lambda r: (-r["entry_now"], -r["score"]))
+        out[k] = out[k][:8]
+    out["time"] = pd.Timestamp(now).strftime("%H:%M")
+    out["trend"] = trend
+    return out
 
 
 def compute_all_rounder(res):

@@ -286,7 +286,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             r["confidence"] = f"{p.get('stars', 0)}★"
             add(_new("PATTERN 5D", "Chart pattern", r, p.get("option"), now, day, 5, session))
     # Swing: 3:00 PM-க்கு பிறகு ஒரு முறை publish (அன்றைய close அருகில் confirm)
-    if add and live and 14 * 60 + 45 <= mins <= 15 * 60 + 25 and not flag.get("swing"):
+    if add and live and 14 * 60 + 30 <= mins <= 15 * 60 + 25 and not flag.get("swing"):
         n_ = 0
         for key in ("10", "5"):
             for r in swing.get(key, []):

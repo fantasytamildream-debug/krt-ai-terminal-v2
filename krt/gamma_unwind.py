@@ -11,7 +11,7 @@ from .telegram import send as tg
 
 CFG = {
     "approach_base": 2.5,        # % (configurable baseline)
-    "oi_drop": 7.0,              # % from session peak
+    "oi_drop": 5.0,              # % from session peak
     "max_contracts": 20,
     "max_entries_day": 3,
     "stock_cooldown_min": 60,
@@ -294,7 +294,7 @@ def evaluate(ag, c, now, ul, q, regime):
     prior = (h[-19:-7].max() - l[-19:-7].min()) if len(h) >= 19 else rng6
     ev["C"] = bool(atr14 and (rng6 <= 1.5 * atr14 or (prior and rng6 / prior <= 0.6)))
     ev["H"] = bool((v[-7:] > 0).all() and avg20 > 0 and (cl > 0).all())
-    ev["armed"] = ev["A"] and ev["B"] and ev["C"] and ev["H"]
+    ev["armed"] = ev["A"] and (ev["B"] + ev["C"] + ev["H"]) >= 2      # OI unwind கட்டாயம் + மீதி 3-ல் 2
     mid = (base_h + base_l) / 2
     body = abs(cl[-1] - o[-1]) / max(h[-1] - l[-1], 1e-9)
     rejections = int(((h[-13:-1] > base_h) & (cl[-13:-1] < base_h)).sum())
