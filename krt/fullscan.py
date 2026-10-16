@@ -679,6 +679,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
     prog("Calls tracking")
     from .calls import update_calls
     try:
+        from .calls import MARKET as _MK
+        _MK["trend"] = trend
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],

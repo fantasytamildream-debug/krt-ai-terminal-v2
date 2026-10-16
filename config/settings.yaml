@@ -43,3 +43,11 @@ money_targets: [1200, 3000, 6000]
 
 # 20+ closed calls-ல் சராசரி நஷ்டம் உள்ள setup → ⏸ PAUSED (paper-ல் மட்டும் track; லாபம் திரும்பினா தானா resume)
 auto_pause_negative: true
+
+# V3.1 call quality rules (fail ஆனா main list-ல் வராது, shadow-ல் பழைய rule-ஆக track — A/B compare)
+quality:
+  enabled: true
+  min_rvol: 2.0            # Breakout / ORB / Elite / Volume+OI / All rounder
+  max_calls_per_day: 3     # main intraday calls
+  max_spread_pct: 2.0
+  pullback_entry: true     # breakout candle-ல் வாங்காம pullback + resume-ல் entry
