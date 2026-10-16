@@ -622,8 +622,18 @@ def run_full(ag, prog=lambda m: None) -> dict:
             r["strong"] = False
 
     prog("Index option OI")
+    gex = []
     try:
         idx = index_oi(ag, inst, qs)
+        try:     # ⚡ Gamma Blast V3 — index GEX (estimated, completed 5-min candles confirm)
+            from .v3 import gex_index
+            for x_ in idx:
+                if x_.get("chain"):
+                    ex_, tk_ = INDEX_SPOT[x_["index"]]
+                    cdl = ag.candles(ex_, tk_, "FIVE_MINUTE", pd.Timestamp(session) + pd.Timedelta(hours=9, minutes=15), now)
+                    gex.append(gex_index(x_, now, cdl))
+        except Exception as e:
+            errors.append(f"Gamma V3: {e}")
     except Exception as e:
         idx = []
         errors.append(f"Index OI: {e}")
@@ -685,7 +695,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
     _res = {"kind": "full", "time": str(now), "volume_oi_picks": voi, "patterns": pats, "gamma": gamma, "elite": elite, "footprint": footprint, "tracking": track, "swing": swing, "session": str(session.date()), "live": live,
             "trend": trend, "summary": summary, "best": best[:6], "ce": ce[:25], "pe": pe[:25],
             "orb_up": orb_up, "orb_dn": orb_dn, "orb_ready": has_orb, "high_volume": hv,
-            "oi_buildup": bu, "index": idx, "universe_count": len(universe),
+            "oi_buildup": bu, "index": idx, "gex": gex, "universe_count": len(universe),
             "errors": errors, "seconds": round(time.time() - t_start)}
     _res["gu_snap"] = (C.get("_gu_snap") or {})
     try:
@@ -883,6 +893,8 @@ def fast_tick(ag, res):
             ar_live(a_, now)
         except Exception:
             pass
+    if res.get("all_rounder"):
+        smart_refresh(res)
     if g_items:
         from .gamma import retick
         spot_q = {}
@@ -1291,6 +1303,7 @@ def compute_all_rounder(res):
         out.append(a)
     out.sort(key=lambda a: (-a["count"], -a["confidence"]))
     res["all_rounder"] = out[:25]
+    smart_refresh(res)
     try:
         from .calls import add_all_rounder
         if res.get("live"):
@@ -1298,3 +1311,18 @@ def compute_all_rounder(res):
     except Exception:
         pass
     return out
+
+
+
+def smart_refresh(res):
+    """🧠 Smart Rank (V3) — எல்லா modules signals ஒரே ranked list."""
+    try:
+        from .v3 import smart_rank
+        from .sniper import REGIME
+        segs = ((res.get("tracking") or {}).get("segments")) or {}
+        rs = {"UP": "CE", "DOWN": "PE"}.get(REGIME.get("dir")) if REGIME.get("state") == "TRENDING" else \
+            {"TRENDING UP": "CE", "TRENDING DOWN": "PE"}.get(res.get("trend"))
+        res["smart"] = smart_rank(res, segs, str(_now().date()), rs)
+    except Exception as e:
+        res["smart_err"] = str(e)
+    return res

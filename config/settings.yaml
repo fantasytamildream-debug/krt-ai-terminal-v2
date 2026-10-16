@@ -17,7 +17,8 @@ risk:
   max_risk_holding: 5000     # ₹ swing / elite hold / pattern holding — 1 lot planned risk cap
   account_risk_limit: null   # user account-based limit (null = ignore)
   charges_slippage: 150      # ₹ estimated allowance
-  daily_loss_limit: 5000
+  daily_loss_limit: 5000    # இன்றைய intraday paper நஷ்டம் இதைத் தாண்டினா புது calls நிற்கும்
+  breakeven_after_t1: true  # T1 பிறகு SL → entry
   max_open_positions: 3
 
 score_weights:

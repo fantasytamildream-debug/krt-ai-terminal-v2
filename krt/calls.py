@@ -9,7 +9,7 @@ CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
 INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER")
-SKIPPED = {"day": None, "n": 0, "items": []}
+SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
 def calibrate_plan(source, plan):
@@ -31,6 +31,20 @@ def _f(x):
         return 0.0
 
 
+def _reject(day, kind, src, r, opt, code, now=None, extra=""):
+    """Rejected signal-க்கு reason code பதிவு (Today tab-ல் தெரியும்)."""
+    if SKIPPED["day"] != day:
+        SKIPPED.update(day=day, n=0, items=[], log=[])
+    k = f"{kind}|{r.get('symbol')}|{(opt or {}).get('contract')}|{code}"
+    if k in SKIPPED["items"]:
+        return
+    SKIPPED["items"].append(k)
+    SKIPPED["n"] += 1
+    SKIPPED["log"].append({"time": now.strftime("%H:%M") if now is not None else "", "kind": kind, "source": src,
+                           "symbol": r.get("symbol"), "contract": (opt or {}).get("contract"), "code": code, "detail": extra})
+    del SKIPPED["log"][:-80]
+
+
 def _new(kind, src, r, opt, now, day, hold=0, session=None):
     p = (opt or {}).get("plan")
     if not p or not opt.get("token"):
@@ -43,12 +57,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
             cap_h = 5000
         p = dict(p, risk_ok=p["risk"] <= cap_h)
     if p.get("risk_ok") is False:      # 1 lot risk budget-ஐ தாண்டினா SKIP — track செய்ய மாட்டோம் (executable signal மட்டும்)
-        if SKIPPED["day"] != day:
-            SKIPPED.update(day=day, n=0, items=[])
-        k = f"{kind}|{r.get('symbol')}|{opt.get('contract')}"
-        if k not in SKIPPED["items"]:
-            SKIPPED["items"].append(k)
-            SKIPPED["n"] += 1
+        _reject(day, kind, src, r, opt, "RISK_CAP", now, f"risk ₹{p.get('risk')}")
         return None
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
     if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
@@ -61,14 +70,14 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
         except Exception:
             pass
     if p.get("reward_ok") is False:      # T1 (₹1,200)-க்கு stock அதிகம் போகணும் → realistic இல்லை → track இல்லை
-        if SKIPPED["day"] != day:
-            SKIPPED.update(day=day, n=0, items=[])
-        k = f"{kind}|{r.get('symbol')}|{opt.get('contract')}|T1"
-        if k not in SKIPPED["items"]:
-            SKIPPED["items"].append(k)
-            SKIPPED["n"] += 1
+        _reject(day, kind, src, r, opt, "T1_UNREALISTIC", now)
         return None
-    c = {"id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
+    try:
+        from .sniper import REGIME as _RG
+        reg_ = (_RG.get("state") or "") + (" " + _RG["dir"] if _RG.get("dir") else "")
+    except Exception:
+        reg_ = ""
+    c = {"ver": "V3.0", "regime": reg_ or None, "id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
          "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],
          "ul_price": r.get("price"), "ul_sl": r.get("sl"), "ul_targets": r.get("targets"),
@@ -170,8 +179,17 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     x["source_label"] = " + ".join(srcs)
                     changed = True
                 return None
+        risk_cfg = load_settings().get("risk") or {}
+        if not c.get("hold_until"):
+            day_net = sum(x.get("pnl_lot") or 0 for x in calls.values() if x["date"] == c["date"] and not x.get("shadow"))
+            if day_net <= -abs(risk_cfg.get("daily_loss_limit", 5000)):
+                _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "DAILY_LOSS_STOP", now, f"இன்று ₹{day_net}")
+                return None
+            if risk_cfg.get("breakeven_after_t1", True):
+                c.setdefault("trail_after_t1", True)     # T1 பிறகு SL → entry (break-even)
         if d.get("edge", {}).get(c["source"]) == "NEGATIVE" and (load_settings().get("auto_pause_negative", True)):
             c["shadow"] = True       # 20+ closed calls-ல் சராசரி நஷ்டம் → ⏸ PAUSED: paper-ல் மட்டும் track, main list-ல் இல்லை
+            _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "PAUSED_NEGATIVE_EDGE", now)
         if c["id"] not in calls:
             calls[c["id"]] = c
             changed = True
@@ -492,13 +510,20 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         "yday": pstat([c for c in rows if c["date"] == yday]) if yday else pstat([]),
                         "week": pstat([c for c in rows if c["date"] >= wk]),
                         "month": pstat([c for c in rows if c["date"] >= mo]), "all": pstat(rows)},
+            "all_rows": [{"date": c["date"], "closed": c["status"] not in OPEN, "pnl": c.get("pnl_lot") or 0} for c in rows if not c.get("shadow")],
             "daily": [{"date": d_, **pstat(v)} for d_, v in sorted(daily.items(), reverse=True)[:15]],
             "recent": rows[:30]}
     seg_rank = sorted([{"source": k, **v["periods"]["all"],
                         "avg": round(v["periods"]["all"]["net"] / max(v["periods"]["all"]["calls"], 1))}
                        for k, v in segments.items() if v["periods"]["all"]["closed"] >= 10],
                       key=lambda x: (-(x["win_rate"] or 0) * 0 - x["avg"]))
-    return {"paused_today": paused_today, "paused_sources": sorted(k for k, v in (d.get("edge") or {}).items() if v == "NEGATIVE"),
+    try:
+        from .v3 import validation as _val
+        valid = _val(by_src)
+    except Exception:
+        valid = []
+    return {"validation": valid, "rejected_today": list(reversed(SKIPPED["log"])) if SKIPPED["day"] == day else [],
+            "paused_today": paused_today, "paused_sources": sorted(k for k, v in (d.get("edge") or {}).items() if v == "NEGATIVE"),
             "skipped_today": SKIPPED["n"] if SKIPPED["day"] == day else 0, "segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
