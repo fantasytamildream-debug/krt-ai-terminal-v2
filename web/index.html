@@ -470,11 +470,12 @@ function powerPane(f){
       <span class="lvl">Model ${r.model}${r.model==='B'?' (reversal · research)':' (trend continuation)'} · ${r.side}</span></div><span class="status s-CONFIRMED">${esc(r.state)}</span></div>
     <div class="grid num"><div><span>LTP</span>${n2(r.ltp)}</div><div><span>Level</span>${n2(r.level)} <span class="hint">${esc(r.level_name||"")}</span></div><div><span>Same-slot RVOL</span>${n2(r.rvol)}×</div><div><span>RS vs NIFTY</span>${r.rs_vs_nifty>=0?"+":""}${n2(r.rs_vs_nifty)}%</div></div>
     <div class="chk">${Object.entries(r.parts||{}).map(([k,v])=>`<span>${esc(k)} <b>${v}</b></span>`).join("")}</div>
+    <div style="margin-top:8px">${r.call_given?`<b class="up">📢 CALL கொடுத்தாச்சு ${esc(r.call_given)}</b> — கீழே strike / entry / SL / target`:(r.gates?`<b class="dn">🚫 Call இல்லை — ✗ ஆன gate: ${Object.entries(r.gates).filter(([k,v])=>!v).map(([k])=>esc(k)).join(", ")||"grade "+esc(r.grade)}</b>`:`<b style="color:var(--watch)">⏳ அடுத்த 5-min check-ல் option + gates கணக்கு ஆகும்</b>`)}</div>
     ${r.gates?`<div class="hint" style="margin-top:6px"><b>Safety gates</b></div><div class="chk">${chk(r.gates)}</div>`:""}
     ${r.underlying_only?`<div class="opt"><b>${esc(r.underlying_only)}</b></div>`:r.option?`<div class="plan"><div class="buy">BUY ${n2(r.option.strike)} ${r.option.type} <span class="hint">(${esc(r.option.moneyness)} · Δ ${n2(r.option.delta)} · expiry ${esc(r.option.expiry)} · lot ${r.option.lot})</span></div>
       <div class="hint">Bid ${n2(r.option.bid)} / Ask ${n2(r.option.ask)} · spread ${n2(r.option.spread_pct)}% · ask depth ${big(r.option.ask_depth)} · OI ${big(r.option.oi)}</div>
       ${r.option.plan?`<div class="lv num"><span>Entry ≤ <b>${n2(r.option.plan.entry)}</b></span><span>SL <b class="dn">${n2(r.option.plan.sl)}</b></span>${r.option.plan.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(r.option.plan.risk)}</span>${r.option.plan.risk_ok?"":'<span class="skip">SKIP — RISK ABOVE ₹2,500</span>'}</div>${moneyLine(r.option.plan)}
-      <div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 candle-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
+      ${trackHTML(r.symbol,r.option)}<div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 candle-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
   </div>`;
   const pills=r=>(r.steps||[]).map((st,i)=>`<span class="pill ${st.ok?'on':''}">${i+1}. ${esc(st.name)} ${st.ok?'✓':'…'}</span>`).join("");
   const easyRow=r=>`<div class="row ${r.progress>=2?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span> <b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>
@@ -484,7 +485,7 @@ function powerPane(f){
     ${(r.blockers||[]).length>1?`<div class="hint">❌ இன்னும் குறை: ${(r.blockers||[]).slice(1).map(esc).join(" · ")}</div>`:""}
     <div class="hint">LTP ${n2(r.ltp)} · Level ${n2(r.level)} · Volume ${n2(r.rvol)}×</div></div>`;
   const rows=P.rows||[];
-  const ent=rows.filter(r=>r.state==="ENTRY CONFIRMED"), live=rows.filter(r=>!r.dead&&r.state!=="ENTRY CONFIRMED").sort((a,b)=>b.progress-a.progress||b.score-a.score), dead=rows.filter(r=>r.dead);
+  const ent=rows.filter(r=>r.state==="ENTRY CONFIRMED"&&r.grade!=="REJECT"), live=rows.filter(r=>!r.dead&&!(r.state==="ENTRY CONFIRMED"&&r.grade!=="REJECT")).sort((a,b)=>b.progress-a.progress||b.score-a.score), dead=rows.filter(r=>r.dead);
   const st=x=>x&&x.calls!=null?`${x.calls} calls · win ${x.win_rate==null?"–":x.win_rate+"%"} · net <b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`:"–";
   const sm=TR.summary||{}, kp=(t,v)=>`<div class="kpi"><span>${t}</span><b>${v}</b></div>`;
   return `<div class="headline ${H.ok?'ok':'bad'}">${esc(H.text)}
@@ -565,6 +566,17 @@ let BEST=new Set();
 const TYPE_SHORT={"ALL ROUNDER":"ALL-R","POWER-A":"PWR-A","POWER-B":"PWR-B","ELITE":"ELITE","ELITE HOLD":"ELITE-H","GU-INTRADAY":"GU-I","GU-HOLDING":"GU-H","GAMMA-UNWIND":"GU","INTRADAY":"INT","PATTERN 5D":"PATT","JACKPOT":"JACK","SWING 5D":"SW5","SWING 10D":"SW10","GAMMA":"GAMMA"};
 const sType = k => TYPE_SHORT[k]||k;
 const sDate = (d,t) => `${String(d||"").slice(8,10)}-${String(d||"").slice(5,7)} ${esc(t||"")}`;
+const tkCell = c => ["T1","T2","T3"].map(k=>(c.hits||[]).some(h=>h.startsWith(k+" "))?`<span class="up">${k}✅</span>`:`<span class="hint">${k}○</span>`).join(" ");
+function callsTbl(rows, rank){
+  const R=rank?[...rows].sort((a,b)=>(b.pnl_lot||0)-(a.pnl_lot||0)):rows;
+  return simpleTbl(R,[["#",c=>R.indexOf(c)+1],["Date / Time",c=>sDate(c.date,c.time)],["Source",c=>esc(c.source||c.kind)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],
+    ["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]], callCls);
+}
+function callsKpi(rows){
+  const net=rows.reduce((a,c)=>a+(c.pnl_lot||0),0), k=(t,v,cl)=>`<div class="kpi"><span>${t}</span><b class="${cl||''}">${v}</b></div>`;
+  const hit=t=>rows.filter(c=>(c.hits||[]).some(h=>h.startsWith(t+" "))).length;
+  return `<div class="kpis">${k("Calls",rows.length)}${k("Net P/L",`₹${n2(net)}`,net>=0?'up':'dn')}${k("லாபம்",rows.filter(c=>c.pnl_lot>0).length,'up')}${k("நஷ்டம்",rows.filter(c=>c.pnl_lot<0).length,'dn')}${k("SL hit",rows.filter(c=>c.status==="SL HIT").length,'dn')}${k("T1 ✅",hit("T1"),'up')}${k("T2 ✅",hit("T2"),'up')}${k("T3 ✅",hit("T3"),'up')}</div>`;
+}
 const sHits = c => (c.hits||[]).map(h=>{const [k,dd,tt]=h.split(" ");return `${k} ${tt||dd||""}`}).join(", ");
 function statusCell(c){
   const cls=c.status==="SL HIT"?"slhit":c.status==="OPEN"?"":"hit";
@@ -587,6 +599,9 @@ function renderFull(s){
   const restored = f.restored ? `<li>Server restart ஆனது — ${esc(hm(f.restored))} scan result காட்டப்படுகிறது. புது scan பின்னால் ஓடுது.</li>` : "";
   const late = !f.live ? `<li>Market மூடியிருக்கு — ${esc(f.session)} session-ன் கடைசி data காட்டப்படுகிறது.</li>`:"";
   $("p-ov").innerHTML = `<ul class="summary">${restored}${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+    ${(()=>{const T=(f.tracking||{}).today||[], H=((f.tracking||{}).history||[]).slice(0,60);
+      return `<h2 class="sec">📋 இன்றைய எல்லா calls — ranking (P/L படி)</h2>${T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று இன்னும் call இல்லை.</div>'}
+      <h2 class="sec">📅 சமீபத்திய calls — date வாரியாக (கடைசி 60)</h2>${H.length?callsTbl(H,false):'<div class="empty">இல்லை.</div>'}`})()}
     ${(f.tracking?.jackpot_today||[]).length?`<h2 class="sec">🎯 இன்றைய Jackpot</h2>${f.tracking.jackpot_today.map(callCard).join("")}`:""}
     ${(()=>{const st=[...(f.ce||[]),...(f.pe||[]),...(f.orb_up||[]),...(f.orb_dn||[])].filter(r=>r.strong).slice(0,4); const sp=(f.patterns||[]).filter(p=>p.strong).slice(0,2);
       return (st.length||sp.length)?`<h2 class="sec up">💚 STRONG setups</h2>${st.map(setupRow).join("")}${sp.map(patRow).join("")}`:""})()}
@@ -640,7 +655,7 @@ function renderFull(s){
   const bs=((f.tracking||{}).best_setup)||[];
   const bsHTML=bs.length?`<div class="suggest">🏆 <b>இப்போது வரை best setup:</b> ${bs.map((b,i)=>`${i+1}. <b>${esc(b.source)}</b> (avg ₹${n2(b.avg)}/call · win ${b.win_rate??"–"}% · ${b.closed} closed)`).join(" &nbsp; ")}<div class="hint">குறைந்தது 10 closed calls உள்ள setups மட்டும், சராசரி லாபம் வைத்து.</div></div>`:"";
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
-  $("p-lb").innerHTML = bsHTML + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  $("p-lb").innerHTML = bsHTML + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>c.source==="All rounder"); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -688,6 +703,8 @@ function renderFull(s){
       ["Verdict",a=>a.verdict==="TAKE"?'<b class="up">TAKE</b>':esc(a.verdict)]], a=>(a.live&&a.live.hot)?"bestrow":(a.verdict==="TAKE"?"uprow":""))}
     ${AR3.length?AR3.map(arCard).join(""):'<div class="empty">இப்போ 3+ modules-ல் வந்த stock இல்லை.</div>'}
     ${AR2.length?`<h3 class="sec">✌ DOUBLE CONFIRM (2 modules)</h3>${AR2.map(arCard).join("")}`:""}
+    ${(()=>{const H=((f.tracking||{}).history||[]).filter(c=>c.source==="All rounder"||c.kind==="JACKPOT"||c.kind==="ALL ROUNDER");
+      return `<h2 class="sec">📋 All Rounder + Jackpot calls — எந்த call, எப்போ, லாபமா / SL hit-ஆ</h2>`+(H.length?callsKpi(H)+callsTbl(H,false):'<div class="empty">இன்னும் track ஆன call இல்லை.</div>')})()}
     ${segBlock(f.tracking||{},["All rounder"],"All rounder")}
     <h2 class="sec">🎯 Jackpot (பழைய rule)</h2><div class="hint">ஒரு நாளுக்கு அதிகபட்சம் 1 CE + 1 PE. Rule: CONFIRMED + 4★ மேல் + liquid option + risk ₹2,500-க்குள். கிடைக்கலைன்னா jackpot இல்லை — WAIT.</div>
     <h2 class="sec">இன்றைய Jackpot</h2>${(tr.jackpot_today||[]).length?tr.jackpot_today.map(callCard).join(""):`<div class="empty">இன்னும் jackpot setup வரவில்லை.</div>`}

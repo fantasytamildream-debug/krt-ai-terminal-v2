@@ -52,6 +52,14 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
                               now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, None, not hold)
         except Exception:
             pass
+    if p.get("reward_ok") is False:      # T1 (₹1,200)-க்கு stock அதிகம் போகணும் → realistic இல்லை → track இல்லை
+        if SKIPPED["day"] != day:
+            SKIPPED.update(day=day, n=0, items=[])
+        k = f"{kind}|{r.get('symbol')}|{opt.get('contract')}|T1"
+        if k not in SKIPPED["items"]:
+            SKIPPED["items"].append(k)
+            SKIPPED["n"] += 1
+        return None
     c = {"id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
          "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],

@@ -563,6 +563,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
             if len(pc_) > 21 and n_spot:
                 nret = n_spot / float(pc_.iloc[-21]) - 1
         elite = elite_scan(ag, inst, C, universe, trend, bu_tag, nret, now, session, live)
+        elite["time"] = now.strftime("%H:%M")
         for r in elite["intraday"]:
             seen("elite", r, now)
         for r in elite["holding"]:
@@ -904,12 +905,15 @@ def elite_ok(r, now, trend):
     mins = now.hour * 60 + now.minute
     if mins < 9 * 60 + 45 or r.get("confidence", 0) < 80 or (r.get("ext_atr") or 0) > 1.5 or not r.get("in_window", True):
         return False
-    want = "CE" if r["side"] == "CE" else "PE"
-    if REGIME.get("state"):
-        if REGIME["state"] != "TRENDING":
-            return False
+    want = r["side"]
+    st_ = REGIME.get("state")
+    if st_ == "TRENDING":       # market direction-உடன் மட்டும்
         return {"UP": "CE", "DOWN": "PE"}.get(REGIME.get("dir")) == want
-    return (trend == "TRENDING UP" and want == "CE") or (trend == "TRENDING DOWN" and want == "PE")
+    if st_ == "HIGH-VOL":
+        return False
+    # RANGE / data இல்லை: daily trend ஒத்துப்போனா 80+, இல்லைன்னா jackpot-grade (85+) மட்டும்
+    daily_ok = (trend == "TRENDING UP" and want == "CE") or (trend == "TRENDING DOWN" and want == "PE")
+    return daily_ok or r.get("confidence", 0) >= 85
 
 
 def run_power(ag, res):

@@ -58,8 +58,19 @@ def _vwap(df):
 # ---------------- 1. Regime
 def regime(ag, now, session):
     t0 = (pd.Timestamp(session) - pd.tseries.offsets.BDay(4)).normalize() + pd.Timedelta(hours=9, minutes=15)
-    df = ag.candles("NSE", "99926000", "FIFTEEN_MINUTE", t0, now)
+    df = pd.DataFrame()
+    for _try in range(3):        # deep scan-உடன் சேர்ந்து rate-limit ஆனா retry
+        df = ag.candles("NSE", "99926000", "FIFTEEN_MINUTE", t0, now)
+        if not df.empty:
+            break
+        import time as _t
+        _t.sleep(1.5)
     if df.empty:
+        rc = ST.get("regime_cache")
+        if rc and rc.get("day") == str(pd.Timestamp(session).date()):
+            out = dict(rc["v"], stale=True)
+            REGIME.update(state=out["state"], dir=out.get("dir"))
+            return out
         return {"state": "UNKNOWN", "why": ["NIFTY 15m data இல்லை"]}
     df = _done(df, now, 15)
     if len(df) < 30:
@@ -101,6 +112,7 @@ def regime(ag, now, session):
            "atr_ratio": round(float(atr_ratio), 2), "vwap_crosses": crosses,
            "nifty_pct_today": round(float((c[-1] / today["open"].iloc[0] - 1) * 100), 2) if len(today) else 0.0}
     REGIME.update(state=state, dir=out["dir"])
+    ST["regime_cache"] = {"day": str(pd.Timestamp(session).date()), "v": out}
     return out
 
 
@@ -313,7 +325,7 @@ def easy(row, rg):
 def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
     day = str(pd.Timestamp(session).date())
     if ST["day"] != day:
-        ST.update(day=day, setups={}, alerts=set())
+        ST.update(day=day, setups={}, alerts=set(), opt={})
     mins = now.hour * 60 + now.minute
     rg = regime(ag, now, session)
     ST["regime"] = rg
@@ -403,7 +415,10 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 ST["setups"][key] = {"first_seen": st["first_seen"], "state": st["state"]}
                 easy(row, rg)
                 rows.append(row)
-                if st["state"] != "ENTRY CONFIRMED" or grade == "REJECT" or key in ST["alerts"]:
+                if st["state"] != "ENTRY CONFIRMED" or grade == "REJECT":
+                    continue
+                if key in ST.setdefault("opt", {}):      # முன்பே கணக்கிட்டது → அதே call details காட்டு
+                    row.update(ST["opt"][key])
                     continue
                 # ---- gates + option
                 gates = dict(protect)
@@ -442,7 +457,11 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 row["executable"] = all(gates.values()) and grade in ("A+", "STRONG") and model == "A"
                 row["research"] = model == "B"
                 row["ul_inval"] = round(inval, 2)
-                if row["executable"] or (model == "B" and opt and all(v for k, v in gates.items() if k != "Regime allows")):
+                is_call = row["executable"] or (model == "B" and opt and all(v for k, v in gates.items() if k != "Regime allows"))
+                row["call_given"] = now.strftime("%H:%M") if is_call else None
+                ST["opt"][key] = {k_: row.get(k_) for k_ in ("option", "gates", "executable", "research", "ul_inval",
+                                                            "underlying_only", "call_given")}
+                if is_call and key not in ST["alerts"]:
                     ST["alerts"].add(key)
                     signals.append(row)
     order = ["ENTRY CONFIRMED", "RETEST HELD", "RETEST PENDING", "SWEEP+CHOCH", "BREAKOUT", "WEAK DISPLACEMENT", "EXPIRED", "INVALIDATED"]

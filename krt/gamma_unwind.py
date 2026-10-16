@@ -282,14 +282,17 @@ def evaluate(ag, c, now, ul, q, regime):
     oi = oi_metrics(_oi(ag, c, t0, now), cl)
     ev["oi"] = oi
     ev["A"] = bool(oi.get("ok") and oi["drop"] >= CFG["oi_drop"])
-    avg20 = v[-21:-1].mean() if len(v) > 21 else v[:-1].mean()
+    base_v = v[3:-1] if len(v) > 8 else v[:-1]           # காலை முதல் 3 bars (opening spike) baseline-ல் சேர்க்க வேண்டாம்
+    avg20 = base_v[-20:].mean() if len(base_v) else 0
+    med20 = float(np.median(base_v[-20:])) if len(base_v) else 0
     rv = float(v[-1] / avg20) if avg20 else 0
-    ev["B"] = bool(int((v[-3:] > avg20).sum()) >= 2)
+    rising = len(v) >= 9 and v[-9:-3].mean() > 0 and v[-3:].mean() >= 1.3 * v[-9:-3].mean()
+    ev["B"] = bool(rising or int((v[-3:] > 1.2 * med20).sum()) >= 2)
     base_h, base_l = float(h[-7:-1].max()), float(l[-7:-1].min())
     atr14 = _atr(h, l, cl, 14)
     rng6 = base_h - base_l
     prior = (h[-19:-7].max() - l[-19:-7].min()) if len(h) >= 19 else rng6
-    ev["C"] = bool(atr14 and rng6 <= atr14)
+    ev["C"] = bool(atr14 and (rng6 <= 1.5 * atr14 or (prior and rng6 / prior <= 0.6)))
     ev["H"] = bool((v[-7:] > 0).all() and avg20 > 0 and (cl > 0).all())
     ev["armed"] = ev["A"] and ev["B"] and ev["C"] and ev["H"]
     mid = (base_h + base_l) / 2
