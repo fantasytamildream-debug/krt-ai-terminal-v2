@@ -85,7 +85,7 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
         try:
             o["plan"] = prem_plan(o.get("ask") or o.get("ltp"), r["price"], o["strike"], o["expiry"], o["type"],
                                   r["sl"], r["targets"], now.to_pydatetime(), o["lot"],
-                                  cfg.get("charges_slippage", 150), cfg.get("max_risk_per_trade", 2500),
+                                  cfg.get("charges_slippage", 150), cfg.get("max_risk_holding", 5000),
                                   hold_days=r["hold"] * 0.7, sl_days=2)
             from .calls import calibrate_plan
             calibrate_plan("Swing", o["plan"])

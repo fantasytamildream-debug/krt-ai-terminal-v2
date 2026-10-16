@@ -588,7 +588,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
                 try:
                     o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
                                            r["sl"], r["targets"], now.to_pydatetime(), o_["lot"],
-                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_holding", 5000),
                                            hold_days=7, sl_days=2)
                     from .calls import calibrate_plan
                     calibrate_plan("Elite holding", o_["plan"])
@@ -606,7 +606,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
                 try:
                     o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
                                            r["invalidation"], r["targets"], now.to_pydatetime(), o_["lot"],
-                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                           cfg_.get("charges_slippage", 150), cfg_.get("max_risk_holding", 5000),
                                            hold_days=3, sl_days=1)
                     from .calls import calibrate_plan
                     calibrate_plan("Chart pattern", o_["plan"])
@@ -1013,7 +1013,7 @@ def run_elite_fast(ag, res):
             try:
                 o_["plan"] = prem_plan(o_.get("ask") or o_.get("ltp"), r["price"], o_["strike"], o_["expiry"], o_["type"],
                                        r["sl"], r["targets"], now.to_pydatetime(), o_["lot"],
-                                       cfg_.get("charges_slippage", 150), cfg_.get("max_risk_per_trade", 2500),
+                                       cfg_.get("charges_slippage", 150), cfg_.get("max_risk_holding", 5000),
                                        hold_days=7, sl_days=2)
                 from .calls import calibrate_plan
                 calibrate_plan("Elite holding", o_["plan"])

@@ -1,6 +1,7 @@
 """எல்லா calls: Jackpot, Intraday, Swing 5D/10D — original levels freeze, தினமும் track, profit/loss history."""
 import threading
 import pandas as pd
+from .config import load_settings
 from .store import STORE
 from .telegram import send as tg
 
@@ -34,6 +35,13 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     p = (opt or {}).get("plan")
     if not p or not opt.get("token"):
         return None
+    if hold and p.get("risk") is not None:   # Holding (swing / elite hold / pattern): தனி risk cap (default ₹5,000)
+        try:
+            from .config import load_settings as _ls
+            cap_h = (_ls().get("risk") or {}).get("max_risk_holding", 5000)
+        except Exception:
+            cap_h = 5000
+        p = dict(p, risk_ok=p["risk"] <= cap_h)
     if p.get("risk_ok") is False:      # 1 lot risk budget-ஐ தாண்டினா SKIP — track செய்ய மாட்டோம் (executable signal மட்டும்)
         if SKIPPED["day"] != day:
             SKIPPED.update(day=day, n=0, items=[])
@@ -151,13 +159,39 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
 
     def add(c):
         nonlocal changed
-        if c and c["kind"] in INTRA and any(x["date"] == c["date"] and x["contract"] == c["contract"]
-                                            and x["kind"] in INTRA for x in calls.values()):
-            return None  # ஒரே trade இரண்டு முறை count ஆகக்கூடாது
-        if c and c["id"] not in calls:
+        if not c:
+            return None
+        intra_ = not c.get("hold_until")
+        for x in calls.values():   # ஒரே contract ஒரே நாள் வேறு setup-லும் வந்தா → புது call இல்லை, source சேர்த்து ஒரே call
+            if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_:
+                srcs = x.setdefault("sources", [x.get("source") or x["kind"]])
+                if c["source"] not in srcs:
+                    srcs.append(c["source"])
+                    x["source_label"] = " + ".join(srcs)
+                    changed = True
+                return None
+        if d.get("edge", {}).get(c["source"]) == "NEGATIVE" and (load_settings().get("auto_pause_negative", True)):
+            c["shadow"] = True       # 20+ closed calls-ல் சராசரி நஷ்டம் → ⏸ PAUSED: paper-ல் மட்டும் track, main list-ல் இல்லை
+        if c["id"] not in calls:
             calls[c["id"]] = c
             changed = True
-            return c["id"]
+            return None if c.get("shadow") else c["id"]
+
+    # பழைய duplicate calls-ஐ ஒன்றாக்கு (ஒரே நாள் · ஒரே contract · intraday/holding ஒன்று)
+    seen_ = {}
+    for cid_ in sorted(calls, key=lambda k: (calls[k]["date"], calls[k]["time"])):
+        x = calls[cid_]
+        k_ = (x["date"], x["contract"], bool(x.get("hold_until")))
+        if k_ in seen_:
+            keep = calls[seen_[k_]]
+            srcs = keep.setdefault("sources", [keep.get("source") or keep["kind"]])
+            if (x.get("source") or x["kind"]) not in srcs:
+                srcs.append(x.get("source") or x["kind"])
+            keep["source_label"] = " + ".join(srcs)
+            del calls[cid_]
+            changed = True
+        else:
+            seen_[k_] = cid_
 
     mins = now.hour * 60 + now.minute
     if live and mins < 15 * 60 + 15:
@@ -252,12 +286,14 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             r["confidence"] = f"{p.get('stars', 0)}★"
             add(_new("PATTERN 5D", "Chart pattern", r, p.get("option"), now, day, 5, session))
     # Swing: 3:00 PM-க்கு பிறகு ஒரு முறை publish (அன்றைய close அருகில் confirm)
-    if add and live and mins >= 15 * 60 and not flag.get("swing"):
+    if add and live and 14 * 60 + 45 <= mins <= 15 * 60 + 25 and not flag.get("swing"):
+        n_ = 0
         for key in ("10", "5"):
             for r in swing.get(key, []):
-                add(_new(f"SWING {key}D", "Swing", r, r.get("option"), now, day, int(key), session))
-        flag["swing"] = now.strftime("%H:%M")
-        changed = True
+                n_ += bool(add(_new(f"SWING {key}D", "Swing", r, r.get("option"), now, day, int(key), session)))
+        if n_ or mins >= 15 * 60 + 20:     # ஒண்ணும் சேரலைன்னா 3:20 வரை மீண்டும் முயற்சி
+            flag["swing"] = now.strftime("%H:%M")
+            changed = True
 
     # ---- update open calls ----
     open_ = [c for c in calls.values() if c["status"] in OPEN]
@@ -408,7 +444,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     calib, edge = {}, {}
     by_src = {}
     for c in allc:
-        by_src.setdefault(c.get("source") or c["kind"], []).append(c)
+        for src_x in (c.get("sources") or [c.get("source") or c["kind"]]):
+            by_src.setdefault(src_x, []).append(c)
     for k, rows in by_src.items():
         closed = [c for c in rows if c["status"] not in OPEN and c.get("mfe_pct") is not None]
         if len(closed) >= 20:
@@ -429,7 +466,9 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     # இன்றைய best calls (live P/L)
     today_rank = sorted([c for c in allc if c["date"] == day], key=lambda c: -c["pnl_lot"])
     best_ids = [c["id"] for c in today_rank[:3] if c["pnl_lot"] > 0]
-    today = [c for c in allc if c["date"] == day]
+    today_all = [c for c in allc if c["date"] == day]
+    today = [c for c in today_all if not c.get("shadow")]
+    paused_today = [c for c in today_all if c.get("shadow")]
     for c in allc[:400]:
         c["action"], c["guide"] = guide(c, now)
     # Segment வாரியாக: இன்று / நேற்று / இந்த வாரம் / இந்த மாதம் / மொத்தம் + நாள் வாரியாக + சமீபத்திய calls
@@ -459,7 +498,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         "avg": round(v["periods"]["all"]["net"] / max(v["periods"]["all"]["calls"], 1))}
                        for k, v in segments.items() if v["periods"]["all"]["closed"] >= 10],
                       key=lambda x: (-(x["win_rate"] or 0) * 0 - x["avg"]))
-    return {"skipped_today": SKIPPED["n"] if SKIPPED["day"] == day else 0, "segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
+    return {"paused_today": paused_today, "paused_sources": sorted(k for k, v in (d.get("edge") or {}).items() if v == "NEGATIVE"),
+            "skipped_today": SKIPPED["n"] if SKIPPED["day"] == day else 0, "segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
             "history": allc[:150], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
