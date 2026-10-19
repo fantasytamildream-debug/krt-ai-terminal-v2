@@ -307,12 +307,13 @@ def easy(row, rg):
     row["progress"] = n
     row["dead"] = st in ("EXPIRED", "INVALIDATED", "WEAK DISPLACEMENT")
     b = []
-    if row["model"] == "A" and rg.get("state") != "TRENDING":
-        b.append(f"Market {rg.get('state', '?')} — Model A allowed இல்லை")
+    if row["model"] == "A" and rg.get("state") != "TRENDING" and not row.get("range_mode"):
+        b.append(f"Market {rg.get('state', '?')} — stock-க்கு தனி trend இல்லை (15m trend + RS ≥0.5% + VWAP side வேணும்)")
     if st != "ENTRY CONFIRMED":
         b.append(STATE_TXT.get(st, st))
-    if row["score"] < 80 and not row["dead"]:
-        b.append(f"Score {row['score']} (80 வேணும்)")
+    need_ = 74 if row.get("range_mode") else 80
+    if row["score"] < need_ and not row["dead"]:
+        b.append(f"Score {row['score']} ({need_} வேணும்)")
     if row["rvol"] < CFG["rvol_min"] and not row["dead"]:
         b.append(f"Volume {row['rvol']}× (1.5× வேணும்)")
     if row["ext_atr"] > CFG["max_ext_atr"] and not row["dead"]:
@@ -397,7 +398,10 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                         ob = obs.iloc[-1]
                         ob_ok = (today["low"].iloc[j] <= ob["high"]) if ce else (today["high"].iloc[j] >= ob["low"])
                 # SCORE (100)
-                regime_fit = 20 if (model == "A" and rg["state"] == "TRENDING") else (10 if model == "B" and rg["state"] != "HIGH-VOL" else 0)
+                # V4 range mode: NIFTY RANGE-ல் stock தானா trend-ல் (15m trend + RS + VWAP side) இருந்தா Model A அனுமதி
+                range_mode = (model == "A" and rg["state"] == "RANGE" and trend15 == ("UP" if ce else "DOWN")
+                              and (rs > 0.5 if ce else rs < -0.5) and (last > vw if ce else last < vw))
+                regime_fit = 20 if (model == "A" and rg["state"] == "TRENDING") else 14 if range_mode else (10 if model == "B" and rg["state"] != "HIGH-VOL" else 0)
                 structure = 8 + (6 if fvg_hit else 0) + (6 if ob_ok else 0)
                 rt = st.get("retest_after") or 0
                 br = (6 if st.get("breakout_body", 0.6) >= 0.5 else 2) + (8 if 1 <= rt <= 3 else 5 if rt else 0) + (6 if ext <= 0.5 else 3 if ext <= CFG["max_ext_atr"] else 0)
@@ -406,7 +410,7 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 mom = (5 if (last > vw if ce else last < vw) else 0) + (5 if (55 <= rsi5 <= 75 if ce else 25 <= rsi5 <= 45) else 0)
                 score = int(round(regime_fit + structure + br + rv + strength + mom))
                 grade = "A+" if score >= 90 else "STRONG" if score >= 80 else "WATCH" if score >= 70 else "REJECT"
-                row = {"symbol": u["symbol"], "ul_token": inst["eq"][u["symbol"]], "side": side, "model": model, **st, "atr5": round(atr5, 2), "rvol": rvol,
+                row = {"range_mode": range_mode, "symbol": u["symbol"], "ul_token": inst["eq"][u["symbol"]], "side": side, "model": model, **st, "atr5": round(atr5, 2), "rvol": rvol,
                        "rs_vs_nifty": round(rs, 2), "trend15": trend15, "vwap": round(vw, 2), "rsi5": round(rsi5, 1),
                        "ltp": last, "ext_atr": round(ext, 2), "fvg": fvg_hit, "order_block": ob_ok, "score": score,
                        "grade": grade, "parts": {"Trend/Regime": regime_fit, "Structure": structure, "Breakout/Retest": br,
@@ -424,7 +428,7 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 gates = dict(protect)
                 gates["Extension ≤0.8 ATR"] = ext <= CFG["max_ext_atr"]
                 gates[f"Same-slot RVOL ≥{CFG['rvol_min']}"] = rvol >= CFG["rvol_min"]
-                gates["Regime allows"] = (model == "A" and rg["state"] == "TRENDING") or model == "B"
+                gates["Regime allows"] = (model == "A" and (rg["state"] == "TRENDING" or range_mode)) or model == "B"
                 inval = (L - 0.1 * atr5) if ce else (L + 0.1 * atr5)
                 risk_ul = abs(last - inval)
                 opp_lv = [x for x in ([lv.get("PDH"), lv.get("PWH")] if ce else [lv.get("PDL"), lv.get("PWL")]) if x]
@@ -454,7 +458,7 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                     gates["Planned risk ≤ ₹2,500"] = risk <= CFG["risk_cap"]
                     gates["T1 (₹1,200+) realistic"] = bool(opt["plan"].get("reward_ok"))
                 row["gates"] = gates
-                row["executable"] = all(gates.values()) and grade in ("A+", "STRONG") and model == "A"
+                row["executable"] = all(gates.values()) and model == "A" and (grade in ("A+", "STRONG") or (range_mode and score >= 74))
                 row["research"] = model == "B"
                 row["ul_inval"] = round(inval, 2)
                 is_call = row["executable"] or (model == "B" and opt and all(v for k, v in gates.items() if k != "Regime allows"))
@@ -475,7 +479,7 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
         head = {"ok": False, "text": "NIFTY 15-min data இல்லை — POWER OI நிற்கிறது"}
     else:
         why_ = "; ".join(rg.get("why_range") or []) or "trend தெளிவா இல்ல"
-        head = {"ok": False, "text": f"🛑 இப்போ Market RANGE — {why_}. அதனால் Model A call வராது. Trending ஆன பிறகு தான் call."}
+        head = {"ok": False, "text": f"🟡 இப்போ Market RANGE — {why_}. Range mode: stock தனியா trend-ல் இருந்தா (15m trend + RS ≥0.5% + VWAP side + volume ≥1.5×) மட்டும் call வரும் (score ≥74)."}
     live_rows = [r for r in rows if not r["dead"]]
     funnel = {"checked": len(stage), "setups": len(live_rows), "retest": sum(r["progress"] >= 2 for r in live_rows),
               "confirmed": sum(r["state"] == "ENTRY CONFIRMED" for r in rows), "calls": len(signals)}

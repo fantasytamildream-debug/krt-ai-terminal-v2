@@ -64,7 +64,7 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
                        f"அடுத்த {'resistance' if side=='CE' else 'support'} {nxt:.1f}" if nxt else "52-week level வரை தடை இல்லை"]
             cands.append({"strong": sc >= 85, "symbol": n, "side": side, "price": ltp, "pct": u["pct"], "vol_ratio": u["vol_ratio"],
                           "levels": broke, "ref_level": round(ref, 2), "sl": sl, "targets": tg, "atr": round(atr, 2),
-                          "hold": hold, "min_days": int(hold * 1.4) + 5, "score": sc, "stars": stars(sc),
+                          "hold": hold, "min_days": hold + 3, "score": sc, "stars": stars(sc),
                           "confidence": "HIGH" if sc >= 80 else "MEDIUM", "reasons": reasons, "status": "SWING"})
     cands.sort(key=lambda r: -r["score"])
     seen, out = set(), {"10": [], "5": []}

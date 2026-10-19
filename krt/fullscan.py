@@ -268,7 +268,8 @@ def pick_options(ag, inst, rows):
             toks.setdefault(c[6], []).append(c[0])
     qs = ag.quotes(toks) if toks else {}
     for r, chosen, atm in plan:
-        best, alts = None, []
+        best, alts, ref = None, [], None
+        smax = 6.0 if r.get("hold") else 3.0     # holding (swing / elite hold): அடுத்த மாத option spread அதிகம் — 6% வரை OK
         for c in chosen:
             q = qs.get(c[0])
             if not q:
@@ -281,11 +282,17 @@ def pick_options(ag, inst, rows):
                     "moneyness": mny, "bid": bid, "ask": ask,
                     "ltp": _f(q.get("ltp")), "spread_pct": round(spread, 2), "oi": int(_f(q.get("opnInterest"))),
                     "volume": int(_f(q.get("tradeVolume"))), "lot_cost": round(ask * c[5])}
-            if spread <= 3 and bid > 0:
+            if bid > 0 and (ref is None or spread < ref["spread_pct"]):
+                ref = cand
+            if spread <= smax and bid > 0:
                 alts.append(cand)
                 if mny != "1 OTM" and (best is None or cand["oi"] > best["oi"]):
                     best = cand
-        r["option"] = best or {"none": "STOCK SETUP VALID — NO SUITABLE OPTION (spread / liquidity குறைவு)"}
+        if best and best["spread_pct"] > 3:
+            best["wide_spread"] = True
+            best["alt_reason"] = f"Spread {best['spread_pct']}% — limit order மட்டும் (market order வேண்டாம்)"
+        r["option"] = best or {"none": "STOCK SETUP VALID — NO SUITABLE OPTION (spread / liquidity குறைவு)" +
+                               (f" · Reference: {ref['strike']:g} {ref['type']} ({ref['moneyness']}) expiry {ref['expiry']} · LTP {ref['ltp']} · spread {ref['spread_pct']}%" if ref else "")}
         r["option_alts"] = sorted([a for a in alts if not best or a["contract"] != best["contract"]], key=lambda a: a["ask"])
 
 
@@ -705,7 +712,8 @@ def run_full(ag, prog=lambda m: None) -> dict:
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],
                              elite=[r for r in elite["intraday"] if elite_ok(r, now, trend)],
                              elite_hold=[r for r in elite_hold if r["confidence"] >= 80],
-                             footprint=footprint.get("index") or [])
+                             footprint=footprint.get("index") or [],
+                             gex=[dict(g_, plans=next((x.get("plans") for x in idx if x.get("index") == g_.get("index")), None)) for g_ in gex])
     except Exception as e:
         track = {"today": [], "history": [], "jackpot": [], "summary": {}, "swing_published": None}
         errors.append(f"Tracking: {e}")
@@ -948,10 +956,16 @@ def elite_ok(r, now, trend):
     if st_ == "TRENDING":       # market direction-உடன் மட்டும்
         return {"UP": "CE", "DOWN": "PE"}.get(REGIME.get("dir")) == want
     if st_ == "HIGH-VOL":
-        return False
-    # RANGE / data இல்லை: daily trend ஒத்துப்போனா 80+, இல்லைன்னா jackpot-grade (85+) மட்டும்
+        return r.get("confidence", 0) >= 90
+    # V4: RANGE நாளில் — daily trend ஒத்துப்போனா 80+, அல்லது NIFTY இன்றைய direction எதிர் இல்லைன்னா 80+, இல்லைன்னா 85+
     daily_ok = (trend == "TRENDING UP" and want == "CE") or (trend == "TRENDING DOWN" and want == "PE")
-    return daily_ok or r.get("confidence", 0) >= 85
+    try:
+        from .calls import MARKET as _MK
+        np_ = _MK.get("nifty_pct") or 0
+    except Exception:
+        np_ = 0
+    day_ok = (want == "CE" and np_ > -0.15) or (want == "PE" and np_ < 0.15)
+    return daily_ok or day_ok or r.get("confidence", 0) >= 85
 
 
 def run_power(ag, res):
@@ -1234,6 +1248,38 @@ def momentum_watch(live_q, now, trend, live=True):
     return out
 
 
+AR_TRIGGER = {"POWER OI", "Breakout/Breakdown", "Best setup", "5-min ORB", "Elite", "Gamma unwind", "Index OI", "OI Footprint"}
+AR_EDGE_SRC = {"Elite": "Elite intraday", "Best setup": "Breakout/Breakdown", "Swing": "Swing"}
+
+
+def ar_pro(a, res):
+    """🏅 ALL ROUNDER PRO (V4): நஷ்ட setup modules எண்ணிக்கையில் இல்லை · ≥3 நல்ல modules · ஒரு trigger module ✓ ·
+    TAKE · volume ≥1.5× · NIFTY direction எதிர் இல்லை · light red இல்லை. இது pass ஆனா மட்டும் call."""
+    try:
+        from .store import STORE
+        edge = (STORE.data or {}).get("edge") or {}
+    except Exception:
+        edge = {}
+    good = {m: v for m, v in a["modules"].items() if edge.get(AR_EDGE_SRC.get(m, m)) != "NEGATIVE"}
+    bad = [m for m in a["modules"] if m not in good]
+    trig = any(m in AR_TRIGGER and v["strength"] >= 1.0 for m, v in good.items())
+    np_ = next((x.get("pct") for x in (res.get("index") or []) if x.get("index") == "NIFTY"), None) or 0
+    flat = abs(np_) < 0.15
+    dir_ok = flat or (a["side"] == "CE") == (np_ > 0)
+    is_idx = a["symbol"] in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX")
+    vr = a.get("vol_ratio")
+    vol_ok = is_idx or (vr is not None and vr >= 1.5)
+    need = 4 if flat else 3
+    light = (a.get("live") or {}).get("light")
+    chk = {f"நல்ல modules ≥{need} ({len(good)})": len(good) >= need, "Trigger module ✓": trig, "TAKE": a.get("verdict") == "TAKE",
+           "Volume ≥1.5×": vol_ok, "NIFTY direction எதிர் இல்லை": dir_ok, "Light red இல்லை": light != "red"}
+    a["pro_chk"] = chk
+    a["pro_ok"] = all(chk.values())
+    a["pro_drop"] = bad
+    if a["pro_ok"]:
+        a["tag"] = "🏅 ALL ROUNDER PRO"
+
+
 def compute_all_rounder(res):
     agg = {}
 
@@ -1321,6 +1367,7 @@ def compute_all_rounder(res):
                         "WATCH" if n >= 2 and p else "UNDERLYING ONLY")
         a.pop("options")
         ar_live(a)
+        ar_pro(a, res)
         out.append(a)
     out.sort(key=lambda a: (-a["count"], -a["confidence"]))
     res["all_rounder"] = out[:25]

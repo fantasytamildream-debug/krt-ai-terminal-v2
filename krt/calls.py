@@ -200,10 +200,10 @@ def _close(c, status, price, when):
 
 
 def update_calls(ag, session, now, live, best, orb, voi, idx, swing, add=True, patterns=(), gamma=(), gu=(),
-                 elite=(), elite_hold=(), footprint=(), power=()):
+                 elite=(), elite_hold=(), footprint=(), power=(), gex=()):
     with CALLS_LOCK:
         return _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite,
-                             elite_hold, footprint, power)
+                             elite_hold, footprint, power, gex)
 
 
 def _gu_call(sig, now, day):
@@ -232,7 +232,7 @@ def _gu_call(sig, now, day):
 
 
 def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=(),
-                  footprint=(), power=()):
+                  footprint=(), power=(), gex=()):
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -371,7 +371,10 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                   "confidence": f"{r['grade']} {r['score']}",
                   "reasons": [f"Model {r['model']} · {r.get('level_name')} {r['level']}", f"Retest {r.get('retest_bar', '–')} · entry bar {r.get('entry_bar', '–')}",
                               f"RVOL {r['rvol']}× · RS {r['rs_vs_nifty']:+.2f}%"]}
-            c = _new(kind, "POWER OI" if kind == "POWER-A" else "POWER OI (reversal research)", rr, o, now, day)
+            src_pw = "POWER OI (reversal research)" if kind == "POWER-B" else ("POWER OI (range mode)" if r.get("range_mode") else "POWER OI")
+            if r.get("range_mode"):
+                rr["reasons"].insert(0, "🟡 Range mode — stock தனி trend + RS + volume (NIFTY trending இல்லை)")
+            c = _new(kind, src_pw, rr, o, now, day)
             if c:
                 c.update(ul_token=r.get("ul_token"), ul_inval=r["ul_inval"], exit_at=2, trail_after_t1=True,
                          time_stop=str(now + pd.Timedelta(minutes=5 * 6)))
@@ -392,6 +395,26 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     if live and mins < 15 * 60 + 15:
         for sig in gu:
             add(_gu_call(sig, now, day))
+        GEX_OK = ("GAMMA BREAKOUT", "GAMMA BREAKDOWN", "CALL WALL REJECTION", "PUT WALL REJECTION")
+        if 9 * 60 + 45 <= mins <= 14 * 60 + 30:
+            for g in gex:     # ⚡ Gamma V3 (GEX): completed 5-min candle wall break / rejection → index ATM call, index/side-க்கு நாளைக்கு ஒன்று
+                if g.get("status") != "ESTIMATED":
+                    continue
+                for sg in g.get("signals") or []:
+                    if sg.get("type") not in GEX_OK:
+                        continue
+                    gk = f"gex_{g['index']}_{sg['side']}"
+                    pl = (g.get("plans") or {}).get(sg["side"]) or {}
+                    if flag.get(gk) or not (pl.get("option") or {}).get("plan"):
+                        continue
+                    r = {"symbol": g["index"], "price": g.get("spot"), "sl": pl.get("ul_sl"), "targets": pl.get("ul_targets"),
+                         "stars": 4, "confidence": f"GEX {sg['type']}",
+                         "reasons": [f"⚡ {sg['type']} — {sg.get('why', '')}", f"Call wall {g.get('call_wall')} · Put wall {g.get('put_wall')} · flip {g.get('flip')}",
+                                     g.get("zone", "")]}
+                    cid = add(_new("GAMMA", "Gamma V3 (GEX)", r, pl["option"], now, day))
+                    if cid:
+                        flag[gk] = cid
+                        tg(f"⚡ GAMMA V3 · {g['index']} {sg['type']} → {sg['side']}\n{g['index']} {pl['option'].get('strike')} {sg['side']} · Entry ₹{pl['option']['plan'].get('entry')} · SL ₹{pl['option']['plan'].get('sl')}\n(Paper/alert only)", f"gex|{cid}")
         for gm in gamma:  # Gamma: trigger ஆனவுடன் (30-sec tick-லும்) call சேரும், ஒரு index/side-க்கு ஒன்று
             gk = f"gamma_{gm['name']}_{gm['side']}"
             if flag.get(gk) or not (gm.get("option") or {}).get("plan"):
@@ -716,8 +739,12 @@ def add_all_rounder(rows, now):
         day = str(now.date())
         flag = d["published"].setdefault(day, {})
         for a in rows:
-            if not ((a.get("option") or {}).get("plan")) or a.get("count", 0) < 2:
-                continue        # V3.2: option plan உள்ள எல்லா All rounder rows-ம் call (TAKE = Grade A, மற்றவை B/C)
+            if not ((a.get("option") or {}).get("plan")) or not a.get("pro_ok"):
+                continue        # V4: ALL ROUNDER PRO rules pass ஆனது மட்டும் (V3.2-ல் 2-module rows எல்லாம் call ஆகி 40 calls/நாள், win 18%)
+            if mins > 14 * 60:
+                continue
+            if sum(1 for x in d["calls"].values() if x["date"] == day and x["kind"] == "ALL ROUNDER") >= 5:
+                break
             k = f"ar_{a['symbol']}_{a['side']}"
             if flag.get(k):
                 continue
@@ -733,9 +760,10 @@ def add_all_rounder(rows, now):
                          "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
                 c.update(grade="A" if not codes else ("C" if any(x in hard_ for x in codes) else "B"), qcodes=codes,
                          qtext=[QCODE_TXT.get(x, x) for x in codes])
-                if a.get("verdict") != "TAKE" and c["grade"] == "A":
-                    c["grade"] = "B"
-                    c["qtext"].append("All rounder WATCH (TAKE இல்லை)")
+                if c["grade"] == "C":
+                    _reject(day, "ALL ROUNDER", "All rounder", c, {"contract": c["contract"]}, (codes or ["GRADE_C"])[0], now)
+                    continue
+                c["reasons"] = ["🏅 ALL ROUNDER PRO ✓"] + c["reasons"]
                 d["calls"][c["id"]] = c
                 flag[k] = c["id"]
                 STORE.dirty = True
