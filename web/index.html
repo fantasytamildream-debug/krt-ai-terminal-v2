@@ -156,7 +156,42 @@ tr.slrow td{background:rgba(255,107,107,.08)}
 .opt b{font-weight:800}
 h2.sec{font-size:18px;margin:26px 0 10px}
 .progress{color:var(--watch);font-size:13px;margin-top:6px}
+
+/* ===== Calls board (page top) ===== */
+.callboard{margin:16px 0 6px;padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}
+.cb-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.cb-head h2{margin:0;font-size:24px;font-weight:800}
+.cb-stats{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cb-stat{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700;white-space:nowrap}
+.cb-stat.act{border-color:var(--ce);color:var(--ce)}
+.cb-tools{display:flex;gap:6px;flex-wrap:wrap}
+.cb-tools button{padding:6px 11px;font-size:13px}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;margin-top:14px}
+.ccard{border:1px solid var(--line);border-left:6px solid var(--ce);border-radius:12px;padding:14px 14px 12px;background:var(--panel)}
+.ccard.pe{border-left-color:var(--pe)}
+.ccard.isnew{border-color:var(--watch);border-left-color:var(--watch);box-shadow:0 0 0 1px var(--watch),0 0 24px rgba(245,185,66,.35)}
+@media (prefers-reduced-motion:no-preference){.ccard.flash{animation:cflash 1.2s ease-in-out 3}@keyframes cflash{50%{box-shadow:0 0 0 2px var(--watch),0 0 40px rgba(245,185,66,.7)}}}
+.ctop{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.cbuy{font-size:21px;font-weight:800;line-height:1.2}
+.cbuy .ce{color:var(--ce)} .cbuy .pe{color:var(--pe)}
+.cmeta{font-size:12.5px;color:var(--muted);margin-top:3px}
+.newtag{background:var(--watch);color:var(--ink);font-weight:800;font-size:11.5px;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.cnums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.cnums span{display:block;color:var(--muted);font-size:11.5px}
+.cnums b{font-size:17px}
+.ctg{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ctg span{border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:13px;font-weight:700}
+.ctg span.done{border-color:var(--ce);background:rgba(60,207,142,.12);color:var(--ce)}
+.cact{margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.05);font-size:13px}
+.cact b{display:block;font-size:14px}
+.cwarn{margin-top:6px;font-size:12.5px;color:var(--watch)}
+.cempty{margin-top:12px;padding:18px;border:1px dashed var(--line);border-radius:12px;color:var(--muted)}
+.cclosed{margin-top:14px}
+.cclosed summary{cursor:pointer;font-weight:700;color:var(--muted)}
+.hero{padding:14px 0 10px}
+.hero h1{font-size:clamp(20px,3vw,28px)}
 @media (max-width:820px){
+  .cnums b{font-size:15px}
   .sides{grid-template-columns:1fr}
   .hero{grid-template-columns:1fr}
   .meta{text-align:left}
@@ -177,6 +212,8 @@ h2.sec{font-size:18px;margin:26px 0 10px}
       <button id="setBtn">Settings</button>
     </div>
   </header>
+
+  <section class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></section>
 
   <div class="hero">
     <div>
@@ -869,6 +906,59 @@ function invSet(v){
   v=Math.max(1000,+v||100000); try{localStorage.setItem("krt_cap",String(v))}catch(e){}
   const i=$("capIn"); if(i) i.value=v; const o=$("invOut"); if(o) o.innerHTML=invHTML(v);
 }
+
+/* ===== Calls board ===== */
+const OPEN_ST=["OPEN","T1 HIT","T2 HIT","T3 HIT","T4 HIT"];
+let SEEN=null, FLASH=new Set(), BASE_TITLE=document.title;
+const soundOn=()=>{try{return localStorage.getItem("krt_sound")==="1"}catch(e){return false}};
+function toggleSound(){try{localStorage.setItem("krt_sound",soundOn()?"0":"1")}catch(e){} if(soundOn()) beep(); const b=$("sndBtn"); if(b) b.textContent=soundOn()?"🔔 Sound ON":"🔕 Sound OFF";}
+function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)();[0,.25].forEach(d=>{const o=a.createOscillator(),g=a.createGain();o.frequency.value=880;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.15,a.currentTime+d);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+d+.2);o.start(a.currentTime+d);o.stop(a.currentTime+d+.22)})}catch(e){}}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden) document.title=BASE_TITLE});
+function goTab(p){const b=document.querySelector(`#tabs button[data-p="${p}"]`); if(b){b.click(); b.scrollIntoView({block:"nearest",inline:"center"}); $("tabs").scrollIntoView({behavior:"smooth"});}}
+function callAge(c,now){
+  if(!now||c.date!==String(now).slice(0,10)) return null;
+  const nm=+now.slice(11,13)*60+ +now.slice(14,16), cm=+String(c.time).slice(0,2)*60+ +String(c.time).slice(3,5);
+  return nm-cm;
+}
+function bigCall(c,s){
+  const side=c.side==="PE"?"pe":"ce", age=callAge(c,s.now), isNew=age!=null&&age>=0&&age<=15;
+  const today=String(s.now||"").slice(0,10);
+  const tg=(c.targets||[]).map((t,i)=>{const h=(c.hits||[]).some(x=>x.startsWith(`T${i+1} `));return `<span class="${h?'done':''}">T${i+1} ₹${n2(t)} ${h?"✅":""}</span>`}).join("");
+  const ltp=c.exit??c.ltp, pct=c.entry?((ltp-c.entry)/c.entry*100):0;
+  const act=c.action?`<div class="cact"><b class="${ACT_CLS[c.action]||''}">${ACT_ICON[c.action]||esc(c.action)}</b>${esc(c.guide||"")}</div>`:"";
+  const warn=[c.grade==="C"?"⚠ Grade C — முக்கிய rule fail, கவனம்":"",c.risk_ok===false?"⚠ Risk limit-ஐ தாண்டுது":""].filter(Boolean).join(" · ");
+  return `<article class="ccard ${side} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''}">
+    <div class="ctop"><div><div class="cbuy">BUY ${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
+      <div class="cmeta">⏱ ${c.date!==today?esc(c.date.slice(8,10)+"-"+c.date.slice(5,7))+" ":""}${esc(c.time)} · ${esc(c.source_label||c.source||c.kind)} · Grade ${gradeB(c)} · ${c.hold_until?"Hold till "+esc(c.hold_until):"Intraday"} · expiry ${esc(c.expiry)} · lot ${esc(c.lot)}</div></div>
+      ${isNew?`<span class="newtag">🆕 ${age<=1?"இப்போ":age+" நிமி முன்"}</span>`:`<span class="status ${c.status==="OPEN"?"s-WATCH":"s-CONFIRMED"}">${esc(c.status)}</span>`}</div>
+    <div class="cnums num"><div><span>Entry</span><b>₹${n2(c.entry)}</b></div><div><span>Stop loss</span><b class="dn">₹${n2(c.sl)}</b></div>
+      <div><span>LTP · P/L per lot</span><b class="${(c.pnl_lot||0)>=0?'up':'dn'}">₹${n2(ltp)}</b> <span class="${(c.pnl_lot||0)>=0?'up':'dn'}" style="display:inline">${pct>=0?"+":""}${n2(pct)}% · ₹${n2(c.pnl_lot)}</span></div></div>
+    <div class="ctg num">${tg}</div>${act}${warn?`<div class="cwarn">${warn}</div>`:""}</article>`;
+}
+function renderCalls(s){
+  const box=$("callboard"), f=s.full;
+  if(!f){ box.innerHTML=`<div class="cb-head"><h2>📢 Calls</h2></div><div class="cempty">${s.full_running?"Scan நடக்கிறது — calls சீக்கிரம் இங்கே வரும்.":s.full_error?"Error: "+esc(s.full_error):"“Full market scan” click பண்ணுங்க — calls இங்கே வரும்."}</div>`; return; }
+  const tr=f.tracking||{}, map=new Map();
+  [...(tr.today||[]),...(tr.swing_open||[])].forEach(c=>map.set(c.id,c));
+  const all=[...map.values()];
+  const active=all.filter(c=>OPEN_ST.includes(c.status)).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const closed=(tr.today||[]).filter(c=>!OPEN_ST.includes(c.status)).sort((a,b)=>(b.time).localeCompare(a.time));
+  const net=(tr.today||[]).reduce((a,c)=>a+(c.pnl_lot||0),0);
+  // புது call வந்தா: glow + title + sound
+  const ids=new Set(active.map(c=>c.id));
+  if(SEEN){ const fresh=active.filter(c=>!SEEN.has(c.id)); FLASH=new Set(fresh.map(c=>c.id));
+    if(fresh.length){ if(document.hidden) document.title=`(${fresh.length}) 🆕 புது call · KRT`; if(soundOn()) beep(); } }
+  else FLASH=new Set();
+  SEEN=new Set([...(SEEN||[]),...ids]);
+  box.innerHTML=`<div class="cb-head"><h2>📢 Calls</h2>
+      <div class="cb-stats num"><span class="cb-stat act">🟢 Active ${active.length}</span><span class="cb-stat">✔ இன்று முடிந்தது ${closed.length}</span>
+      <span class="cb-stat ${net>=0?'up':'dn'}">இன்று P/L ₹${n2(net)}</span></div>
+      <div class="cb-tools"><button id="sndBtn" onclick="toggleSound()">${soundOn()?"🔔 Sound ON":"🔕 Sound OFF"}</button><button onclick="goTab('tr')">முழு விவரம்</button></div></div>
+    ${active.length?`<div class="cgrid">${active.map(c=>bigCall(c,s)).join("")}</div>`:
+      `<div class="cempty">இப்போ active call இல்லை. புது call வந்ததும் இங்கே <b>முதலில்</b> வரும் (மஞ்சள் glow + 🆕). ${s.market_open?"":"Market மூடியிருக்கு."}</div>`}
+    ${closed.length?`<details class="cclosed" open><summary>இன்று முடிந்த calls (${closed.length})</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
+    <div class="hint" style="margin-top:8px">Paper tracking · rule-based · guarantee இல்லை. Entry / SL / target ESTIMATED — முடிவு உங்களுடையது.</div>`;
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
@@ -888,6 +978,7 @@ function render(s){
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   renderFull(s);
+  try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }
   $("blocked").textContent = (r?.msgs||[]).join(" · ");
