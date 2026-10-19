@@ -90,7 +90,9 @@ def quality_gate(c, calls, now):
     if (c.get("spread_pct") or 0) > q["max_spread"]:
         codes.append("SPREAD_GT_2")
     if intra:
-        main = [x for x in calls.values() if x["date"] == c["date"] and not x.get("shadow") and not x.get("hold_until")]
+        # max calls / one-per-stock / SL streak — Grade A calls (நீங்க எடுப்பவை) மட்டும் எண்ணு
+        main = [x for x in calls.values() if x["date"] == c["date"] and not x.get("shadow") and not x.get("hold_until")
+                and x.get("grade", "A") == "A"]
         if any(x["symbol"] == c["symbol"] for x in main):
             codes.append("ONE_PER_STOCK")
         if len(main) >= q["max_calls"]:
@@ -252,7 +254,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 return None
         risk_cfg = load_settings().get("risk") or {}
         if not c.get("hold_until"):
-            day_net = sum(x.get("pnl_lot") or 0 for x in calls.values() if x["date"] == c["date"] and not x.get("shadow"))
+            day_net = sum(x.get("pnl_lot") or 0 for x in calls.values() if x["date"] == c["date"] and not x.get("shadow")
+                          and x.get("grade", "A") == "A" and x["status"] not in OPEN)   # Grade A closed calls மட்டும்
             if day_net <= -abs(risk_cfg.get("daily_loss_limit", 5000)):
                 c.setdefault("force_codes", []).append("DAILY_LOSS_STOP")
             if risk_cfg.get("breakeven_after_t1", True):
