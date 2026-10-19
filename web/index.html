@@ -190,6 +190,30 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 .cclosed summary{cursor:pointer;font-weight:700;color:var(--muted)}
 .hero{padding:14px 0 10px}
 .hero h1{font-size:clamp(20px,3vw,28px)}
+
+/* compact cards v39 */
+.cgrid{grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px;margin-top:10px}
+.ccard{padding:10px 11px 9px;border-left-width:5px}
+.cbuy{font-size:17px}
+.cmeta{font-size:11.5px;margin-top:2px}
+.crate{color:var(--watch);font-size:13px;white-space:nowrap} .crate i{font-style:normal;color:var(--line)} .crate b{color:var(--text);font-size:12px;margin-left:2px}
+.crow{display:flex;justify-content:space-between;gap:6px;margin-top:8px;font-size:13px;color:var(--muted)}
+.crow b{color:var(--text);font-size:15px} .crow b.dn{color:var(--pe)} .crow b.up{color:var(--ce)} .crow small{font-size:11px}
+.cpl{font-size:19px;font-weight:800;margin-top:4px} .cpl small{font-size:12px;font-weight:600;color:var(--muted)}
+.ctg{gap:4px;margin-top:6px} .ctg span{font-size:11.5px;padding:2px 6px;font-weight:600} .ctg span b{font-weight:800}
+.cverd{margin-top:7px;padding:6px 8px;border-radius:8px;font-size:13px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.cverd.yes{border-color:var(--ce);background:rgba(60,207,142,.12)} .cverd.yes>b{color:var(--ce)}
+.cverd.mid{border-color:var(--watch);background:rgba(245,185,66,.08)} .cverd.mid>b{color:var(--watch)}
+.cverd.no{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.07)} .cverd.no>b{color:var(--pe)}
+.cverd .hint{margin-top:3px;font-size:11.5px}
+.ccard.power{border:2px solid #8b5cf6;border-left:5px solid #8b5cf6;box-shadow:0 0 18px rgba(139,92,246,.5);background:linear-gradient(180deg,rgba(139,92,246,.14),var(--panel) 60%)}
+@media (prefers-reduced-motion:no-preference){.ccard.power{animation:pwg 1.6s ease-in-out infinite}@keyframes pwg{50%{box-shadow:0 0 32px rgba(167,139,250,.85)}}}
+.pwr{margin-top:6px;font-size:11.5px;font-weight:700;color:#c4b5fd}
+.pwbox{margin-top:12px;padding:10px;border:1px solid #8b5cf6;border-radius:12px;background:rgba(139,92,246,.07)}
+.pwhead{font-weight:800;color:#c4b5fd}
+.pwbox .cgrid{margin-top:8px}
+.cb-tools button.on{background:var(--text);color:var(--ink);border-color:var(--text)}
+.cb-head h2{font-size:20px}
 @media (max-width:820px){
   .cnums b{font-size:15px}
   .sides{grid-template-columns:1fr}
@@ -920,46 +944,93 @@ function callAge(c,now){
   const nm=+now.slice(11,13)*60+ +now.slice(14,16), cm=+String(c.time).slice(0,2)*60+ +String(c.time).slice(3,5);
   return nm-cm;
 }
-function bigCall(c,s){
-  const side=c.side==="PE"?"pe":"ce", age=callAge(c,s.now), isNew=age!=null&&age>=0&&age<=15;
-  const today=String(s.now||"").slice(0,10);
-  const tg=(c.targets||[]).map((t,i)=>{const h=(c.hits||[]).some(x=>x.startsWith(`T${i+1} `));return `<span class="${h?'done':''}">T${i+1} ₹${n2(t)} ${h?"✅":""}</span>`}).join("");
-  const ltp=c.exit??c.ltp, pct=c.entry?((ltp-c.entry)/c.entry*100):0;
-  const act=c.action?`<div class="cact"><b class="${ACT_CLS[c.action]||''}">${ACT_ICON[c.action]||esc(c.action)}</b>${esc(c.guide||"")}</div>`:"";
-  const warn=[c.grade==="C"?"⚠ Grade C — முக்கிய rule fail, கவனம்":"",c.risk_ok===false?"⚠ Risk limit-ஐ தாண்டுது":""].filter(Boolean).join(" · ");
-  return `<article class="ccard ${side} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''}">
-    <div class="ctop"><div><div class="cbuy">BUY ${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
-      <div class="cmeta">⏱ ${c.date!==today?esc(c.date.slice(8,10)+"-"+c.date.slice(5,7))+" ":""}${esc(c.time)} · ${esc(c.source_label||c.source||c.kind)} · Grade ${gradeB(c)} · ${c.hold_until?"Hold till "+esc(c.hold_until):"Intraday"} · expiry ${esc(c.expiry)} · lot ${esc(c.lot)}</div></div>
-      ${isNew?`<span class="newtag">🆕 ${age<=1?"இப்போ":age+" நிமி முன்"}</span>`:`<span class="status ${c.status==="OPEN"?"s-WATCH":"s-CONFIRMED"}">${esc(c.status)}</span>`}</div>
-    <div class="cnums num"><div><span>Entry</span><b>₹${n2(c.entry)}</b></div><div><span>Stop loss</span><b class="dn">₹${n2(c.sl)}</b></div>
-      <div><span>LTP · P/L per lot</span><b class="${(c.pnl_lot||0)>=0?'up':'dn'}">₹${n2(ltp)}</b> <span class="${(c.pnl_lot||0)>=0?'up':'dn'}" style="display:inline">${pct>=0?"+":""}${n2(pct)}% · ₹${n2(c.pnl_lot)}</span></div></div>
-    <div class="ctg num">${tg}</div>${act}${warn?`<div class="cwarn">${warn}</div>`:""}</article>`;
+/* ---- rule-based "இப்போ எடுக்கலாமா?" check + rating (AI prediction இல்லை) ---- */
+function powerInfo(c,f){
+  const why=[], vr=+c.vol_ratio||0, src=(c.sources||[c.source||c.kind]).join(" ");
+  if(c.kind==="JACKPOT"||/jackpot/i.test(src)) why.push("🎯 Jackpot setup");
+  if(c.kind==="ELITE"&&((f.elite||{}).jackpot||[]).some(r=>r.symbol===c.symbol&&r.side===c.side)) why.push("👑 Elite jackpot");
+  if(vr>=3) why.push(`Volume ${n2(vr)}× — பெரிய player entry மாதிரி (ஊகம்)`);
+  if(((f.footprint||{}).stocks||[]).some(r=>r.symbol===c.symbol&&r.side===c.side)) why.push("🐘 OI footprint: volume ≥3× + OI buildup");
+  const M=f.momentum||{}; if([...(M.CE||[]),...(M.PE||[])].some(r=>r.symbol===c.symbol&&r.side===c.side&&r.entry_now)) why.push("🟣 Momentum ENTRY NOW");
+  if((f.all_rounder||[]).some(a=>a.symbol===c.symbol&&a.side===c.side&&((a.live||{}).entry_now||a.count>=3))) why.push("🏅 3+ scanners-ல் ஒரே call");
+  return why;
 }
+function judge(c,f){
+  let sc=0; const plus=[], minus=[], vr=+c.vol_ratio||0;
+  if(c.grade==="A"){sc+=35;plus.push("Grade A")} else if(c.grade==="B"){sc+=20;plus.push("Grade B")} else if(c.grade==="C"){minus.push("Grade C (rule fail)")}
+  if(c.risk_ok===false) minus.push("Risk அதிகம்"); else sc+=15;
+  if(vr>=3){sc+=20;plus.push(`Volume ${n2(vr)}×`)} else if(vr>=2){sc+=12;plus.push(`Volume ${n2(vr)}×`)} else if(vr>=1.5) sc+=6; else if(vr) minus.push(`Volume ${n2(vr)}× குறைவு`);
+  const pw=powerInfo(c,f); if(pw.length) sc+=Math.min(15,pw.length*8);
+  if((c.stars||0)>=4) sc+=5;
+  const act=c.action;
+  if(act==="ENTRY") sc+=15; else if(act==="BOOK") sc+=10; else if(act==="WEAK"){sc-=15;minus.push("Entry-க்கு கீழே")} else if(act==="LATE"){minus.push("Late — விலை ஓடிடுச்சு")} else if(act==="EXIT"){sc-=20}
+  sc=Math.max(0,Math.min(100,Math.round(sc)));
+  const stars=Math.max(1,Math.round(sc/20));
+  let v, cls;
+  if(act==="EXIT"){v="🚪 Exit பண்ணுங்க";cls="no"}
+  else if(act==="BOOK"){v="💰 Profit-ல் இருக்கு — புது entry வேண்டாம், எடுத்திருந்தா SL entry-க்கு";cls="mid"}
+  else if(act==="WEAK"){v="❌ இப்போ எடுக்காதீங்க — SL பக்கம்";cls="no"}
+  else if(act==="LATE"){v="❌ இப்போ எடுக்காதீங்க — late";cls="no"}
+  else if(sc>=70){v="✅ எடுக்கலாம்";cls="yes"}
+  else if(sc>=45){v="⚠ எடுத்தா 1 lot மட்டும், SL கண்டிப்பா";cls="mid"}
+  else {v="❌ வேண்டாம் — quality குறைவு";cls="no"}
+  return {sc,stars,v,cls,plus,minus,pw};
+}
+function bigCall(c,s){
+  const f=s.full||{}, side=c.side==="PE"?"pe":"ce", age=callAge(c,s.now), isNew=age!=null&&age>=0&&age<=15;
+  const today=String(s.now||"").slice(0,10), J=c._j||judge(c,f), lot=+c.lot||0, e=+c.entry||0;
+  const ltp=c.exit??c.ltp, pct=e?((ltp-e)/e*100):0, up=(c.pnl_lot||0)>=0;
+  const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v)));
+  const tg=(c.targets||[]).map((t,i)=>{const h=(c.hits||[]).some(x=>x.startsWith(`T${i+1} `));
+    return `<span class="${h?'done':''}">T${i+1} ${n2(t)} <b class="up">${rs((t-e)*lot)}</b>${h?" ✅":""}</span>`}).join("");
+  const slLoss=(+c.sl-e)*lot;
+  return `<article class="ccard ${side} ${J.pw.length?'power':''} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''}">
+    <div class="ctop"><div class="cbuy">${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
+      <span class="crate" title="Rule-based score ${J.sc}/100">${"★".repeat(J.stars)}<i>${"★".repeat(5-J.stars)}</i> <b>${J.sc}</b></span></div>
+    <div class="cmeta">⏱ ${c.date!==today?esc(c.date.slice(8,10)+"-"+c.date.slice(5,7))+" ":""}${esc(c.time)}${isNew?` <span class="newtag">🆕 ${age<=1?"இப்போ":age+" நிமி"}</span>`:""} · ${esc(c.source_label||c.source||c.kind)} · ${gradeB(c)} · ${c.hold_until?"Hold "+esc(c.hold_until.slice(5)):"Intraday"} · lot ${esc(c.lot)}</div>
+    ${J.pw.length?`<div class="pwr">🟣 STRONG · ${J.pw.map(esc).join(" · ")}</div>`:""}
+    <div class="crow num"><span>Entry <b>${n2(e)}</b></span><span>SL <b class="dn">${n2(c.sl)}</b></span><span>LTP <b class="${up?'up':'dn'}">${n2(ltp)}</b> <small class="${up?'up':'dn'}">${pct>=0?"+":""}${n2(pct)}%</small></span></div>
+    <div class="cpl ${up?'up':'dn'}">இப்போ ${rs(c.pnl_lot||0)} <small>/ lot</small></div>
+    <div class="ctg num">${tg}</div>
+    <div class="hint">${slLoss>=0?"SL entry-க்கு மேல — நஷ்டம் இல்லை":"SL hit ஆனா "+rs(slLoss)+" / lot"} · 1 lot = ₹${n2(Math.round(e*lot))}</div>
+    <div class="cverd ${J.cls}"><b>${J.v}</b>${J.plus.length||J.minus.length?`<div class="hint">${J.plus.map(x=>`<span class="up">✓ ${esc(x)}</span>`).concat(J.minus.map(x=>`<span class="dn">✗ ${esc(x)}</span>`)).join(" · ")}</div>`:""}</div>
+  </article>`;
+}
+let CFILT="all";
+function setCF(v){CFILT=v; if(LAST_S) renderCalls(LAST_S)}
+let LAST_S=null;
 function renderCalls(s){
+  LAST_S=s;
   const box=$("callboard"), f=s.full;
   if(!f){ box.innerHTML=`<div class="cb-head"><h2>📢 Calls</h2></div><div class="cempty">${s.full_running?"Scan நடக்கிறது — calls சீக்கிரம் இங்கே வரும்.":s.full_error?"Error: "+esc(s.full_error):"“Full market scan” click பண்ணுங்க — calls இங்கே வரும்."}</div>`; return; }
   const tr=f.tracking||{}, map=new Map();
   [...(tr.today||[]),...(tr.swing_open||[])].forEach(c=>map.set(c.id,c));
   const all=[...map.values()];
-  const active=all.filter(c=>OPEN_ST.includes(c.status)).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  let active=all.filter(c=>OPEN_ST.includes(c.status));
+  active.forEach(c=>c._j=judge(c,f));
+  active.sort((a,b)=>(b._j.pw.length>0)-(a._j.pw.length>0)||b._j.sc-a._j.sc||(b.date+b.time).localeCompare(a.date+a.time));
   const closed=(tr.today||[]).filter(c=>!OPEN_ST.includes(c.status)).sort((a,b)=>(b.time).localeCompare(a.time));
   const net=(tr.today||[]).reduce((a,c)=>a+(c.pnl_lot||0),0);
-  // புது call வந்தா: glow + title + sound
+  const openPL=active.reduce((a,c)=>a+(c.pnl_lot||0),0);
   const ids=new Set(active.map(c=>c.id));
   if(SEEN){ const fresh=active.filter(c=>!SEEN.has(c.id)); FLASH=new Set(fresh.map(c=>c.id));
     if(fresh.length){ if(document.hidden) document.title=`(${fresh.length}) 🆕 புது call · KRT`; if(soundOn()) beep(); } }
   else FLASH=new Set();
   SEEN=new Set([...(SEEN||[]),...ids]);
+  const nYes=active.filter(c=>c._j.cls==="yes").length, nPw=active.filter(c=>c._j.pw.length).length;
   const cc=$("clCount"); if(cc){ const nw=active.filter(c=>{const a=callAge(c,s.now);return a!=null&&a>=0&&a<=15}).length;
-    cc.innerHTML=`<b class="up">${active.length}</b>${nw?` <span class="newtag">🆕 ${nw}</span>`:""}`; }
+    cc.innerHTML=`<b class="up">${active.length}</b>${nPw?` <span class="purple" style="font-size:11px;padding:1px 7px">🟣 ${nPw}</span>`:""}${nw?` <span class="newtag">🆕 ${nw}</span>`:""}`; }
+  const shown=CFILT==="yes"?active.filter(c=>c._j.cls==="yes"):CFILT==="pw"?active.filter(c=>c._j.pw.length):active;
+  const pw=shown.filter(c=>c._j.pw.length), rest=shown.filter(c=>!c._j.pw.length);
+  const fb=(v,t)=>`<button class="${CFILT===v?'on':''}" onclick="setCF('${v}')">${t}</button>`;
   box.innerHTML=`<div class="cb-head"><h2>📢 Calls</h2>
-      <div class="cb-stats num"><span class="cb-stat act">🟢 Active ${active.length}</span><span class="cb-stat">✔ இன்று முடிந்தது ${closed.length}</span>
-      <span class="cb-stat ${net>=0?'up':'dn'}">இன்று P/L ₹${n2(net)}</span></div>
-      <div class="cb-tools"><button id="sndBtn" onclick="toggleSound()">${soundOn()?"🔔 Sound ON":"🔕 Sound OFF"}</button><button onclick="goTab('tr')">முழு விவரம்</button></div></div>
-    ${active.length?`<div class="cgrid">${active.map(c=>bigCall(c,s)).join("")}</div>`:
-      `<div class="cempty">இப்போ active call இல்லை. புது call வந்ததும் இங்கே <b>முதலில்</b> வரும் (மஞ்சள் glow + 🆕). ${s.market_open?"":"Market மூடியிருக்கு."}</div>`}
-    ${closed.length?`<details class="cclosed" open><summary>இன்று முடிந்த calls (${closed.length})</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
-    <div class="hint" style="margin-top:8px">Paper tracking · rule-based · guarantee இல்லை. Entry / SL / target ESTIMATED — முடிவு உங்களுடையது.</div>`;
+      <div class="cb-stats num"><span class="cb-stat act">🟢 Active ${active.length}</span><span class="cb-stat ${openPL>=0?'up':'dn'}">Open P/L ${openPL>=0?"+":"−"}₹${n2(Math.abs(openPL))}</span>
+      <span class="cb-stat ${net>=0?'up':'dn'}">இன்று மொத்தம் ${net>=0?"+":"−"}₹${n2(Math.abs(net))}</span><span class="cb-stat">✔ முடிந்தது ${closed.length}</span></div>
+      <div class="cb-tools">${fb("all","எல்லாம் "+active.length)}${fb("yes","✅ எடுக்கலாம் "+nYes)}${fb("pw","🟣 Strong "+nPw)}<button id="sndBtn" onclick="toggleSound()">${soundOn()?"🔔 ON":"🔕 OFF"}</button><button onclick="goTab('tr')">முழு விவரம்</button></div></div>
+    ${pw.length?`<div class="pwbox"><div class="pwhead">🟣 STRONG / JACKPOT / அதிக volume calls — முதலில் இதைப் பாருங்க</div><div class="cgrid">${pw.map(c=>bigCall(c,s)).join("")}</div></div>`:""}
+    ${rest.length?`<div class="cgrid">${rest.map(c=>bigCall(c,s)).join("")}</div>`:(pw.length?"":`<div class="cempty">${CFILT==="yes"?"இப்போ “எடுக்கலாம்” call இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.":CFILT==="pw"?"இப்போ strong / jackpot call இல்லை.":"இப்போ active call இல்லை. புது call வந்ததும் இங்கே முதலில் வரும்."}</div>`)}
+    ${closed.length?`<details class="cclosed"><summary>இன்று முடிந்த calls (${closed.length}) · லாபம் ${closed.filter(c=>c.pnl_lot>0).length} · நஷ்டம் ${closed.filter(c=>c.pnl_lot<0).length}</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
+    <div class="hint" style="margin-top:8px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
 }
 function render(s){
   const f=s.full, r=s.result;
