@@ -158,7 +158,7 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 .progress{color:var(--watch);font-size:13px;margin-top:6px}
 
 /* ===== Calls board (page top) ===== */
-.callboard{margin:16px 0 6px;padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}
+.callboard{margin:0 0 6px;padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}
 .cb-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
 .cb-head h2{margin:0;font-size:24px;font-weight:800}
 .cb-stats{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -213,8 +213,6 @@ h2.sec{font-size:18px;margin:26px 0 10px}
     </div>
   </header>
 
-  <section class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></section>
-
   <div class="hero">
     <div>
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
@@ -226,7 +224,8 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   <ul class="notes" id="notes"></ul>
 
   <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" data-p="lb" aria-selected="true">⚡ Live Board</button>
+    <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
+    <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
     <button role="tab" data-p="pw">🎯 POWER OI</button>
     <button role="tab" data-p="el">👑 Elite</button>
     <button role="tab" data-p="ov">Overview</button>
@@ -244,7 +243,8 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 
   </nav>
 
-  <section class="pane" id="p-lb"></section>
+  <section class="pane" id="p-cl"><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div></section>
+  <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
   <section class="pane" id="p-ov" hidden></section>
@@ -950,6 +950,8 @@ function renderCalls(s){
     if(fresh.length){ if(document.hidden) document.title=`(${fresh.length}) 🆕 புது call · KRT`; if(soundOn()) beep(); } }
   else FLASH=new Set();
   SEEN=new Set([...(SEEN||[]),...ids]);
+  const cc=$("clCount"); if(cc){ const nw=active.filter(c=>{const a=callAge(c,s.now);return a!=null&&a>=0&&a<=15}).length;
+    cc.innerHTML=`<b class="up">${active.length}</b>${nw?` <span class="newtag">🆕 ${nw}</span>`:""}`; }
   box.innerHTML=`<div class="cb-head"><h2>📢 Calls</h2>
       <div class="cb-stats num"><span class="cb-stat act">🟢 Active ${active.length}</span><span class="cb-stat">✔ இன்று முடிந்தது ${closed.length}</span>
       <span class="cb-stat ${net>=0?'up':'dn'}">இன்று P/L ₹${n2(net)}</span></div>
