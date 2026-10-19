@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -132,7 +132,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     if p.get("risk_ok") is False:      # V3.2: skip இல்லை — Grade C-ஆ வரும் (risk காட்டும்)
         force_.append("RISK_CAP")
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
-    if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
+    if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA", "MACHINE"):
         p = calibrate_plan(src, dict(p))
     if not p.get("money") and r.get("price"):   # safety net — எல்லா calls-க்கும் ₹ targets
         try:
@@ -245,7 +245,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             return None
         intra_ = not c.get("hold_until")
         for x in calls.values():   # ஒரே contract ஒரே நாள் வேறு setup-லும் வந்தா → புது call இல்லை, source சேர்த்து ஒரே call
-            if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_:
+            if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_ and x["kind"] != "MACHINE":
                 srcs = x.setdefault("sources", [x.get("source") or x["kind"]])
                 if c["source"] not in srcs:
                     srcs.append(c["source"])
@@ -303,7 +303,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     seen_ = {}
     for cid_ in sorted(calls, key=lambda k: (calls[k]["date"], calls[k]["time"])):
         x = calls[cid_]
-        k_ = (x["date"], x["contract"], bool(x.get("hold_until")), bool(x.get("shadow")), x.get("variant"))
+        k_ = (x["date"], x["contract"], bool(x.get("hold_until")), bool(x.get("shadow")), x.get("variant"), x["kind"] == "MACHINE")
         if k_ in seen_:
             keep = calls[seen_[k_]]
             srcs = keep.setdefault("sources", [keep.get("source") or keep["kind"]])
@@ -771,6 +771,42 @@ def add_all_rounder(rows, now):
                 tg(f"🏅 ALL ROUNDER · {a['count']} modules\n{a['symbol']} {o.get('strike', ''):g} {a['side']}\n"
                    f"Entry ₹{c['entry']} · SL ₹{c['sl']} · " + " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) +
                    f"\nConfidence {a['confidence']}% · " + ", ".join(a["modules"].keys()) + "\n(Paper/alert only)", f"ar|{c['id']}")
+        if n:
+            STORE.save(force=True)
+    return n
+
+
+def add_machine(rows, now):
+    """💰 2K PROFIT MACHINE → paper call. T1 = ₹2,000/lot-ல் exit. நாளைக்கு max 5 · ₹10K target / ₹-4,500 stop."""
+    from .fullscan import machine_day, MACHINE as MC
+    mins = now.hour * 60 + now.minute
+    if not (9 * 60 + 30 <= mins <= 14 * 60) or now.weekday() >= 5:
+        return 0
+    n = 0
+    with CALLS_LOCK:
+        d = STORE.load()
+        day = str(now.date())
+        for m in rows:
+            dd = machine_day(now)
+            if dd["stop"] or f"{m['symbol']}|{m['side']}" in dd["symbols"]:
+                continue
+            opt = {"token": m.get("token"), "exch": m.get("exch") or "NFO", "contract": m["contract"],
+                   "strike": m["strike"], "type": m["side"], "expiry": m["expiry"], "lot": m["lot"],
+                   "plan": {"entry": m["entry"], "sl": m["sl"], "targets": m["targets"], "risk": m["risk"],
+                            "risk_ok": m["risk"] <= MC["max_risk"], "money": True, "reward_ok": True}}
+            r = {"symbol": m["symbol"], "price": None, "sl": None, "targets": [], "stars": 5, "vol_ratio": m.get("vol_ratio"),
+                 "confidence": f"Machine score {m['score']}",
+                 "reasons": ["💰 2K PROFIT MACHINE — T1 ₹2,000/lot-ல் exit"] + m["why"] + ["Modules: " + ", ".join(m["modules"])]}
+            c = _new("MACHINE", "2K Profit Machine", r, opt, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(exit_at=1, trail_after_t1=True, grade="A", qcodes=[], qtext=[])
+            d["calls"][c["id"]] = c
+            STORE.dirty = True
+            n += 1
+            tg(f"💰 2K PROFIT MACHINE\n{m['symbol']} {m['strike']:g} {m['side']} · expiry {m['expiry']}\nEntry ₹{m['entry']} · SL ₹{m['sl']} · "
+               f"T1 ₹{m['targets'][0]} (≈₹2,000/lot)\nScore {m['score']} · " + ", ".join(m["why"][:3]) + "\n(Paper/alert only — guarantee இல்லை)",
+               f"mc|{c['id']}")
         if n:
             STORE.save(force=True)
     return n

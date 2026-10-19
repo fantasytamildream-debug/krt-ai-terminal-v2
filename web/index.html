@@ -192,6 +192,19 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 .hero h1{font-size:clamp(20px,3vw,28px)}
 
 /* compact cards v39 */
+.srcs{display:inline-block;max-width:170px;white-space:normal;font-size:11.5px;color:var(--muted);text-align:left;line-height:1.3}
+.mcbox{margin:4px 0 18px;padding:14px;border:2px solid #8b5cf6;border-radius:14px;background:linear-gradient(180deg,rgba(139,92,246,.16),rgba(139,92,246,.03))}
+.mcbox h2{margin:0 0 4px;font-size:22px}
+.mcrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:10px}
+.mccard{border:1px solid var(--line);border-radius:12px;padding:10px 11px;background:var(--panel)}
+.mccard.ENTRY{border:2px solid var(--ce);box-shadow:0 0 16px rgba(60,207,142,.35)}
+.mccard.WAIT,.mccard.STOP{border-color:var(--watch)}
+.mccard.SKIP{opacity:.6}
+.mcact{margin-top:6px;font-weight:800;font-size:14px}
+.mcact.ENTRY{color:var(--ce)} .mcact.WAIT,.mcact.STOP{color:var(--watch)} .mcact.SKIP{color:var(--pe)}
+.mcday{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.mcbar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:6px}.mcbar i{display:block;height:100%;background:var(--ce)}
+
 .cgrid{grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px;margin-top:10px}
 .ccard{padding:10px 11px 9px;border-left-width:5px}
 .cbuy{font-size:17px}
@@ -698,8 +711,8 @@ const gradeWhy = c => (c.qtext||[]).length?`<span class="hint" style="white-spac
 const tkCell = c => ["T1","T2","T3"].map(k=>(c.hits||[]).some(h=>h.startsWith(k+" "))?`<span class="up">${k}✅</span>`:`<span class="hint">${k}○</span>`).join(" ");
 function callsTbl(rows, rank){
   const R=rank?[...rows].sort((a,b)=>(b.pnl_lot||0)-(a.pnl_lot||0)):rows;
-  return simpleTbl(R,[["#",c=>R.indexOf(c)+1],["Grade",gradeB],["Date / Time",c=>sDate(c.date,c.time)],["Source",c=>esc(c.source_label||c.source||c.kind)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],
-    ["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]], callCls);
+  return simpleTbl(R,[["#",c=>R.indexOf(c)+1],["Time",c=>sDate(c.date,c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["P/L lot",plCell],["Status",statusCell],
+    ["Entry",c=>n2(c.entry)],["LTP / Exit",c=>n2(c.exit??c.ltp)],["SL",c=>n2(c.sl)],["Targets",c=>(c.targets||[]).map(n2).join(" / ")],["Hit",tkCell],["Grade",gradeB],["Source",c=>`<span class="srcs">${esc(c.source_label||c.source||c.kind)}</span>`]], callCls);
 }
 function callsKpi(rows){
   const net=rows.reduce((a,c)=>a+(c.pnl_lot||0),0), k=(t,v,cl)=>`<div class="kpi"><span>${t}</span><b class="${cl||''}">${v}</b></div>`;
@@ -826,10 +839,10 @@ function renderFull(s){
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};
   const AR=f.all_rounder||[], AR3=AR.filter(a=>a.count>=3), AR2=AR.filter(a=>a.count===2);
-  $("p-jp").innerHTML = `<h2 class="sec up">🏅 ALL ROUNDER — பல scanner-களிலும் ஒரே நேரம் வந்த stocks</h2>
+  $("p-jp").innerHTML = machineBox(f) + `<h2 class="sec up">🏅 ALL ROUNDER — பல scanner-களிலும் ஒரே நேரம் வந்த stocks</h2>
     <div class="hint">Live Board · POWER OI · Elite · Overview best · Gamma unwind · Swing · OI Footprint · Breakout CE · Breakdown PE · 5-min ORB · Volume+OI · Index OI · Chart pattern — இவற்றில் ஒரே stock + ஒரே side (CE/PE) வந்தால் இங்கே. Strike = அதிக தரமான module-ல் இருந்து (POWER OI → Elite → Gamma → Best → …). Confidence = எத்தனை module + அவற்றின் வலிமை (win probability இல்லை).</div>
     <div class="hint">🟢 = Volume ≥1.5× + Risk ≤₹2,500 + T1 realistic · 🟡 = Volume 1–1.5× (அல்லது index) · 🔴 = Volume &lt;1× / Risk skip / SL touch. <b>Green glow row</b> = 🟢 + T1 அருகில் (≥60%) அல்லது T1 ✅. Tick ✅ = option LTP அந்த target-ஐ தொட்டுச்சு (sticky). <span class="purple">🟣 ENTRY NOW</span> = 🟢 + LTP இன்னும் entry zone-க்குள் + premium மேலே நகருது + volume ≥2× (rule-based timing — guarantee இல்லை).</div>
-    ${simpleTbl(AR,[["#",a=>AR.indexOf(a)+1],["Stock",a=>`<b>${esc(a.symbol)}</b>`],["Side",a=>`<b class="${a.side==='CE'?'up':'dn'}">${a.side}</b>`],["Modules",a=>a.count],["Conf",a=>a.confidence+"%"],
+    ${simpleTbl(AR,[["#",a=>AR.indexOf(a)+1],["Stock",a=>`<b>${esc(a.symbol)}</b>`],["Side",a=>`<b class="${a.side==='CE'?'up':'dn'}">${a.side}</b>`],["இப்போ என்ன?",a=>a.mc?`<span class="mcact ${a.mc.action}" style="font-size:12.5px;white-space:normal;display:inline-block;max-width:210px;text-align:left;margin:0">${esc(a.mc.text)}</span>`:"–"],["Modules",a=>a.count],["Conf",a=>a.confidence+"%"],
       ["Strike",a=>a.option?n2(a.option.strike)+" "+(a.option.type||a.side):"–"],["Entry",a=>a.option&&a.option.plan?n2(a.option.plan.entry):"–"],
       ["LTP",a=>a.live&&a.live.ltp?`<b>${n2(a.live.ltp)}</b>`:"–"],["T1 status",arT1],["SL",a=>a.option&&a.option.plan?n2(a.option.plan.sl):"–"],["Targets ✓",arTargets],
       ["Volume",a=>a.vol_ratio==null?"<span class=\"hint\">–</span>":n2(a.vol_ratio)+"×"],["Light",a=>a.live?lightDot(a.live.light,a):"–"],
@@ -1038,6 +1051,27 @@ function renderCalls(s){
     ${rest.length?`<div class="cgrid">${rest.map(c=>bigCall(c,s)).join("")}</div>`:(pw.length?"":`<div class="cempty">${CFILT==="yes"?"இப்போ “எடுக்கலாம்” call இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.":CFILT==="pw"?"இப்போ strong / jackpot call இல்லை.":"இப்போ active call இல்லை. புது call வந்ததும் இங்கே முதலில் வரும்."}</div>`)}
     ${closed.length?`<details class="cclosed"><summary>இன்று முடிந்த calls (${closed.length}) · லாபம் ${closed.filter(c=>c.pnl_lot>0).length} · நஷ்டம் ${closed.filter(c=>c.pnl_lot<0).length}</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
     <div class="hint" style="margin-top:8px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
+}
+function machineBox(f){
+  const M=f.machine||{}, D=M.day||{}, rows=M.rows||[], C=M.cfg||{day_target:10000,day_stop:-4500,max_calls:5};
+  const H=((f.tracking||{}).today||[]).filter(c=>c.kind==="MACHINE");
+  const pct=Math.max(0,Math.min(100,(D.closed_net||0)/C.day_target*100));
+  const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const card=r=>`<div class="mccard ${r.action}">
+     <div class="ctop"><div class="cbuy">${esc(r.symbol)} ${n2(r.strike)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></div><span class="crate"><b>${r.score}</b>/100</span></div>
+     <div class="cmeta">⏱ ${esc(r.first_seen)} முதல் · expiry ${esc(r.expiry)} · lot ${r.lot}</div>
+     <div class="crow num"><span>Entry <b>${n2(r.entry)}</b></span><span>SL <b class="dn">${n2(r.sl)}</b></span><span>LTP <b>${n2(r.ltp)}</b></span></div>
+     <div class="ctg num"><span>T1 ${n2(r.targets[0])} <b class="up">+₹2,000</b></span><span>T2 ${n2(r.targets[1])} <b class="up">+₹3,500</b></span><span>T3 ${n2(r.targets[2])} <b class="up">+₹5,000</b></span></div>
+     <div class="hint">SL hit ஆனா −₹${n2(r.risk)} · ₹2K-க்கு premium ${r.move_pct}% ஏறணும்</div>
+     <div class="mcact ${r.action}">${esc(r.text)}</div>
+     <div class="hint">${r.why.map(x=>`<span class="up">✓ ${esc(x)}</span>`).concat(r.bad.map(x=>`<span class="dn">✗ ${esc(x)}</span>`)).join(" · ")}</div></div>`;
+  return `<div class="mcbox"><h2>💰 2K PROFIT MACHINE <span class="hint" style="font-size:13px">· top 5 setups · ${esc(M.time||"")}</span></h2>
+   <div class="hint">ஒவ்வொரு call-க்கும் T1 = 1 lot-க்கு <b>₹2,000</b> (அங்கே exit). நாளைக்கு max ${C.max_calls} calls · இன்றைய target <b class="up">₹${n2(C.day_target)}</b> · loss <b class="dn">₹${n2(Math.abs(C.day_stop))}</b> தாண்டினா அன்று call நிற்கும்.</div>
+   <div class="mcday num"><span class="cb-stat">Calls ${D.calls||0}/${C.max_calls}</span><span class="cb-stat ${(D.net||0)>=0?'up':'dn'}">இன்று ${rs(D.net)}</span><span class="cb-stat">Booked ${rs(D.closed_net)} / ₹${n2(C.day_target)}</span>${D.stop?`<span class="cb-stat" style="border-color:var(--watch);color:var(--watch)">${esc(D.stop)}</span>`:""}</div>
+   <div class="mcbar"><i style="width:${pct}%"></i></div>
+   ${rows.length?`<div class="mcrow">${rows.map(card).join("")}</div>`:`<div class="cempty">இப்போ machine rules pass ஆன setup இல்லை — WAIT. (Call வராத நாள் = பணம் போகாத நாள்.)</div>`}
+   ${H.length?`<h3 class="sec">இன்றைய Machine calls</h3>`+callsTbl(H,false):""}
+   <div class="hint" style="margin-top:8px">⚠ Score = rule-based (PRO rules, volume, light, entry zone, லாப setup history, ₹2K move realistic-ஆ) — AI model இல்லை. “100%” / “ஒவ்வொரு call ₹2K” guarantee யாராலும் தர முடியாது: சில calls SL hit ஆகும். Paper-ல் 2–3 வாரம் பாருங்க, அப்புறம் real.</div></div>`;
 }
 function render(s){
   const f=s.full, r=s.result;
