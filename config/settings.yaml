@@ -42,9 +42,9 @@ chartink:
 money_targets: [1200, 3000, 6000]
 
 # 20+ closed calls-ல் சராசரி நஷ்டம் உள்ள setup → ⏸ PAUSED (paper-ல் மட்டும் track; லாபம் திரும்பினா தானா resume)
-auto_pause_negative: true
+auto_pause_negative: false   # true = நஷ்ட setup calls paper-ல் மட்டும் (hide)
 
-# V3.1 call quality rules (fail ஆனா main list-ல் வராது, shadow-ல் பழைய rule-ஆக track — A/B compare)
+# V3.2 call quality rules — block இல்லை: எல்லா calls-ம் வரும், Grade A / B / C மட்டும் (A = எல்லா rules ✓)
 quality:
   enabled: true
   min_rvol: 2.0            # Breakout / ORB / Elite / Volume+OI / All rounder

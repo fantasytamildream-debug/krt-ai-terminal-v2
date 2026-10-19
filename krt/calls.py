@@ -37,7 +37,8 @@ PULLBACK_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI"
 QCODE_TXT = {"TIME_OPEN_NOISE": "9:30-க்கு முன் (noise)", "TIME_LUNCH": "11:30–1:15 lunch chop", "AFTER_2PM": "2 PM-க்கு பிறகு",
              "RANGE_DAY": "Range நாள் — breakout off", "COUNTER_TREND": "Market direction எதிர்", "RVOL_LT_2": "Volume 2×-க்கு கீழ்",
              "SPREAD_GT_2": "Spread 2%-க்கு மேல்", "ONE_PER_STOCK": "இந்த stock-க்கு இன்று ஏற்கனவே call", "DAILY_MAX": "இன்று max calls முடிந்தது",
-             "SL_STREAK": "தொடர்ந்து 2 SL — இன்று stop"}
+             "SL_STREAK": "தொடர்ந்து 2 SL — இன்று stop", "NIFTY_FLAT": "NIFTY flat (±0.15%) — direction இல்லை",
+             "RISK_CAP": "1 lot risk ₹2,500-க்கு மேல்", "T1_UNREALISTIC": "T1-க்கு stock அதிகம் போகணும்", "DAILY_LOSS_STOP": "இன்றைய loss limit தாண்டியது"}
 
 
 def _qcfg():
@@ -73,7 +74,14 @@ def quality_gate(c, calls, now):
             codes.append("AFTER_2PM")
     if c["source"] in TREND_SRC:
         side = _regime_side()
-        if side is None:
+        if side is None and c["source"] in ("5-min ORB", "All rounder"):
+            np_ = MARKET.get("nifty_pct")     # range / unclear நாளிலும் ORB, All rounder: NIFTY இன்றைய direction போதும்
+            side = "CE" if (np_ or 0) >= 0.15 else "PE" if (np_ or 0) <= -0.15 else None
+            if side is None:
+                codes.append("NIFTY_FLAT")
+            elif side != c["side"]:
+                codes.append("COUNTER_TREND")
+        elif side is None:
             codes.append("RANGE_DAY")
         elif side != c["side"]:
             codes.append("COUNTER_TREND")
@@ -118,9 +126,9 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
         except Exception:
             cap_h = 5000
         p = dict(p, risk_ok=p["risk"] <= cap_h)
-    if p.get("risk_ok") is False:      # 1 lot risk budget-ஐ தாண்டினா SKIP — track செய்ய மாட்டோம் (executable signal மட்டும்)
-        _reject(day, kind, src, r, opt, "RISK_CAP", now, f"risk ₹{p.get('risk')}")
-        return None
+    force_ = []
+    if p.get("risk_ok") is False:      # V3.2: skip இல்லை — Grade C-ஆ வரும் (risk காட்டும்)
+        force_.append("RISK_CAP")
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
     if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA",):
         p = calibrate_plan(src, dict(p))
@@ -131,15 +139,14 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
                               now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, None, not hold)
         except Exception:
             pass
-    if p.get("reward_ok") is False:      # T1 (₹1,200)-க்கு stock அதிகம் போகணும் → realistic இல்லை → track இல்லை
-        _reject(day, kind, src, r, opt, "T1_UNREALISTIC", now)
-        return None
+    if p.get("reward_ok") is False:      # V3.2: Grade C
+        force_.append("T1_UNREALISTIC")
     try:
         from .sniper import REGIME as _RG
         reg_ = (_RG.get("state") or "") + (" " + _RG["dir"] if _RG.get("dir") else "")
     except Exception:
         reg_ = ""
-    c = {"ver": "V3.1", "regime": reg_ or None, "spread_pct": opt.get("spread_pct"), "vol_ratio": r.get("vol_ratio"),
+    c = {"force_codes": force_, "ver": "V3.2", "regime": reg_ or None, "spread_pct": opt.get("spread_pct"), "vol_ratio": r.get("vol_ratio"),
          "trail_after_t1": True, "trail_after_t2": True,       # T1 → SL entry, T2 → SL T1, T3 → exit
          "time_stop": None if hold else str(now + pd.Timedelta(minutes=30)), "id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
@@ -247,19 +254,16 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         if not c.get("hold_until"):
             day_net = sum(x.get("pnl_lot") or 0 for x in calls.values() if x["date"] == c["date"] and not x.get("shadow"))
             if day_net <= -abs(risk_cfg.get("daily_loss_limit", 5000)):
-                _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "DAILY_LOSS_STOP", now, f"இன்று ₹{day_net}")
-                return None
+                c.setdefault("force_codes", []).append("DAILY_LOSS_STOP")
             if risk_cfg.get("breakeven_after_t1", True):
                 c.setdefault("trail_after_t1", True)     # T1 பிறகு SL → entry (break-even)
-        codes = quality_gate(c, calls, now)
-        if codes:                  # V3.1 quality rule fail → பழைய rule-ஆக shadow-ல் மட்டும் (A/B compare)
-            c.update(shadow=True, variant="FILTERED", qcodes=codes)
-            _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, codes[0], now,
-                    ", ".join(QCODE_TXT.get(x, x) for x in codes))
-            calls[c["id"]] = c
-            changed = True
-            return None
-        if (c["source"] in PULLBACK_SRC and not c.get("hold_until") and _qcfg()["pullback"] and c.get("ul_price")
+        codes = (c.get("force_codes") or []) + quality_gate(c, calls, now)   # V3.2: block இல்லை — grade மட்டும்
+        hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
+                 "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
+        c["grade"] = "A" if not codes else ("C" if any(x in hard_ for x in codes) else "B")
+        c["qcodes"] = codes
+        c["qtext"] = [QCODE_TXT.get(x, x) for x in codes]
+        if (c["grade"] == "A" and c["source"] in PULLBACK_SRC and not c.get("hold_until") and _qcfg()["pullback"] and c.get("ul_price")
                 and d.get("edge", {}).get(c["source"]) != "NEGATIVE"):
             try:
                 from .instruments import _MEM
@@ -276,7 +280,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                                                         "hi": c["ul_price"], "lo": c["ul_price"], "pulled": False}
                 changed = True
                 return None
-        if d.get("edge", {}).get(c["source"]) == "NEGATIVE" and (load_settings().get("auto_pause_negative", True)):
+        if d.get("edge", {}).get(c["source"]) == "NEGATIVE" and (load_settings().get("auto_pause_negative", False)):
             c["shadow"] = True       # 20+ closed calls-ல் சராசரி நஷ்டம் → ⏸ PAUSED: paper-ல் மட்டும் track, main list-ல் இல்லை
             _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "PAUSED_NEGATIVE_EDGE", now)
         if c["id"] not in calls:
@@ -284,6 +288,14 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             changed = True
             return None if c.get("shadow") else c["id"]
 
+    if not load_settings().get("auto_pause_negative", False):     # V3.2: hide ஆன calls மீண்டும் main list-க்கு
+        for x in calls.values():
+            if x.get("shadow") and x.get("variant") != "IMMEDIATE":
+                codes_ = x.get("qcodes") or []
+                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX"}
+                x.update(shadow=False, variant=None, grade=("A" if not codes_ else "C" if any(k in hard_ for k in codes_) else "B"),
+                         qtext=[QCODE_TXT.get(k, k) for k in codes_])
+                changed = True
     # பழைய duplicate calls-ஐ ஒன்றாக்கு (ஒரே நாள் · ஒரே contract · intraday/holding ஒன்று)
     seen_ = {}
     for cid_ in sorted(calls, key=lambda k: (calls[k]["date"], calls[k]["time"])):
@@ -609,7 +621,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         for src_x in (c.get("sources") or [c.get("source") or c["kind"]]):
             by_src.setdefault(src_x, []).append(c)
     for k, rows in by_src.items():
-        closed = [c for c in rows if c["status"] not in OPEN and c.get("mfe_pct") is not None]
+        # A/B shadow (FILTERED / IMMEDIATE) calls setup-ன் edge-ஐ பாதிக்கக்கூடாது
+        closed = [c for c in rows if c["status"] not in OPEN and c.get("mfe_pct") is not None and not c.get("variant")]
         if len(closed) >= 20:
             m = _np.array([c["mfe_pct"] for c in closed])
             q = [max(5.0, round(float(_np.quantile(m, x)), 1)) for x in (0.4, 0.6, 0.8)]
@@ -671,9 +684,10 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         return {"calls": len(rows), "closed": len(cl), "win": round(sum(c["pnl_lot"] > 0 for c in cl) / len(cl) * 100) if cl else None,
                 "net": sum(c["pnl_lot"] for c in rows), "avg": round(sum(c["pnl_lot"] for c in cl) / len(cl)) if cl else None}
     v31 = [c for c in allc if c.get("ver") == "V3.1" or c.get("variant")]
-    ab = {"NEW rules (main)": ab_stat([c for c in v31 if not c.get("shadow")]),
-          "OLD: உடனே entry (pullback இல்லாம)": ab_stat([c for c in v31 if c.get("variant") == "IMMEDIATE"]),
-          "OLD: filter block ஆனவை": ab_stat([c for c in v31 if c.get("variant") == "FILTERED"])}
+    ab = {"Grade A — எல்லா rules ✓": ab_stat([c for c in allc if c.get("grade") == "A" and not c.get("shadow")]),
+          "Grade B — சின்ன குறை": ab_stat([c for c in allc if c.get("grade") == "B" and not c.get("shadow")]),
+          "Grade C — முக்கிய rule fail": ab_stat([c for c in allc if c.get("grade") == "C" and not c.get("shadow")]),
+          "Grade A pullback-க்கு பதில் உடனே entry (shadow)": ab_stat([c for c in v31 if c.get("variant") == "IMMEDIATE"])}
     pend_list = [{"symbol": v["call"]["symbol"], "side": v["call"]["side"], "contract": v["call"]["contract"], "source": v["call"]["source"],
                   "since": str(v["created"])[11:16], "pulled": v["pulled"], "sig_ul": v["sig_ul"]} for v in (d.get("pending") or {}).values()]
     return {"ab": ab, "pending": pend_list, "validation": valid, "rejected_today": list(reversed(SKIPPED["log"])) if SKIPPED["day"] == day else [],
@@ -691,7 +705,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
 def add_all_rounder(rows, now):
     """🏅 ALL ROUNDER (≥3 modules + TAKE) → paper call, ஒரு stock/side-க்கு ஒரு நாளைக்கு ஒன்று."""
     mins = now.hour * 60 + now.minute
-    if not (9 * 60 + 45 <= mins <= 14 * 60 + 30) or now.weekday() >= 5:
+    if not (9 * 60 + 30 <= mins <= 15 * 60) or now.weekday() >= 5:
         return 0
     n = 0
     with CALLS_LOCK:
@@ -699,8 +713,8 @@ def add_all_rounder(rows, now):
         day = str(now.date())
         flag = d["published"].setdefault(day, {})
         for a in rows:
-            if a.get("verdict") != "TAKE":
-                continue
+            if not ((a.get("option") or {}).get("plan")) or a.get("count", 0) < 2:
+                continue        # V3.2: option plan உள்ள எல்லா All rounder rows-ம் call (TAKE = Grade A, மற்றவை B/C)
             k = f"ar_{a['symbol']}_{a['side']}"
             if flag.get(k):
                 continue
@@ -711,14 +725,14 @@ def add_all_rounder(rows, now):
             r["vol_ratio"] = a.get("vol_ratio")
             c = _new("ALL ROUNDER", "All rounder", r, o, now, day)
             if c and c["id"] not in d["calls"]:
-                codes = quality_gate(c, d["calls"], now)
-                if codes:
-                    c.update(shadow=True, variant="FILTERED", qcodes=codes)
-                    _reject(day, c["kind"], c["source"], r, o, codes[0], now, ", ".join(QCODE_TXT.get(x, x) for x in codes))
-                    d["calls"][c["id"]] = c
-                    flag[k] = c["id"]
-                    STORE.dirty = True
-                    continue
+                codes = (c.get("force_codes") or []) + quality_gate(c, d["calls"], now)
+                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
+                         "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
+                c.update(grade="A" if not codes else ("C" if any(x in hard_ for x in codes) else "B"), qcodes=codes,
+                         qtext=[QCODE_TXT.get(x, x) for x in codes])
+                if a.get("verdict") != "TAKE" and c["grade"] == "A":
+                    c["grade"] = "B"
+                    c["qtext"].append("All rounder WATCH (TAKE இல்லை)")
                 d["calls"][c["id"]] = c
                 flag[k] = c["id"]
                 STORE.dirty = True

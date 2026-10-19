@@ -233,6 +233,19 @@ def attach_plan(r, opt, now, source=None):
         from .calls import calibrate_plan
         calibrate_plan(source, opt["plan"])
     apply_money(opt, r["price"], now, atr, intraday=not r.get("hold"))
+    p_ = opt.get("plan") or {}
+    if p_ and p_.get("risk_ok") is False and r.get("option_alts") and not r.get("_alt"):
+        r["_alt"] = True          # ATM / ITM risk cap-ஐ தாண்டினா cheaper strike (1 OTM) — SL-ஐ tight பண்ணாம
+        for alt in r["option_alts"]:
+            if alt["contract"] == opt.get("contract"):
+                continue
+            attach_plan(r, alt, now, source)
+            ap = alt.get("plan") or {}
+            if ap.get("risk_ok") and ap.get("reward_ok", True):
+                alt["alt_reason"] = f"{opt.get('moneyness')} {opt.get('strike'):g} risk ₹{p_.get('risk')} > cap → {alt['moneyness']} {alt['strike']:g} (risk ₹{ap.get('risk')})"
+                r["option"] = alt
+                break
+        r.pop("_alt", None)
 
 
 def pick_options(ag, inst, rows):
@@ -248,13 +261,14 @@ def pick_options(ag, inst, rows):
         atm = min(strikes, key=lambda s: abs(s - r["price"]))
         i = strikes.index(atm)
         itm = strikes[i - 1] if r["side"] == "CE" and i > 0 else (strikes[i + 1] if r["side"] == "PE" and i + 1 < len(strikes) else None)
-        chosen = [c for c in cs if c[3] in (atm, itm)]
+        otm = strikes[i + 1] if r["side"] == "CE" and i + 1 < len(strikes) else (strikes[i - 1] if r["side"] == "PE" and i > 0 else None)
+        chosen = [c for c in cs if c[3] in (atm, itm, otm)]
         plan.append((r, chosen, atm))
         for c in chosen:
             toks.setdefault(c[6], []).append(c[0])
     qs = ag.quotes(toks) if toks else {}
     for r, chosen, atm in plan:
-        best = None
+        best, alts = None, []
         for c in chosen:
             q = qs.get(c[0])
             if not q:
@@ -262,13 +276,17 @@ def pick_options(ag, inst, rows):
             bid, ask = _depth(q)
             mid = (bid + ask) / 2 if bid and ask else 0
             spread = (ask - bid) / mid * 100 if mid else 999
+            mny = "ATM" if c[3] == atm else ("ITM" if ((c[3] < atm) == (r["side"] == "CE")) else "1 OTM")
             cand = {"token": c[0], "exch": c[6], "contract": c[1], "strike": c[3], "expiry": c[2], "type": c[4], "lot": c[5],
-                    "moneyness": "ATM" if c[3] == atm else "ITM", "bid": bid, "ask": ask,
+                    "moneyness": mny, "bid": bid, "ask": ask,
                     "ltp": _f(q.get("ltp")), "spread_pct": round(spread, 2), "oi": int(_f(q.get("opnInterest"))),
                     "volume": int(_f(q.get("tradeVolume"))), "lot_cost": round(ask * c[5])}
-            if spread <= 3 and bid > 0 and (best is None or cand["oi"] > best["oi"]):
-                best = cand
+            if spread <= 3 and bid > 0:
+                alts.append(cand)
+                if mny != "1 OTM" and (best is None or cand["oi"] > best["oi"]):
+                    best = cand
         r["option"] = best or {"none": "STOCK SETUP VALID — NO SUITABLE OPTION (spread / liquidity குறைவு)"}
+        r["option_alts"] = sorted([a for a in alts if not best or a["contract"] != best["contract"]], key=lambda a: a["ask"])
 
 
 def index_oi(ag, inst, spot_q):
@@ -681,6 +699,7 @@ def run_full(ag, prog=lambda m: None) -> dict:
     try:
         from .calls import MARKET as _MK
         _MK["trend"] = trend
+        _MK["nifty_pct"] = next((x.get("pct") for x in (idx or []) if x.get("index") == "NIFTY"), None)
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],
