@@ -39,10 +39,10 @@ chartink:
   fno_only: true       # F&O stocks மட்டும் (option trade-க்கு)
 
 # ஒவ்வொரு call-க்கும் குறைந்தபட்ச லாப target (1 lot, ₹): T1 / T2 / T3
-money_targets: [1200, 3000, 6000]
+money_targets: [2000, 4000, 6000]   # V5 — calls.py RUPEE rules இறுதி
 
 # 20+ closed calls-ல் சராசரி நஷ்டம் உள்ள setup → ⏸ PAUSED (paper-ல் மட்டும் track; லாபம் திரும்பினா தானா resume)
-auto_pause_negative: false   # true = நஷ்ட setup calls paper-ல் மட்டும் (hide)
+auto_pause_negative: true    # V5: 20+ closed calls-ல் நஷ்ட setup (Chart pattern, Volume+OI…) calls main list-ல் வராது — paper-ல் மட்டும்; லாபம் திரும்பினா தானா வரும்
 
 # V3.2 call quality rules — block இல்லை: எல்லா calls-ம் வரும், Grade A / B / C மட்டும் (A = எல்லா rules ✓)
 quality:
@@ -51,3 +51,5 @@ quality:
   max_calls_per_day: 3     # main intraday calls
   max_spread_pct: 2.0
   pullback_entry: true     # breakout candle-ல் வாங்காம pullback + resume-ல் entry
+  block_grade_c: true      # V5: Grade C intraday calls வராது (counter-trend / range / 2PM பிறகு / SL tight…)
+  max_total_calls_day: 12  # V5: ஒரு நாளைக்கு மொத்த intraday calls

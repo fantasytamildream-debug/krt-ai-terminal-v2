@@ -1280,7 +1280,7 @@ def ar_pro(a, res):
         a["tag"] = "🏅 ALL ROUNDER PRO"
 
 
-MACHINE = {"t1_rs": 2000, "t2_rs": 3500, "t3_rs": 5000, "max_risk": 2200, "max_move_pct": 30, "day_target": 10000,
+MACHINE = {"t1_rs": 2000, "t2_rs": 4000, "t3_rs": 6000, "max_risk": 2500, "max_move_pct": 30, "day_target": 10000,
            "day_stop": -4500, "max_calls": 5, "min_score": 70, "show_score": 55}
 
 

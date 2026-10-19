@@ -32,9 +32,48 @@ def _f(x):
 
 
 MARKET = {"trend": None}
+
+# V5 ₹ rules (user): intraday SL max ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000
+#                   holding  SL max ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000
+# Exit rule எல்லா calls-க்கும் ஒன்றே: SL hit → exit · T1 → SL entry · T2 → SL T1 · T3 → exit. Time stop / invalidation இல்லை.
+RUPEE = {"intra": {"max_sl": 2500, "t": (2000, 4000, 6000), "t1_alt": 1500, "max_t1_move": 35, "min_sl_pct": 6},
+         "hold": {"max_sl": 4000, "t": (5000, 8000, 12000), "t1_alt": None, "max_t1_move": 60, "min_sl_pct": 8}}
+SIMPLE_EXIT = True
+
+
+def _r05(x):
+    return round(round(x / 0.05) * 0.05, 2)
+
+
+def rupee_plan(entry, sl, lot, hold):
+    """→ (sl, targets, risk, codes). SL-ஐ ₹ cap-க்குள் கொண்டுவரும்; targets = ₹ அடிப்படையில்."""
+    R = RUPEE["hold" if hold else "intra"]
+    codes = []
+    if not entry or not lot:
+        return sl, [], 0, codes
+    sl = sl if (sl and sl < entry) else _r05(entry * 0.7)
+    if (entry - sl) * lot > R["max_sl"]:
+        import math
+        sl = round(math.ceil((entry - R["max_sl"] / lot) / 0.05 - 1e-9) * 0.05, 2)   # cap-க்குள் (மேல் round)
+    sl = max(0.05, sl)
+    t = list(R["t"])
+    if R["t1_alt"] and (t[0] / lot) / entry * 100 > 25:
+        t[0] = R["t1_alt"]
+    tg_ = []
+    for x in t:
+        v = _r05(entry + x / lot)
+        if tg_ and v <= tg_[-1]:
+            v = _r05(tg_[-1] + 0.05)
+        tg_.append(max(v, _r05(entry + 0.05)))
+    if (tg_[0] / entry - 1) * 100 > R["max_t1_move"]:
+        codes.append("T1_UNREALISTIC")
+    if (entry - sl) / entry * 100 < R["min_sl_pct"]:
+        codes.append("SL_TIGHT")
+    return sl, tg_, round((entry - sl) * lot), codes
 TREND_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI", "All rounder"}
 PULLBACK_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI"}
-QCODE_TXT = {"TIME_OPEN_NOISE": "9:30-க்கு முன் (noise)", "TIME_LUNCH": "11:30–1:15 lunch chop", "AFTER_2PM": "2 PM-க்கு பிறகு",
+QCODE_TXT = {"RVOL_LT_15": "Volume 1.5×-க்கு கீழ் — trend இல்லை", "SL_TIGHT": "Lot பெரிசு — ₹ SL cap-க்கு SL மிக நெருக்கம் (noise-ல் அடிக்கும்)", "DAILY_TOTAL": "இன்றைய மொத்த intraday calls limit முடிந்தது",
+             "TIME_OPEN_NOISE": "9:30-க்கு முன் (noise)", "TIME_LUNCH": "11:30–1:15 lunch chop", "AFTER_2PM": "2 PM-க்கு பிறகு",
              "RANGE_DAY": "Range நாள் — breakout off", "COUNTER_TREND": "Market direction எதிர்", "RVOL_LT_2": "Volume 2×-க்கு கீழ்",
              "SPREAD_GT_2": "Spread 2%-க்கு மேல்", "ONE_PER_STOCK": "இந்த stock-க்கு இன்று ஏற்கனவே call", "DAILY_MAX": "இன்று max calls முடிந்தது",
              "SL_STREAK": "தொடர்ந்து 2 SL — இன்று stop", "NIFTY_FLAT": "NIFTY flat (±0.15%) — direction இல்லை",
@@ -85,7 +124,9 @@ def quality_gate(c, calls, now):
             codes.append("RANGE_DAY")
         elif side != c["side"]:
             codes.append("COUNTER_TREND")
-        if c.get("vol_ratio") is not None and c["vol_ratio"] < q["min_rvol"]:
+        if c.get("vol_ratio") is not None and c["vol_ratio"] < 1.5:
+            codes.append("RVOL_LT_15")          # V5: volume இல்லாத breakout = trend இல்லை → Grade C
+        elif c.get("vol_ratio") is not None and c["vol_ratio"] < q["min_rvol"]:
             codes.append("RVOL_LT_2")
     if (c.get("spread_pct") or 0) > q["max_spread"]:
         codes.append("SPREAD_GT_2")
@@ -141,7 +182,11 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
                               now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, None, not hold)
         except Exception:
             pass
-    if p.get("reward_ok") is False:      # V3.2: Grade C
+    sl_, tg_, risk_, rc_ = rupee_plan(p.get("entry"), p.get("sl"), opt.get("lot"), bool(hold))
+    if tg_:
+        p = dict(p, sl=sl_, targets=tg_, risk=risk_, risk_ok=True, rupee=True)
+        force_ = [x for x in force_ if x != "RISK_CAP"] + rc_
+    elif p.get("reward_ok") is False:
         force_.append("T1_UNREALISTIC")
     try:
         from .sniper import REGIME as _RG
@@ -150,7 +195,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
         reg_ = ""
     c = {"force_codes": force_, "ver": "V3.2", "regime": reg_ or None, "spread_pct": opt.get("spread_pct"), "vol_ratio": r.get("vol_ratio"),
          "trail_after_t1": True, "trail_after_t2": True,       # T1 → SL entry, T2 → SL T1, T3 → exit
-         "time_stop": None if hold else str(now + pd.Timedelta(minutes=30)), "id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
+         "time_stop": None, "id": cid, "kind": kind, "source": src, "date": day, "time": now.strftime("%H:%M"),
          "symbol": r["symbol"], "side": opt["type"], "contract": opt["contract"], "token": opt["token"],
          "exch": opt["exch"], "strike": opt["strike"], "expiry": opt["expiry"], "lot": opt["lot"],
          "ul_price": r.get("price"), "ul_sl": r.get("sl"), "ul_targets": r.get("targets"),
@@ -263,7 +308,18 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         codes = (c.get("force_codes") or []) + quality_gate(c, calls, now)   # V3.2: block இல்லை — grade மட்டும்
         hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
                  "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
+        hard_ = hard_ | {"SL_TIGHT", "RVOL_LT_15"}
         c["grade"] = "A" if not codes else ("C" if any(x in hard_ for x in codes) else "B")
+        qs_ = load_settings().get("quality") or {}
+        if not c.get("hold_until") and qs_.get("block_grade_c", True):
+            if c["grade"] == "C":       # V5: Grade C intraday call வராது — rejected log-ல் மட்டும்
+                _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, codes[0] if codes else "GRADE_C", now,
+                        ", ".join(QCODE_TXT.get(x, x) for x in codes))
+                return None
+            n_day = sum(1 for x in calls.values() if x["date"] == c["date"] and not x.get("hold_until") and not x.get("shadow"))
+            if n_day >= qs_.get("max_total_calls_day", 12):
+                _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "DAILY_TOTAL", now)
+                return None
         c["qcodes"] = codes
         c["qtext"] = [QCODE_TXT.get(x, x) for x in codes]
         if (c["grade"] == "A" and c["source"] in PULLBACK_SRC and not c.get("hold_until") and _qcfg()["pullback"] and c.get("ul_price")
@@ -376,8 +432,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 rr["reasons"].insert(0, "🟡 Range mode — stock தனி trend + RS + volume (NIFTY trending இல்லை)")
             c = _new(kind, src_pw, rr, o, now, day)
             if c:
-                c.update(ul_token=r.get("ul_token"), ul_inval=r["ul_inval"], exit_at=2, trail_after_t1=True,
-                         time_stop=str(now + pd.Timedelta(minutes=5 * 6)))
+                c.update(ul_token=r.get("ul_token"), ul_inval=r["ul_inval"], trail_after_t1=True, trail_after_t2=True)
                 if add(c):
                     tg(f"🎯 POWER OI {r['grade']} ENTRY · Model {r['model']}\n{r['symbol']} {o['strike']:g} {r['side']} ({o['moneyness']}, Δ {o.get('delta')})\n"
                        f"Entry ₹{o['plan']['entry']} · SL ₹{o['plan']['sl']} · T1 ₹{o['plan']['targets'][0]} · T2 ₹{o['plan']['targets'][1]} · T3 ₹{o['plan']['targets'][2]}\n"
@@ -491,16 +546,19 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             c["entry"], c["sl"] = round(o, 2), round(c["sl"] * ratio, 2)
             c["targets"] = [round(max(t * ratio, o + m / c["lot"]), 2) for t, m in zip(c["targets"], mins_)]
             c["risk"] = round((o - c["sl"]) * c["lot"] + 150)
+            sl_, tg_, risk_, _rc = rupee_plan(c["entry"], c["sl"], c["lot"], False)
+            if tg_:
+                c.update(sl=sl_, targets=tg_, risk=risk_)
             del pend[k_]
             changed = True
             if c["risk"] > ((load_settings().get("risk") or {}).get("max_risk_per_trade", 2500)):
                 _reject(day, c["kind"], c["source"], c, {"contract": c["contract"]}, "RISK_CAP", now, f"pullback entry risk ₹{c['risk']}")
                 continue
             c.update(id=c["id"] + "|PB", time=now.strftime("%H:%M"), entry_type="PULLBACK", ltp=o, max_ltp=o, min_ltp=o,
-                     time_stop=str(now + pd.Timedelta(minutes=30)))
+                     time_stop=None)
             calls[c["id"]] = c
             tg(f"📥 PULLBACK ENTRY · {c['source']}\n{c['symbol']} {c['strike']:g} {c['side']} @ ₹{o}\nSL ₹{c['sl']} · " +
-               " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + "\nT1 → SL entry · T2 → SL T1 · 30 min time stop\n(Paper/alert only)",
+               " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + "\nT1 → SL entry · T2 → SL T1\n(Paper/alert only)",
                f"pb|{c['id']}")
     open_ = [c for c in calls.values() if c["status"] in OPEN]
     for c in open_:
@@ -525,11 +583,11 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 if ltp >= tgt and not any(h.startswith(f"T{i} ") for h in c["hits"]):
                     c["hits"].append(f"T{i} {now:%d-%m %H:%M}")
                     c["status"] = f"T{i} HIT"
-                    if i == 1 and c.get("trail_after_t1"):
+                    if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
                         c["sl"] = c["entry"]  # T1 பின் SL → entry
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
-                    if i == 2 and c.get("trail_after_t2"):
+                    if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):
                         c["sl"] = c["targets"][0]
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
@@ -542,16 +600,16 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if c["status"] == f"T{len(c['targets'])} HIT":
                 _close(c, f"T{len(c['targets'])} DONE", ltp, str(now))
                 continue
-            if c.get("exit_at") and any(h.startswith(f"T{c['exit_at']} ") for h in c["hits"]):
+            if not SIMPLE_EXIT and c.get("exit_at") and any(h.startswith(f"T{c['exit_at']} ") for h in c["hits"]):
                 _close(c, f"T{c['exit_at']} EXIT", ltp, str(now))
                 changed = True
                 continue
-            if (c.get("time_stop") and not c.get("hold_until") and not c["kind"].startswith("POWER")
+            if (not SIMPLE_EXIT and c.get("time_stop") and not c.get("hold_until") and not c["kind"].startswith("POWER")
                     and str(now) >= c["time_stop"] and not c["hits"] and ltp < c["entry"] * 1.10):
                 _close(c, "TIME STOP", ltp, str(now))      # 30 நிமிடத்தில் +10% வரல → exit
                 changed = True
                 continue
-            if c["kind"].startswith("POWER"):
+            if c["kind"].startswith("POWER") and not SIMPLE_EXIT:
                 uq = qs.get(c.get("ul_token")) if c.get("ul_token") else None
                 u = _f(uq.get("ltp")) if uq else 0
                 if u and ((u < c["ul_inval"]) if c["side"] == "CE" else (u > c["ul_inval"])):
@@ -567,7 +625,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     _close(c, "EOD EXIT", ltp, str(now))
                     changed = True
                     continue
-            if c["kind"].startswith("GU-") and c.get("zone") and c.get("ul_token"):
+            if c["kind"].startswith("GU-") and c.get("zone") and c.get("ul_token") and not SIMPLE_EXIT:
                 uq = qs.get(c["ul_token"])
                 u = _f(uq.get("ltp")) if uq else 0
                 inv = u and ((u < c["zone"][0]) if c["side"] == "CE" else (u > c["zone"][1]))
@@ -576,7 +634,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     tg(f"❌ Signal invalidated (stock back in zone): {c['symbol']} {c['strike']:g} {c['side']} @ {ltp} · P/L/lot ₹{c['pnl_lot']}")
                     changed = True
                     continue
-            if c["kind"] == "GAMMA-UNWIND" and c.get("zone") and not c["hits"] and mins >= 15 * 60 + 25:
+            if c["kind"] == "GAMMA-UNWIND" and c.get("zone") and not c["hits"] and mins >= 15 * 60 + 25 and not SIMPLE_EXIT:
                 uq = qs.get(c.get("ul_token")) if c.get("ul_token") else None
                 u = _f(uq.get("ltp")) if uq else 0
                 if u:
@@ -757,7 +815,7 @@ def add_all_rounder(rows, now):
             if c and c["id"] not in d["calls"]:
                 codes = (c.get("force_codes") or []) + quality_gate(c, d["calls"], now)
                 hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
-                         "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
+                         "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP", "SL_TIGHT", "RVOL_LT_15"}
                 c.update(grade="A" if not codes else ("C" if any(x in hard_ for x in codes) else "B"), qcodes=codes,
                          qtext=[QCODE_TXT.get(x, x) for x in codes])
                 if c["grade"] == "C":
@@ -800,7 +858,7 @@ def add_machine(rows, now):
             c = _new("MACHINE", "2K Profit Machine", r, opt, now, day)
             if not c or c["id"] in d["calls"]:
                 continue
-            c.update(exit_at=1, trail_after_t1=True, grade="A", qcodes=[], qtext=[])
+            c.update(trail_after_t1=True, trail_after_t2=True, grade="A", qcodes=[], qtext=[])
             d["calls"][c["id"]] = c
             STORE.dirty = True
             n += 1

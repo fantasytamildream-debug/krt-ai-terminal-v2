@@ -614,7 +614,7 @@ function powerPane(f){
     ${r.underlying_only?`<div class="opt"><b>${esc(r.underlying_only)}</b></div>`:r.option?`<div class="plan"><div class="buy">BUY ${n2(r.option.strike)} ${r.option.type} <span class="hint">(${esc(r.option.moneyness)} · Δ ${n2(r.option.delta)} · expiry ${esc(r.option.expiry)} · lot ${r.option.lot})</span></div>
       <div class="hint">Bid ${n2(r.option.bid)} / Ask ${n2(r.option.ask)} · spread ${n2(r.option.spread_pct)}% · ask depth ${big(r.option.ask_depth)} · OI ${big(r.option.oi)}</div>
       ${r.option.plan?`<div class="lv num"><span>Entry ≤ <b>${n2(r.option.plan.entry)}</b></span><span>SL <b class="dn">${n2(r.option.plan.sl)}</b></span>${r.option.plan.targets.map((t,i)=>`<span>T${i+1} <b class="up">${n2(t)}</b></span>`).join("")}<span>Risk/lot ₹${n2(r.option.plan.risk)}</span>${r.option.plan.risk_ok?"":'<span class="skip">SKIP — RISK cap-ஐ தாண்டுது</span>'}</div>${moneyLine(r.option.plan)}
-      ${trackHTML(r.symbol,r.option)}<div class="hint">Exit: SL அல்லது stock ${n2(r.ul_inval)} உடைந்தால் · T1 பின் SL → entry · T2-ல் full exit · 6 candle-ல் follow-through இல்லைன்னா time stop · 3:15 exit</div>`:""}</div>`:""}
+      ${trackHTML(r.symbol,r.option)}<div class="hint">Exit: SL hit → exit · T1 → SL entry · T2 → SL T1 · T3 exit · 3:20 PM intraday exit</div>`:""}</div>`:""}
   </div>`;
   const pills=r=>(r.steps||[]).map((st,i)=>`<span class="pill ${st.ok?'on':''}">${i+1}. ${esc(st.name)} ${st.ok?'✓':'…'}</span>`).join("");
   const easyRow=r=>`<div class="row ${r.progress>=2?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span> <b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>
@@ -903,7 +903,7 @@ function renderFull(s){
       ["Targets",c=>["T1","T2","T3"].map(k=>(c.hits||[]).some(h=>h.startsWith(k+" "))?`<span class="up">${k}✅</span>`:`<span class="hint">${k}○</span>`).join(" ")],["Status",statusCell],["ஏன் இந்த grade",gradeWhy]], callCls)}
     <h2 class="sec">Setup வாரியாக இன்று</h2>${simpleTbl(Object.values(bySrc).sort((a,b)=>b.net-a.net),[["Setup",x=>`<b>${esc(x.source)}</b>`],["Calls",x=>x.calls],["T1 reached",x=>x.t1],["SL hit",x=>x.sl],["1 lot invest",x=>"₹"+n2(Math.round(x.inv))],["Return %",x=>x.inv?`<b class="${x.net>=0?'up':'dn'}">${x.net>=0?"+":""}${n2(x.net/x.inv*100)}%</b>`:"–"],["Net P/L",x=>`<b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`]], x=>x.net>0?"uprow":x.net<0?"slrow":"")}
     ${(()=>{const AB=tr.ab||{}, PN=tr.pending||[];
-      return `<h2 class="sec">🧪 Grade வாரியாக result (A vs B vs C)</h2><div class="hint">புது rules: T1 → SL entry · T2 → SL T1 · T3 exit · 30 நிமிடத்தில் +10% வரலன்னா exit · 9:30–11:30 & 1:15–2:00 மட்டும் · range நாளில் breakout off · volume ≥2× · spread ≤2% · ஒரு stock-க்கு ஒரு call · max 3 calls · 2 SL-க்கு பிறகு stop · breakout-ல் pullback entry. பழைய rule calls shadow-ல் (main list-ல் இல்லை) track ஆகுது — 2–3 வாரத்தில் எது சிறந்தது என்று data சொல்லும்.</div>`+
+      return `<h2 class="sec">🧪 Grade வாரியாக result (A vs B vs C)</h2><div class="hint">V5 rules: SL ≤ ₹2,500 (holding ₹4,000) · T1 ₹2,000 (அல்லது ₹1,500) / T2 ₹4,000 / T3 ₹6,000 (holding ₹5K/8K/12K) · T1 → SL entry · T2 → SL T1 · time stop இல்லை · Grade C intraday call வராது · 9:30–11:30 & 1:15–2:00 மட்டும் · range நாளில் breakout off · volume ≥2× · spread ≤2% · ஒரு stock-க்கு ஒரு call · max 3 calls · 2 SL-க்கு பிறகு stop · breakout-ல் pullback entry. பழைய rule calls shadow-ல் (main list-ல் இல்லை) track ஆகுது — 2–3 வாரத்தில் எது சிறந்தது என்று data சொல்லும்.</div>`+
        simpleTbl(Object.entries(AB).map(([k,v])=>({k,...v})),[["Rule",x=>`<b>${esc(x.k)}</b>`],["Calls",x=>x.calls],["Closed",x=>x.closed],["Win %",x=>x.win==null?"–":x.win+"%"],["Avg / call",x=>x.avg==null?"–":`<b class="${x.avg>=0?'up':'dn'}">₹${n2(x.avg)}</b>`],["Net",x=>`<b class="${x.net>=0?'up':'dn'}">₹${n2(x.net)}</b>`]])+
        (PN.length?`<h3 class="sec">📥 Pullback entry-க்கு காத்திருக்கு (${PN.length})</h3><div class="hint">Breakout ஆச்சு — stock 0.25 ATR பின்வாங்கி, மீண்டும் signal price-ஐ தாண்டினா தான் entry (45 நிமிடம் / 2 PM வரை).</div>`+
          simpleTbl(PN,[["Since",x=>esc(x.since)],["Setup",x=>esc(x.source)],["Stock",x=>`<b>${esc(x.symbol)}</b>`],["Contract",x=>esc(x.contract)],["Signal price",x=>n2(x.sig_ul)],["Pullback",x=>x.pulled?'<b class="up">✓ ஆச்சு — resume காத்திருக்கு</b>':'<span class="hint">காத்திருக்கு</span>']]):"")})()}
@@ -980,7 +980,7 @@ function judge(c,f){
   if(c.grade==="A"){sc+=35;plus.push("Grade A")} else if(c.grade==="B"){sc+=20;plus.push("Grade B")} else if(c.grade==="C"){minus.push("Grade C (rule fail)")}
   if(c.risk_ok===false) minus.push("Risk அதிகம்"); else sc+=15;
   if(vr>=3){sc+=20;plus.push(`Volume ${n2(vr)}×`)} else if(vr>=2){sc+=12;plus.push(`Volume ${n2(vr)}×`)} else if(vr>=1.5) sc+=6; else if(vr) minus.push(`Volume ${n2(vr)}× குறைவு`);
-  const pw=powerInfo(c,f); if(pw.length) sc+=Math.min(15,pw.length*8);
+  let pw=c.grade==="C"?[]:powerInfo(c,f); if(pw.length) sc+=Math.min(15,pw.length*8);
   if((c.stars||0)>=4) sc+=5;
   const act=c.action;
   if(act==="ENTRY") sc+=15; else if(act==="BOOK") sc+=10; else if(act==="WEAK"){sc-=15;minus.push("Entry-க்கு கீழே")} else if(act==="LATE"){minus.push("Late — விலை ஓடிடுச்சு")} else if(act==="EXIT"){sc-=20}
@@ -994,6 +994,7 @@ function judge(c,f){
   else if(sc>=70){v="✅ எடுக்கலாம்";cls="yes"}
   else if(sc>=45){v="⚠ எடுத்தா 1 lot மட்டும், SL கண்டிப்பா";cls="mid"}
   else {v="❌ வேண்டாம் — quality குறைவு";cls="no"}
+  if(cls==="no") pw=[];      // எடுக்கக்கூடாத call STRONG box-ல் வராது
   return {sc,stars,v,cls,plus,minus,pw};
 }
 function bigCall(c,s){
@@ -1050,7 +1051,8 @@ function renderCalls(s){
     ${pw.length?`<div class="pwbox"><div class="pwhead">🟣 STRONG / JACKPOT / அதிக volume calls — முதலில் இதைப் பாருங்க</div><div class="cgrid">${pw.map(c=>bigCall(c,s)).join("")}</div></div>`:""}
     ${rest.length?`<div class="cgrid">${rest.map(c=>bigCall(c,s)).join("")}</div>`:(pw.length?"":`<div class="cempty">${CFILT==="yes"?"இப்போ “எடுக்கலாம்” call இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.":CFILT==="pw"?"இப்போ strong / jackpot call இல்லை.":"இப்போ active call இல்லை. புது call வந்ததும் இங்கே முதலில் வரும்."}</div>`)}
     ${closed.length?`<details class="cclosed"><summary>இன்று முடிந்த calls (${closed.length}) · லாபம் ${closed.filter(c=>c.pnl_lot>0).length} · நஷ்டம் ${closed.filter(c=>c.pnl_lot<0).length}</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
-    <div class="hint" style="margin-top:8px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
+    <div class="hint" style="margin-top:8px">📏 Rules: intraday SL ≤ ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · holding SL ≤ ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000 · SL hit → exit · T1 → SL entry · T2 → SL T1 · time stop இல்லை · 3:20 PM intraday exit.</div>
+    <div class="hint" style="margin-top:4px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
 }
 function machineBox(f){
   const M=f.machine||{}, D=M.day||{}, rows=M.rows||[], C=M.cfg||{day_target:10000,day_stop:-4500,max_calls:5};
