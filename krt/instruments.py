@@ -24,7 +24,7 @@ def _build(cache_dir: Path) -> dict:
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
     today = ist_today()
-    eq, opts, fno = {}, {}, set()
+    eq, opts, fno, fut = {}, {}, set(), {}
     with open(raw, "rb") as f:
         for row in ijson.items(f, "item"):
             seg, sym = row.get("exch_seg"), row.get("symbol", "")
@@ -32,6 +32,15 @@ def _build(cache_dir: Path) -> dict:
                 eq[sym[:-3]] = row["token"]
                 continue
             it = row.get("instrumenttype")
+            if seg in ("NFO", "BFO") and it == "FUTIDX":      # V4: index futures volume (spot index-க்கு volume இல்லை)
+                nm = (row.get("name") or "").upper()
+                try:
+                    fx = dt.datetime.strptime(row["expiry"], "%d%b%Y").date()
+                except Exception:
+                    continue
+                if nm in INDEX_OPT_EXCH and fx >= today and (nm not in fut or fx.isoformat() < fut[nm][2]):
+                    fut[nm] = [row["token"], sym, fx.isoformat(), seg]
+                continue
             if seg not in ("NFO", "BFO") or it not in ("OPTSTK", "OPTIDX"):
                 continue
             name = (row.get("name") or "").upper()
@@ -52,7 +61,7 @@ def _build(cache_dir: Path) -> dict:
     for name, rows in opts.items():  # அருகிலுள்ள 2 expiry மட்டும்
         exps = sorted({r[2] for r in rows})[:2]
         opts[name] = [r for r in rows if r[2] in exps]
-    return {"eq": eq, "fno": sorted(fno), "opts": opts}
+    return {"eq": eq, "fno": sorted(fno), "opts": opts, "fut": fut}
 
 
 def load(cache_dir: str | Path) -> dict:
@@ -80,6 +89,8 @@ def contracts(data: dict, name: str, min_days: int = 2):
     if not rows:
         return None, []
     today = ist_today()
-    exps = sorted({r[2] for r in rows})
+    exps = sorted({r[2] for r in rows if r[2] >= today.isoformat()})     # expired contracts scan ஆகாது
+    if not exps:
+        return None, []
     pick = next((e for e in exps if (dt.date.fromisoformat(e) - today).days >= min_days), exps[-1])
     return pick, [r for r in rows if r[2] == pick]

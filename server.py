@@ -86,6 +86,55 @@ def do_full():
     return True
 
 
+V4E = {"err": None, "t": None}
+
+
+def v4_loop():
+    """🔥 KRT AI V4: market நேரத்தில் ஒவ்வொரு நிமிடமும் (completed 1-min candle) 4 index × 5 strategies. Browser close ஆனாலும் server-ல் ஓடும்."""
+    global ANGEL
+    done = None
+    while True:
+        time.sleep(5)
+        try:
+            t = now_ist()
+            slot = t.floor("1min")
+            if done == slot or t.second < 4 or not angel_configured():
+                continue
+            mo = market_open(t)
+            if not mo and not (V4E["t"] is None or t.minute % 15 == 0):
+                continue
+            done = slot
+            from krt.angel_api import Angel
+            from krt.instruments import load as load_inst
+            from krt import v4
+            ANGEL = ANGEL or Angel()
+            inst = load_inst(ROOT / "data" / "cache")
+            sig = v4.scan(ANGEL, inst, STATE.get("full"), t, live=mo)
+            if mo and sig:
+                v4.to_calls(sig, t)
+            V4E.update(err=None, t=str(t))
+        except Exception as e:
+            V4E["err"] = str(e)
+            traceback.print_exc()
+
+
+def v4_backtest(days):
+    global ANGEL
+    from krt import v4
+    try:
+        v4.STATE.update(bt_running=True, bt_prog="")
+        from krt.angel_api import Angel
+        from krt.instruments import load as load_inst
+        ANGEL = ANGEL or Angel()
+        inst = load_inst(ROOT / "data" / "cache")
+        v4.STATE["bt"] = v4.backtest(ANGEL, inst, days=days, progress=lambda m: v4.STATE.update(bt_prog=m))
+    except Exception as e:
+        traceback.print_exc()
+        v4.STATE["bt"] = {"error": str(e)}
+    finally:
+        v4.STATE["bt_running"] = False
+
+
 def ticker():
     """Market நேரத்தில் 30 sec-க்கு ஒருமுறை live price / option LTP / T1-SL update (deep scan நடந்தாலும்)."""
     global ANGEL
@@ -295,6 +344,13 @@ class H(BaseHTTPRequestHandler):
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
                              "ce_saved": bool(cl.get("ce")), "pe_saved": bool(cl.get("pe"))},
             }))
+        if self.path == "/api/v4":
+            from krt import v4
+            with v4.LOCK:
+                st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog")}
+            st["settings"] = v4.settings()
+            st["err"] = V4E["err"]
+            return self._send(200, _json(st))
         self._send(404, _json({"error": "not found"}))
 
     def do_POST(self):
@@ -305,6 +361,15 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, _json({"ok": False, "msg": "தவறான request"}))
 
+        if self.path == "/api/v4/settings":
+            from krt import v4
+            return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
+        if self.path == "/api/v4/backtest":
+            from krt import v4
+            if v4.STATE.get("bt_running"):
+                return self._send(200, _json({"ok": False, "msg": "Backtest ஏற்கனவே ஓடுகிறது"}))
+            threading.Thread(target=v4_backtest, args=(int(d.get("days") or 20),), daemon=True).start()
+            return self._send(200, _json({"ok": True, "msg": "Backtest ஆரம்பம் (2-5 நிமிடம்)"}))
         if self.path == "/api/full":
             if STATE["full_running"]:
                 return self._send(200, _json({"ok": False, "msg": "Full scan ஏற்கனவே ஓடுகிறது"}))
@@ -401,6 +466,7 @@ if __name__ == "__main__":
     threading.Thread(target=gu_loop, daemon=True).start()
     threading.Thread(target=elite_loop, daemon=True).start()
     threading.Thread(target=power_loop, daemon=True).start()
+    threading.Thread(target=v4_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -183,7 +183,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
                               now.to_pydatetime() if hasattr(now, "to_pydatetime") else now, None, not hold)
         except Exception:
             pass
-    sl_, tg_, risk_, rc_ = rupee_plan(p.get("entry"), p.get("sl"), opt.get("lot"), bool(hold))
+    sl_, tg_, risk_, rc_ = (None, [], 0, []) if p.get("v4") else rupee_plan(p.get("entry"), p.get("sl"), opt.get("lot"), bool(hold))
     if tg_:
         p = dict(p, sl=sl_, targets=tg_, risk=risk_, risk_ok=True, rupee=True)
         force_ = [x for x in force_ if x != "RISK_CAP"] + rc_
@@ -208,10 +208,17 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     if hold:
         c["hold_days"] = hold
         c["hold_until"] = str(pd.bdate_range(session, periods=hold + 1)[-1].date())
+    try:
+        if not (0 < float(c["sl"]) < float(c["entry"]) < float(c["targets"][0])):
+            return None            # Entry ≤ SL / negative RR plan → call இல்லை
+    except Exception:
+        return None
+    c["sl0"] = c["sl"]
+    c["signal_time"] = now.strftime("%Y-%m-%d %H:%M")
     return c
 
 
-IMPORTANT_KINDS = ("ELITE", "ELITE HOLD", "JACKPOT", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "SWING 5D", "SWING 10D")
+IMPORTANT_KINDS = ("V4", "ELITE", "ELITE HOLD", "JACKPOT", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "SWING 5D", "SWING 10D")
 
 
 def guide(c, now):
@@ -289,6 +296,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         nonlocal changed
         if not c:
             return None
+        if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute < 15 * 60 + 30):
+            return None            # Market closed → புது live call இல்லை
         intra_ = not c.get("hold_until")
         for x in calls.values():   # ஒரே contract ஒரே நாள் வேறு setup-லும் வந்தா → புது call இல்லை, source சேர்த்து ஒரே call
             if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_ and x["kind"] != "MACHINE":
@@ -586,10 +595,12 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     c["status"] = f"T{i} HIT"
                     if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
                         c["sl"] = c["entry"]  # T1 பின் SL → entry
+                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL entry"})
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
                     if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):
                         c["sl"] = c["targets"][0]
+                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T2 → SL T1"})
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
                     if c["kind"] in IMPORTANT_KINDS and not gu_:
@@ -673,7 +684,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4")}
     summary["ALL"] = stats(allc)
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}
