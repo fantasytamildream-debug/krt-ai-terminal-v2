@@ -113,11 +113,12 @@ def quality_gate(c, calls, now):
             codes.append("AFTER_2PM")
     if c["source"] in TREND_SRC:
         side = _regime_side()
-        if side is None and c["source"] in ("5-min ORB", "All rounder"):
-            np_ = MARKET.get("nifty_pct")     # range / unclear நாளிலும் ORB, All rounder: NIFTY இன்றைய direction போதும்
+        if side is None:
+            np_ = MARKET.get("nifty_pct")     # V6: range / unclear நாளில் எல்லா trend setups-க்கும் NIFTY இன்றைய direction போதும்
             side = "CE" if (np_ or 0) >= 0.15 else "PE" if (np_ or 0) <= -0.15 else None
             if side is None:
-                codes.append("NIFTY_FLAT")
+                # NIFTY flat: stock-க்கு volume ≥2× இருந்தா மட்டும் (B), இல்லைன்னா range day (C)
+                codes.append("NIFTY_FLAT" if (c.get("vol_ratio") or 0) >= 2 else "RANGE_DAY")
             elif side != c["side"]:
                 codes.append("COUNTER_TREND")
         elif side is None:

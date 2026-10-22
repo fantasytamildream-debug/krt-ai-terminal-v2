@@ -1063,12 +1063,12 @@ function machineBox(f){
      <div class="ctop"><div class="cbuy">${esc(r.symbol)} ${n2(r.strike)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></div><span class="crate"><b>${r.score}</b>/100</span></div>
      <div class="cmeta">⏱ ${esc(r.first_seen)} முதல் · expiry ${esc(r.expiry)} · lot ${r.lot}</div>
      <div class="crow num"><span>Entry <b>${n2(r.entry)}</b></span><span>SL <b class="dn">${n2(r.sl)}</b></span><span>LTP <b>${n2(r.ltp)}</b></span></div>
-     <div class="ctg num"><span>T1 ${n2(r.targets[0])} <b class="up">+₹2,000</b></span><span>T2 ${n2(r.targets[1])} <b class="up">+₹3,500</b></span><span>T3 ${n2(r.targets[2])} <b class="up">+₹5,000</b></span></div>
-     <div class="hint">SL hit ஆனா −₹${n2(r.risk)} · ₹2K-க்கு premium ${r.move_pct}% ஏறணும்</div>
+     <div class="ctg num">${r.targets.map((t,i)=>`<span>T${i+1} ${n2(t)} <b class="up">+₹${n2((r.t_rs||[])[i]??0)}</b></span>`).join("")}</div>
+     <div class="hint">SL hit ஆனா −₹${n2(r.risk)} · T1-க்கு premium ${r.move_pct}% ஏறணும் · from ${esc(r.from||"")}</div>
      <div class="mcact ${r.action}">${esc(r.text)}</div>
      <div class="hint">${r.why.map(x=>`<span class="up">✓ ${esc(x)}</span>`).concat(r.bad.map(x=>`<span class="dn">✗ ${esc(x)}</span>`)).join(" · ")}</div></div>`;
   return `<div class="mcbox"><h2>💰 2K PROFIT MACHINE <span class="hint" style="font-size:13px">· top 5 setups · ${esc(M.time||"")}</span></h2>
-   <div class="hint">ஒவ்வொரு call-க்கும் T1 = 1 lot-க்கு <b>₹2,000</b> (அங்கே exit). நாளைக்கு max ${C.max_calls} calls · இன்றைய target <b class="up">₹${n2(C.day_target)}</b> · loss <b class="dn">₹${n2(Math.abs(C.day_stop))}</b> தாண்டினா அன்று call நிற்கும்.</div>
+   <div class="hint">ஒவ்வொரு call-க்கும் T1 = 1 lot-க்கு <b>₹2,000</b> (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · SL ≤ ₹2,500 · T1 → SL entry · T2 → SL T1. All rounder + இன்றைய Grade A/B calls-ல் இருந்து pick. நாளைக்கு max ${C.max_calls} calls · இன்றைய target <b class="up">₹${n2(C.day_target)}</b> · loss <b class="dn">₹${n2(Math.abs(C.day_stop))}</b> தாண்டினா அன்று call நிற்கும்.</div>
    <div class="mcday num"><span class="cb-stat">Calls ${D.calls||0}/${C.max_calls}</span><span class="cb-stat ${(D.net||0)>=0?'up':'dn'}">இன்று ${rs(D.net)}</span><span class="cb-stat">Booked ${rs(D.closed_net)} / ₹${n2(C.day_target)}</span>${D.stop?`<span class="cb-stat" style="border-color:var(--watch);color:var(--watch)">${esc(D.stop)}</span>`:""}</div>
    <div class="mcbar"><i style="width:${pct}%"></i></div>
    ${rows.length?`<div class="mcrow">${rows.map(card).join("")}</div>`:`<div class="cempty">இப்போ machine rules pass ஆன setup இல்லை — WAIT. (Call வராத நாள் = பணம் போகாத நாள்.)</div>`}

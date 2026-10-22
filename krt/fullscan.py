@@ -949,11 +949,11 @@ def elite_ok(r, now, trend):
     """Elite upgrade: 9:45 பிறகு · confidence ≥80 · EMA20-ல் இருந்து ≤1.5 ATR · market regime ஒத்துப்போகணும்."""
     from .sniper import REGIME
     mins = now.hour * 60 + now.minute
-    if mins < 9 * 60 + 45 or r.get("confidence", 0) < 80 or (r.get("ext_atr") or 0) > 1.5 or not r.get("in_window", True):
+    if mins < 9 * 60 + 45 or r.get("confidence", 0) < 75 or (r.get("ext_atr") or 0) > 1.8 or not r.get("in_window", True):
         return False
     want = r["side"]
     st_ = REGIME.get("state")
-    if st_ == "TRENDING":       # market direction-உடன் மட்டும்
+    if st_ == "TRENDING":       # market direction-உடன் மட்டும் (V6: 75+)
         return {"UP": "CE", "DOWN": "PE"}.get(REGIME.get("dir")) == want
     if st_ == "HIGH-VOL":
         return r.get("confidence", 0) >= 90
@@ -965,7 +965,8 @@ def elite_ok(r, now, trend):
     except Exception:
         np_ = 0
     day_ok = (want == "CE" and np_ > -0.15) or (want == "PE" and np_ < 0.15)
-    return daily_ok or day_ok or r.get("confidence", 0) >= 85
+    c_ = r.get("confidence", 0)
+    return ((daily_ok or day_ok) and c_ >= 75) or c_ >= 85
 
 
 def run_power(ag, res):
@@ -1281,7 +1282,7 @@ def ar_pro(a, res):
 
 
 MACHINE = {"t1_rs": 2000, "t2_rs": 4000, "t3_rs": 6000, "max_risk": 2500, "max_move_pct": 30, "day_target": 10000,
-           "day_stop": -4500, "max_calls": 5, "min_score": 70, "show_score": 55}
+           "day_stop": -4500, "max_calls": 5, "min_score": 58, "show_score": 40}
 
 
 def _r05(x):
@@ -1301,95 +1302,130 @@ def machine_day(now=None):
     return {"calls": len(cs), "closed_net": closed, "net": total, "stop": stop, "symbols": {f"{c['symbol']}|{c['side']}" for c in cs}}
 
 
-def machine_pick(rows, res):
-    """💰 2K PROFIT MACHINE — All rounder rows-ல் இருந்து top 5. T1 = 1 lot-க்கு ₹2,000 premium move.
-    Rule-based score (AI model இல்லை): PRO rules, volume, light, entry zone, நல்ல setup history, ₹2K move realistic-ஆ."""
+def _machine_pool(rows):
+    """Machine candidates: All rounder rows + இன்றைய open Grade A/B calls (எல்லா modules-ல் இருந்தும்)."""
     from .store import STORE
+    from .calls import OPEN as _OPEN
+    pool = []
+    for a in rows:
+        o = a.get("option") or {}
+        if (o.get("plan") or {}).get("entry") and o.get("token"):
+            pool.append(dict(src="AR", a=a, o=o, lv=a.get("live") or {}))
+    now = _now()
+    day = str(now.date())
+    edge = (STORE.data or {}).get("edge") or {}
+    for c in ((STORE.data or {}).get("calls") or {}).values():
+        if (c["date"] != day or c["status"] not in _OPEN or c.get("shadow") or c.get("hold_until") or c["kind"] == "MACHINE"
+                or c.get("grade") not in ("A", "B") or c["hits"]):
+            continue
+        srcs = c.get("sources") or [c.get("source")]
+        if all(edge.get(s_) == "NEGATIVE" for s_ in srcs):
+            continue
+        a = {"symbol": c["symbol"], "side": c["side"], "modules": {s_: {"strength": 1.0} for s_ in srcs}, "count": len(srcs),
+             "verdict": "TAKE" if c.get("grade") == "A" else "WATCH", "vol_ratio": c.get("vol_ratio"),
+             "pro_ok": c.get("grade") == "A" and len(srcs) >= 2,
+             "pro_chk": {"NIFTY direction எதிர் இல்லை": "COUNTER_TREND" not in (c.get("qcodes") or [])}}
+        o = {"token": c["token"], "exch": c["exch"], "contract": c["contract"], "strike": c["strike"], "type": c["side"],
+             "expiry": c["expiry"], "lot": c["lot"], "plan": {"entry": c["entry"], "sl": c["sl"]}}
+        pool.append(dict(src="CALL", a=a, o=o, lv={"ltp": c.get("ltp"), "since": c["time"], "t_hits": [False] * 3, "sl_hit": False}))
+    return pool
+
+
+def machine_pick(rows, res):
+    """💰 2K PROFIT MACHINE (V6) — All rounder + இன்றைய Grade A/B calls-ல் இருந்து top 5.
+    ₹ rules: SL ≤ ₹2,500 (cap) · T1 ₹2,000 (கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000. Rule-based score (AI model இல்லை)."""
+    from .store import STORE
+    from .calls import rupee_plan
     edge = (STORE.data or {}).get("edge") or {}
     now = _now()
     mins = now.hour * 60 + now.minute
     day = machine_day(now)
-    out = []
-    for a in rows:
-        o = a.get("option") or {}
-        p = o.get("plan") or {}
+    best = {}
+    for P in _machine_pool(rows):
+        a, o, lv = P["a"], P["o"], P["lv"]
+        p = o["plan"]
         lot, e = o.get("lot") or 0, p.get("entry")
-        if not (p and e and lot and o.get("token")):
+        if not (e and lot):
             continue
-        lv = a.get("live") or {}
         ltp = lv.get("ltp") or e
-        sl = p.get("sl") or 0
         if e * 0.97 <= ltp <= e * 1.03:
             e = _r05(ltp)          # இப்போ entry எடுத்தா வாங்கும் விலை
-        risk = round((e - sl) * lot)
-        t1 = _r05(e + MACHINE["t1_rs"] / lot)
-        move_pct = (t1 / e - 1) * 100
-        sc, why, bad = 0, [], []
+        sl, tg_, risk, rc = rupee_plan(e, p.get("sl"), lot, False)
+        if not tg_:
+            continue
+        move_pct = (tg_[0] / e - 1) * 100
+        sc, why, bad, soft = 0, [], [], []
         if a.get("pro_ok"):
-            sc += 35; why.append("All rounder PRO ✓")
+            sc += 30; why.append("PRO ✓" if P["src"] == "AR" else "Grade A + 2+ modules")
         elif a.get("count", 0) >= 3:
-            sc += 18; why.append(f"{a['count']} modules")
+            sc += 22; why.append(f"{a['count']} modules")
+        elif a.get("count", 0) == 2:
+            sc += 14; why.append("2 modules")
         else:
-            sc += 5
+            sc += 8
         if a.get("verdict") == "TAKE":
             sc += 10
+        if P["src"] == "CALL" and a.get("verdict") == "TAKE":
+            sc += 15; why.append("Grade A call")
         vr = a.get("vol_ratio")
         if vr is None:
-            sc += 5
+            sc += 10
+        elif vr >= 3:
+            sc += 20; why.append(f"Volume {vr}×")
         elif vr >= 2:
             sc += 15; why.append(f"Volume {vr}×")
         elif vr >= 1.5:
             sc += 8
+        elif vr < 1.0:
+            bad.append(f"Volume {vr}× மிகக் குறைவு")
         else:
-            bad.append(f"Volume {vr}× குறைவு")
-        light = lv.get("light")
-        sc += 10 if light == "green" else 3 if light == "yellow" else 0
-        if light == "red":
-            bad.append("Light 🔴")
+            soft.append(f"Volume {vr}×")
         if lv.get("entry_now"):
             sc += 10; why.append("🟣 ENTRY NOW")
         pos = [m for m in a["modules"] if edge.get(AR_EDGE_SRC.get(m, m)) == "POSITIVE"]
         neg = [m for m in a["modules"] if edge.get(AR_EDGE_SRC.get(m, m)) == "NEGATIVE"]
-        sc += min(15, 5 * len(pos)) - 5 * len(neg)
+        sc += min(24, 12 * len(pos))
         if pos:
             why.append("லாப setup: " + ", ".join(pos))
-        if neg:
-            bad.append("நஷ்ட setup: " + ", ".join(neg))
-        if move_pct <= 15:
-            sc += 10
-        elif move_pct <= 25:
-            sc += 5
-        elif move_pct > MACHINE["max_move_pct"]:
-            bad.append(f"₹2K-க்கு premium {move_pct:.0f}% ஏறணும் — கஷ்டம்")
-        if risk > MACHINE["max_risk"]:
-            bad.append(f"Risk ₹{risk} (₹{MACHINE['max_risk']}-க்கு மேல்)")
+        if neg and not pos:
+            soft.append("நஷ்ட setup: " + ", ".join(neg))
+        sc += 10 if move_pct <= 12 else 6 if move_pct <= 20 else 2 if move_pct <= 28 else 0
+        if "T1_UNREALISTIC" in rc:
+            bad.append(f"T1-க்கு premium {move_pct:.0f}% ஏறணும் — கஷ்டம்")
+        if "SL_TIGHT" in rc:
+            bad.append("Lot பெரிசு — ₹2,500 SL மிக நெருக்கம்")
         if not (a.get("pro_chk") or {}).get("NIFTY direction எதிர் இல்லை", True):
-            bad.append("NIFTY direction எதிர்")
-        sc = max(0, min(100, sc - 12 * len(bad)))
-        t1_hit = (lv.get("t_hits") or [False])[0] or ltp >= t1
-        if bad or sc < MACHINE["show_score"]:
-            act, txt = "SKIP", "❌ வேண்டாம் — " + (bad[0] if bad else "score குறைவு")
+            soft.append("NIFTY direction எதிர்")
+        sc = max(0, min(100, sc - 8 * len(soft) - 20 * len(bad)))
+        t1_hit = (lv.get("t_hits") or [False])[0] or ltp >= tg_[0]
+        if bad:
+            act, txt = "SKIP", "❌ வேண்டாம் — " + bad[0]
         elif lv.get("sl_hit"):
             act, txt = "SKIP", "❌ SL touch ஆச்சு — skip"
         elif t1_hit:
             act, txt = "SKIP", "T1 ஏற்கனவே போச்சு — late, chase வேண்டாம்"
         elif ltp > e * 1.03:
             act, txt = "WAIT", f"⏳ WAIT — ₹{e} அருகில் (≤ ₹{_r05(e * 1.03)}) வந்தா entry"
-        elif sc >= MACHINE["min_score"] and light != "red" and 9 * 60 + 30 <= mins <= 14 * 60:
-            act, txt = "ENTRY", f"✅ ENTRY எடு — இப்போ எடுத்தா T1-ல் ≈ ₹{round((t1 - ltp) * lot):,}"
+        elif sc >= MACHINE["min_score"] and 9 * 60 + 30 <= mins <= 14 * 60:
+            act, txt = "ENTRY", f"✅ ENTRY எடு — இப்போ எடுத்தா T1-ல் ≈ ₹{round((tg_[0] - ltp) * lot):,}"
+        elif not (9 * 60 + 30 <= mins <= 14 * 60):
+            act, txt = "WAIT", "⏳ Machine நேரம் 9:30–2:00 மட்டும்"
         else:
-            act, txt = "WAIT", "⏳ WATCH — இன்னும் முழு confirm இல்லை"
+            act, txt = "WAIT", f"⏳ WATCH — score {sc} ({MACHINE['min_score']} வேணும்)"
         if day["stop"] and act == "ENTRY":
             act, txt = "STOP", day["stop"]
-        out.append({"symbol": a["symbol"], "side": a["side"], "strike": o.get("strike"), "expiry": o.get("expiry"), "lot": lot,
-                    "contract": o.get("contract"), "token": o.get("token"), "exch": o.get("exch") or "NFO", "entry": e, "ltp": ltp, "sl": sl, "risk": risk,
-                    "targets": [t1, _r05(e + MACHINE["t2_rs"] / lot), _r05(e + MACHINE["t3_rs"] / lot)],
-                    "move_pct": round(move_pct, 1), "score": sc, "action": act, "text": txt, "why": why, "bad": bad,
-                    "modules": list(a["modules"].keys()), "first_seen": (lv.get("since") or now.strftime("%H:%M")),
-                    "vol_ratio": vr, "light": light, "_a": a})
-    for r in out:
-        r["_a"]["mc"] = {"action": r["action"], "text": r["text"], "score": r["score"], "t1": r["targets"][0]}
-    out.sort(key=lambda r: ({"ENTRY": 0, "WAIT": 1, "STOP": 1, "SKIP": 2}[r["action"]], -r["score"]))
+        r = {"symbol": a["symbol"], "side": a["side"], "strike": o.get("strike"), "expiry": o.get("expiry"), "lot": lot,
+             "contract": o.get("contract"), "token": o.get("token"), "exch": o.get("exch") or "NFO", "entry": e, "ltp": ltp,
+             "sl": sl, "risk": risk, "targets": tg_, "t_rs": [round((t - e) * lot) for t in tg_],
+             "move_pct": round(move_pct, 1), "score": sc, "action": act, "text": txt, "why": why, "bad": bad + soft,
+             "modules": list(a["modules"].keys()), "first_seen": (lv.get("since") or now.strftime("%H:%M")), "vol_ratio": vr,
+             "from": "All rounder" if P["src"] == "AR" else "Today call"}
+        if P["src"] == "AR":
+            a["mc"] = {"action": act, "text": txt, "score": sc, "t1": tg_[0]}
+        k = f"{a['symbol']}|{a['side']}"
+        if k not in best or r["score"] > best[k]["score"]:
+            best[k] = r
+    out = sorted(best.values(), key=lambda r: ({"ENTRY": 0, "WAIT": 1, "STOP": 1, "SKIP": 2}[r["action"]], -r["score"]))
     top = out[:5]
     try:
         from .calls import add_machine
@@ -1398,8 +1434,6 @@ def machine_pick(rows, res):
             day = machine_day(now)
     except Exception as e:
         res.setdefault("errors", []).append(f"2K machine: {e}")
-    for r in out:
-        r.pop("_a", None)
     return {"rows": top, "day": {k: v for k, v in day.items() if k != "symbols"}, "cfg": MACHINE, "time": now.strftime("%H:%M")}
 
 

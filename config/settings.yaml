@@ -52,4 +52,4 @@ quality:
   max_spread_pct: 2.0
   pullback_entry: true     # breakout candle-ல் வாங்காம pullback + resume-ல் entry
   block_grade_c: true      # V5: Grade C intraday calls வராது (counter-trend / range / 2PM பிறகு / SL tight…)
-  max_total_calls_day: 12  # V5: ஒரு நாளைக்கு மொத்த intraday calls
+  max_total_calls_day: 15  # V6: ஒரு நாளைக்கு மொத்த intraday calls
