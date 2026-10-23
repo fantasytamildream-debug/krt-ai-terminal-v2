@@ -839,18 +839,24 @@ def journal_update(ag, final, t, mkt_open, live):
             if j["status"] == "WAITING":
                 if j["trigger"] <= ltp <= j["zone"][1]:
                     j.update(status="OPEN", entry=ltp, entry_time=t.strftime("%H:%M"))
+                    try:
+                        j["call_id"] = journal_to_call(j, t)
+                    except Exception as e:
+                        STATE.setdefault("errors", []).append(f"journal→call: {e}")
                 elif (t - pd.Timestamp(j["t_full"])) > pd.Timedelta(minutes=45) or mins >= 15 * 60 + 15:
                     j.update(status="NOT TRIGGERED", exit_time=t.strftime("%H:%M"))
                 changed = True
                 continue
             e = j["entry"]
             if ltp <= j["sl"]:
-                j.update(status="SL HIT" if not j["hits"] else f"TRAIL SL (T{len(j['hits'])})", exit=ltp, exit_time=t.strftime("%H:%M"))
+                j.update(status="SL HIT" if not j["hits"] else f"TRAIL SL (T{len(j['hits'])})",
+                         exit=(j["sl"] if j["hits"] else ltp), exit_time=t.strftime("%H:%M"))
             else:
+                from .calls import lock_price
                 for i, tg_ in enumerate(j["targets"]):
                     if i >= len(j["hits"]) and ltp >= tg_:
                         j["hits"].append(t.strftime("%H:%M"))
-                        j["sl"] = e if i == 0 else j["targets"][i - 1]
+                        j["sl"] = lock_price(e, j["targets"][0], j["lot"]) if i == 0 else j["targets"][i - 1]
                 if len(j["hits"]) == 3:
                     j.update(status="T3 DONE", exit=ltp, exit_time=t.strftime("%H:%M"))
                 elif j["hits"]:
@@ -868,6 +874,32 @@ def journal_update(ag, final, t, mkt_open, live):
         except Exception:
             pass
     STATE["journal"] = clean([{k: v for k, v in j.items() if k not in ("token",)} for j in J[-120:]])
+
+
+def journal_to_call(j, t):
+    """V4 setup premium trigger ஆனதும் → Calls tab-லும் call (kind V4). அதே contract open-ஆ இருந்தா skip."""
+    from .calls import CALLS_LOCK, STORE, _new, OPEN
+    day = str(t.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        if any(x["date"] == day and x["contract"] == j["contract"] and x["status"] in OPEN for x in d["calls"].values()):
+            return None
+        tg_ = [x for x in j["targets"]]
+        opt = {"token": j["token"], "exch": j["exch"], "contract": j["contract"], "strike": j["strike"], "type": j["side"],
+               "expiry": j["expiry"], "lot": j["lot"],
+               "plan": {"entry": j["entry"], "sl": j["sl0"], "targets": tg_, "risk": round((j["entry"] - j["sl0"]) * j["lot"]),
+                        "risk_ok": True, "money": True, "reward_ok": True, "v4": True}}
+        r = {"symbol": j["index"], "price": None, "sl": None, "targets": [], "stars": 4, "confidence": f"V4 score {j['score']}",
+             "reasons": [f"{j['name']} · {j['regime']} · {j['stage']}", f"Premium trigger ₹{j['trigger']} தாண்டி entry ₹{j['entry']}"]}
+        c = _new("V4", f"V4 {j['name']}", r, opt, t, day)
+        if not c:
+            return None
+        c.update(grade="A" if j["score"] >= 85 else "B", qcodes=[], qtext=[],
+                 v4={"strategy": j["strategy"], "regime": j["regime"], "score": j["score"], "from": "setup trigger"},
+                 revisions=[{"t": t.strftime("%H:%M"), "sl": j["sl0"], "targets": tg_, "why": "setup trigger"}])
+        d["calls"][c["id"]] = c
+        STORE.dirty = True
+        return c["id"]
 
 
 def to_calls(signals, now):

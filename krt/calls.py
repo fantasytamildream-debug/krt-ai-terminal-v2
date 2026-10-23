@@ -35,10 +35,22 @@ MARKET = {"trend": None}
 
 # V5 ₹ rules (user): intraday SL max ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000
 #                   holding  SL max ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000
-# Exit rule எல்லா calls-க்கும் ஒன்றே: SL hit → exit · T1 → SL entry · T2 → SL T1 · T3 → exit. Time stop / invalidation இல்லை.
+# Exit rule எல்லா calls-க்கும் ஒன்றே: SL hit → exit · T1 → SL entry+₹1,000 · T2 → SL T1 · T3 → exit. Time stop / invalidation இல்லை.
 RUPEE = {"intra": {"max_sl": 2500, "t": (2000, 4000, 6000), "t1_alt": 1500, "max_t1_move": 35, "min_sl_pct": 6},
          "hold": {"max_sl": 4000, "t": (5000, 8000, 12000), "t1_alt": None, "max_t1_move": 60, "min_sl_pct": 8}}
 SIMPLE_EXIT = True
+LOCK_RS = 1000          # V5.1: T1 hit ஆனா SL → entry + ₹1,000/lot (profit lock) — T1 ஆன call நஷ்டத்தில் முடியாது
+
+
+def lock_price(entry, t1, lot):
+    """T1 பின் புது SL: entry + ₹1,000/lot (T1-க்கு கீழே இருக்கணும் — இல்லைன்னா entry–T1 நடு)."""
+    try:
+        lk = entry + LOCK_RS / float(lot)
+        if lk >= t1:
+            lk = entry + (t1 - entry) * 0.5
+        return round(round(lk / 0.05) * 0.05, 2)
+    except Exception:
+        return entry
 
 
 def _r05(x):
@@ -568,7 +580,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                      time_stop=None)
             calls[c["id"]] = c
             tg(f"📥 PULLBACK ENTRY · {c['source']}\n{c['symbol']} {c['strike']:g} {c['side']} @ ₹{o}\nSL ₹{c['sl']} · " +
-               " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + "\nT1 → SL entry · T2 → SL T1\n(Paper/alert only)",
+               " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + "\nT1 → SL entry+₹1,000 · T2 → SL T1\n(Paper/alert only)",
                f"pb|{c['id']}")
     open_ = [c for c in calls.values() if c["status"] in OPEN]
     for c in open_:
@@ -584,7 +596,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             gu_ = c["kind"].startswith("GU") or c["kind"] == "GAMMA-UNWIND"
             if ltp <= c["sl"] and not (c.get("no_sl_before_t1") and not c["hits"]):
                 c["hits"].append(f"SL {now:%d-%m %H:%M}")
-                _close(c, "SL HIT" if not c["hits"][:-1] else "TRAIL SL", ltp, str(now))
+                # Trail SL (T1 பின்) = stop order — SL விலையில் exit (paper). முதல் SL = LTP-ல்.
+                _close(c, "SL HIT" if not c["hits"][:-1] else "TRAIL SL", (c["sl"] if c["hits"][:-1] else ltp), str(now))
                 if gu_:
                     tg(f"GAMMA-UNWIND exit: {c['symbol']} {c['strike']} {c['side']} @ {ltp} ({c['status']}) P/L/lot ₹{c['pnl_lot']}")
                 changed = True
@@ -594,8 +607,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     c["hits"].append(f"T{i} {now:%d-%m %H:%M}")
                     c["status"] = f"T{i} HIT"
                     if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
-                        c["sl"] = c["entry"]  # T1 பின் SL → entry
-                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL entry"})
+                        c["sl"] = lock_price(c["entry"], c["targets"][0], c.get("lot"))  # T1 பின் SL → entry + ₹1,000 lock
+                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL lock +₹1,000"})
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
                     if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):

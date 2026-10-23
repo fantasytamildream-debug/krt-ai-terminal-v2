@@ -138,6 +138,11 @@ def scan(ag, inst, C, universe, trend, bu_tag, nifty_ret20, now, session, live, 
             r["s2_info"] = res[1]
     for r in stage:
         s2_all = len(r["s2"]) == 9 and all(r["s2"].values())
+        intra_keys = [k for k in r["s2"] if k.startswith("15m")]
+        relaxed = (not s2_all and len(r["s2"]) == 9 and sum(r["s2"].values()) == 8 and len(intra_keys) == 4
+                   and all(r["s2"][k] for k in intra_keys))
+        r["relaxed"] = relaxed          # V5.1: 9-ல் 8 (15-min 4 rules எல்லாம் ✓, ஒரு weekly/daily rule மட்டும் fail)
+        s2_all = s2_all or relaxed
         r["s2_pass"] = s2_all
         ce = r["side"] == "CE"
         # confidence
@@ -166,10 +171,12 @@ def scan(ag, inst, C, universe, trend, bu_tag, nifty_ret20, now, session, live, 
             conf += 5; why.append("15m RSI நல்ல zone")
         elif rsi15 and ((rsi15 > 80) if ce else (rsi15 < 20)):
             conf -= 5; why.append("15m RSI overbought/oversold")
+        if r.get("relaxed"):
+            conf -= 5; why.append("9-ல் 8 rules (" + ", ".join(k for k, v in r["s2"].items() if not v) + " fail)")
         r["confidence"] = int(max(0, min(100, conf)))
         r["why"] = why
-        r["jackpot"] = (r["s1_pass"] and s2_all) or (s2_all and r["confidence"] >= 85)
-        r["label"] = "👑 ELITE JACKPOT" if r["jackpot"] else "ELITE" if r["confidence"] >= 70 else "ELITE (low conf)"
+        r["jackpot"] = not r.get("relaxed") and ((r["s1_pass"] and s2_all) or (s2_all and r["confidence"] >= 85))
+        r["label"] = "👑 ELITE JACKPOT" if r["jackpot"] else ("ELITE 8/9" if r.get("relaxed") else "ELITE") if r["confidence"] >= 70 else "ELITE (low conf)"
         r["stars"] = 5 if r["confidence"] >= 85 else 4 if r["confidence"] >= 70 else 3
         r["strong"] = r["jackpot"]
         r["status"] = "CONFIRMED"

@@ -455,8 +455,11 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                                    "risk": risk, "risk_ok": risk <= CFG["risk_cap"], "iv": opt.get("iv")}
                     from .fullscan import apply_money
                     apply_money(opt, last, now, None, intraday=True)
-                    gates["Planned risk ≤ ₹2,500"] = risk <= CFG["risk_cap"]
-                    gates["T1 (₹1,200+) realistic"] = bool(opt["plan"].get("reward_ok"))
+                    # V5.1: SL ₹2,500-க்கு cap ஆகும் (calls.rupee_plan) — cap-ல் SL மிக நெருக்கம் / T1 கஷ்டம் மட்டும் fail
+                    from .calls import rupee_plan as _rp
+                    _sl, _tg, _rk, _rc = _rp(opt["plan"].get("entry"), opt["plan"].get("sl"), opt.get("lot"), False)
+                    gates["₹2,500 SL cap OK"] = "SL_TIGHT" not in _rc
+                    gates["T1 ₹1,500–2,000 realistic"] = "T1_UNREALISTIC" not in _rc
                 row["gates"] = gates
                 row["executable"] = all(gates.values()) and model == "A" and (grade in ("A+", "STRONG") or (range_mode and score >= 74))
                 row["research"] = model == "B"
