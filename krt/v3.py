@@ -137,6 +137,27 @@ def _hist(segments, mod, today):
     return max(-1.0, min(1.0, avg / 1500)), f"avg ₹{avg:,.0f}/call · {len(closed)} closed"
 
 
+def early_alert(tier, p, L, vr):
+    """🟠 ஏறுறதுக்கு முன் (rule-based): disqualify இல்லை · option LTP இன்னும் entry-க்கு ±2%-க்குள் · T1 / SL தொடல ·
+    volume ≥2× அல்லது 🟣 entry-now அல்லது 🟢 light. → None / காரணம்."""
+    if tier == "REJECTED" or not p or not p.get("entry"):
+        return None
+    ltp = L.get("ltp")
+    if not ltp or L.get("sl_hit") or any(L.get("t_hits") or []):
+        return None
+    e = p["entry"]
+    if not (e * 0.98 <= ltp <= e * 1.02):
+        return None
+    why = []
+    if (vr or 0) >= 2:
+        why.append(f"volume {vr}×")
+    if L.get("entry_now"):
+        why.append("🟣 entry-now")
+    if L.get("light") == "green":
+        why.append("🟢 light")
+    return " + ".join(why) if why else None
+
+
 def smart_rank(res, segments, today, regime_side=None):
     ar = res.get("all_rounder") or []
     lv = {(r["symbol"], r["side"]): r for r in (res.get("ce") or []) + (res.get("pe") or [])}
@@ -188,7 +209,9 @@ def smart_rank(res, segments, today, regime_side=None):
                     "rank": round(rank, 1), "tier": tier, "confidence": a.get("confidence"), "hist": round(hist, 2),
                     "components": comps, "disq": dq, "warn": warn, "ltp": L.get("ltp"), "entry": p.get("entry"), "sl": p.get("sl"),
                     "targets": p.get("targets"), "risk": p.get("risk"), "light": L.get("light"), "entry_now": L.get("entry_now"),
-                    "vol_ratio": vr, "t_hits": L.get("t_hits"), "fresh": "LIVE" if L.get("ltp") else "STALE"})
+                    "vol_ratio": vr, "t_hits": L.get("t_hits"), "fresh": "LIVE" if L.get("ltp") else "STALE",
+                    "contract": o.get("contract"), "token": o.get("token"), "exch": o.get("exch") or "NFO", "lot": o.get("lot"),
+                    "early": early_alert(tier, p, L, vr), "src_modules": mods})
     for g in res.get("gex") or []:
         for sg in g.get("signals") or []:
             out.append({"symbol": g["index"], "side": sg["side"], "strike": None, "expiry": g.get("expiry"), "rank": 50.0,
@@ -196,7 +219,7 @@ def smart_rank(res, segments, today, regime_side=None):
                         "disq": [], "warn": ["Index gamma signal — strike Index OI tab-ல் பாருங்க"], "ltp": g.get("spot"),
                         "entry": None, "sl": None, "targets": None, "risk": None, "light": None, "entry_now": False,
                         "vol_ratio": None, "t_hits": None, "fresh": "LIVE"})
-    out.sort(key=lambda r: -r["rank"])
+    out.sort(key=lambda r: (0 if r.get("early") and r["tier"] in ("A", "B") else 1, -r["rank"]))
     return out
 
 

@@ -604,8 +604,10 @@ def pick_strike(ag, inst, idx, side, spot, now):
              "iv": (gk or {}).get("iv"), "gamma": (gk or {}).get("gamma"), "oi": int(oi), "volume": int(vol), "moneyness": mny, "_sc": sc}
         if spread > 1.5:
             why.append(f"{c[3]:g}: spread {spread:.1f}%")
+            if spread <= 3 and (not best or (best.get("wide") and sc > best["_sc"])):
+                best = dict(o, wide=True)      # fallback — limit order மட்டும்
             continue
-        if not best or sc > best["_sc"]:
+        if not best or best.get("wide") or sc > best["_sc"]:
             best = o
     return best, ("; ".join(why) or "Liquid strike இல்லை")
 
@@ -624,10 +626,10 @@ def option_plan(o, spot, spot_sl, S):
     rr = (tg[1] - e) / (e - sl)
     if not (sl < e < tg[0] < tg[1] < tg[2]) or rr < S["min_rr"] - 1e-6:
         return None, f"RR {rr:.2f} < {S['min_rr']}"
-    if risk_struct > S["max_risk"] * 1.6:
-        return None, f"Structure SL மிக தூரம் (₹{risk_struct:,.0f}/lot) — ₹{S['max_risk']:,.0f} cap-ல் SL noise-ல் அடிக்கும்"
+    warn = (f"Structure SL மிக தூரம் (₹{risk_struct:,.0f}/lot) — ₹{S['max_risk']:,.0f} cap SL noise-ல் அடிக்கலாம் (reference plan மட்டும்)"
+            if risk_struct > S["max_risk"] * 1.6 else "")
     trig = round(round(e * (1 + S["premium_trigger_pct"] / 100) / 0.05) * 0.05, 2)
-    return {"entry": e, "trigger": trig, "zone": [trig, round(trig * 1.03, 2)], "sl": sl, "targets": tg, "risk": round(risk),
+    return {"warn": warn, "entry": e, "trigger": trig, "zone": [trig, round(trig * 1.03, 2)], "sl": sl, "targets": tg, "risk": round(risk),
             "rr_t2": round(rr, 2), "t_rs": [round((t - e) * lot) for t in tg], "struct_risk": round(risk_struct)}, ""
 
 
@@ -720,7 +722,7 @@ def scan(ag, inst, full, now, live=True):
         s_.pop("_rank", None)
         s_["status"] = {"FORMING": "SETUP FORMING", "READY": "ENTRY READY", "CONFIRMED": "ENTRY READY"}[s_["stage"]]
         s_["block"] = []
-        if s_["stage"] in ("READY", "CONFIRMED") and mkt_open and live and not s_["stale"]:
+        if mkt_open and live and not s_["stale"]:
             try:
                 o, why = pick_strike(ag, inst, s_["index"], s_["side"], s_["spot"], t)
             except Exception as e:
@@ -731,6 +733,10 @@ def scan(ag, inst, full, now, live=True):
                 s_["score"] = min(100, s_["score"] + (S["weights"]["option"] if p else 0))
                 if p:
                     s_["plan"] = p
+                    if p.get("warn"):
+                        s_["block"].append(p["warn"])
+                    if o.get("wide"):
+                        s_["block"].append(f"Spread {o['spread_pct']}% — limit order மட்டும்")
                 else:
                     s_["block"].append(why2)
             else:
@@ -774,12 +780,94 @@ def scan(ag, inst, full, now, live=True):
                 STATE["last_sig"][pk] = str(t)
                 signals.append(s_)
         final.append(s_)
+    try:
+        journal_update(ag, final, t, mkt_open, live)
+    except Exception as e:
+        errors.append(f"journal: {e}")
     order = {"ENTRY CONFIRMED": 0, "WAIT FOR PREMIUM TRIGGER": 1, "ENTRY READY": 2, "SETUP FORMING": 3, "DUPLICATE (filtered)": 4}
     final.sort(key=lambda x: (order.get(x["status"], 5), -x["score"]))
     with LOCK:
         STATE.update(prog="", t=t.strftime("%Y-%m-%d %H:%M:%S"), indices=clean(out_idx), setups=clean(final), errors=errors, market_open=mkt_open,
                      settings=S)
     return clean(signals)
+
+
+def _jstore():
+    from .store import STORE
+    d = STORE.load()
+    return STORE, d.setdefault("v4j", [])
+
+
+def journal_update(ag, final, t, mkt_open, live):
+    """📋 V4 கொடுத்த setups என்ன ஆச்சு — READY/CONFIRMED + plan + score ≥60 ஆன ஒவ்வொரு setup-ம் paper-ல் track.
+    Trigger ₹ தாண்டினா entry · SL hit → exit · T1 → SL entry · T2 → SL T1 · T3 exit · 3:20 exit · 45 நிமிடத்தில் trigger ஆகலைன்னா NOT TRIGGERED."""
+    if not live:
+        return
+    STORE, J = _jstore()
+    day = str(t.date())
+    mins = t.hour * 60 + t.minute
+    changed = False
+    if mkt_open:
+        for s_ in final:
+            p, o = s_.get("plan"), s_.get("option")
+            if not (p and o) or s_["stage"] not in ("READY", "CONFIRMED") or s_["score"] < 60 or mins > 14 * 60 + 30:
+                continue
+            key = f"{day}|{s_['index']}|{s_['side']}|{s_['strategy']}"
+            if any(j["key"] == key and j["status"] in ("WAITING", "OPEN", "T1 HIT", "T2 HIT") for j in J):
+                continue
+            last = [j for j in J if j["key"] == key]
+            if last and (t - pd.Timestamp(last[-1]["t_full"])) < pd.Timedelta(minutes=30):
+                continue
+            J.append({"key": key, "id": f"{key}|{t.strftime('%H%M')}", "date": day, "time": t.strftime("%H:%M"), "t_full": str(t),
+                      "index": s_["index"], "side": s_["side"], "strategy": s_["strategy"], "name": s_["name"], "stage": s_["stage"],
+                      "score": s_["score"], "regime": s_["regime"], "contract": o["contract"], "token": o["token"], "exch": o["exch"],
+                      "strike": o["strike"], "expiry": o["expiry"], "lot": o["lot"], "trigger": p["trigger"], "zone": p["zone"],
+                      "sl": p["sl"], "sl0": p["sl"], "targets": p["targets"], "entry": None, "ltp": o["ltp"], "status": "WAITING",
+                      "hits": [], "pnl": 0, "exit_time": None, "confirmed": s_["status"] == "ENTRY CONFIRMED"})
+            changed = True
+    act = [j for j in J if j["date"] == day and j["status"] in ("WAITING", "OPEN", "T1 HIT", "T2 HIT")]
+    if act:
+        toks = {}
+        for j in act:
+            toks.setdefault(j["exch"], []).append(j["token"])
+        q = ag.quotes(toks)
+        for j in act:
+            ltp = float((q.get(j["token"]) or {}).get("ltp") or 0)
+            if not ltp:
+                continue
+            j["ltp"] = ltp
+            if j["status"] == "WAITING":
+                if j["trigger"] <= ltp <= j["zone"][1]:
+                    j.update(status="OPEN", entry=ltp, entry_time=t.strftime("%H:%M"))
+                elif (t - pd.Timestamp(j["t_full"])) > pd.Timedelta(minutes=45) or mins >= 15 * 60 + 15:
+                    j.update(status="NOT TRIGGERED", exit_time=t.strftime("%H:%M"))
+                changed = True
+                continue
+            e = j["entry"]
+            if ltp <= j["sl"]:
+                j.update(status="SL HIT" if not j["hits"] else f"TRAIL SL (T{len(j['hits'])})", exit=ltp, exit_time=t.strftime("%H:%M"))
+            else:
+                for i, tg_ in enumerate(j["targets"]):
+                    if i >= len(j["hits"]) and ltp >= tg_:
+                        j["hits"].append(t.strftime("%H:%M"))
+                        j["sl"] = e if i == 0 else j["targets"][i - 1]
+                if len(j["hits"]) == 3:
+                    j.update(status="T3 DONE", exit=ltp, exit_time=t.strftime("%H:%M"))
+                elif j["hits"]:
+                    j["status"] = f"T{len(j['hits'])} HIT"
+                if mins >= 15 * 60 + 20 and j["status"] in ("OPEN", "T1 HIT", "T2 HIT"):
+                    j.update(status="EOD EXIT", exit=ltp, exit_time=t.strftime("%H:%M"))
+            j["pnl"] = round(((j.get("exit") or ltp) - e) * j["lot"])
+            changed = True
+    if len(J) > 600:
+        del J[:len(J) - 600]
+    if changed:
+        STORE.dirty = True
+        try:
+            STORE.save()
+        except Exception:
+            pass
+    STATE["journal"] = clean([{k: v for k, v in j.items() if k not in ("token",)} for j in J[-120:]])
 
 
 def to_calls(signals, now):

@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -880,3 +880,43 @@ def add_machine(rows, now):
         if n:
             STORE.save(force=True)
     return n
+
+
+def add_pick(row, ltp, now):
+    """✋ My pick (Live Board-ல் நீங்க தேர்ந்தது) → paper call. Entry = இப்போ LTP. ₹ rules: SL ≤ ₹2,500 · T1 ₹2K · T2 ₹4K · T3 ₹6K."""
+    if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute < 15 * 60 + 25):
+        return None, "Market நேரம் இல்லை"
+    if not (row.get("token") and row.get("contract") and row.get("lot") and ltp):
+        return None, "Option data இல்லை (strike / token)"
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        if any(x["date"] == day and x["kind"] == "PICK" and x["contract"] == row["contract"] and x["status"] in OPEN for x in d["calls"].values()):
+            return None, "இதை ஏற்கனவே pick பண்ணிட்டீங்க"
+        opt = {"token": str(row["token"]), "exch": row.get("exch") or "NFO", "contract": row["contract"], "strike": row.get("strike"),
+               "type": row["side"], "expiry": row.get("expiry"), "lot": int(row["lot"]),
+               "plan": {"entry": float(ltp), "sl": float(row.get("sl") or ltp * 0.7), "targets": [float(ltp) * 1.2], "risk": 0,
+                        "risk_ok": True, "money": True, "reward_ok": True}}
+        r = {"symbol": row["symbol"], "price": None, "sl": None, "targets": [], "stars": 0, "confidence": "My pick",
+             "reasons": ["✋ நீங்க Live Board-ல் pick பண்ணது"] + ([f"Modules: {', '.join(row.get('src_modules') or [])}"] if row.get("src_modules") else [])
+                        + ([f"🟠 Early: {row['early']}"] if row.get("early") else [])}
+        c = _new("PICK", "My pick", r, opt, now, day)
+        if not c:
+            return None, "Plan உருவாக்க முடியல (SL / target)"
+        c.update(grade="P", qcodes=[], qtext=[], picked_rank=row.get("rank"))
+        d["calls"][c["id"]] = c
+        STORE.dirty = True
+        STORE.save(force=True)
+    return c, "✓ Pick ஆச்சு — live-ஆ track ஆகும்"
+
+
+def cancel_pick(cid, now):
+    with CALLS_LOCK:
+        d = STORE.load()
+        c = d["calls"].get(cid)
+        if not c or c["kind"] != "PICK" or c["status"] not in OPEN:
+            return False
+        c.update(status="CANCELLED", exit=c.get("ltp"), exit_time=now.strftime("%H:%M"))
+        STORE.dirty = True
+        STORE.save(force=True)
+    return True

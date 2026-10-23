@@ -375,7 +375,7 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4":
             from krt import v4
             with v4.LOCK:
-                st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog", "prog", "tried")}
+                st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog", "prog", "tried", "journal")}
             st["running"] = V4_LK.locked()
             st["beat"], st["since"] = V4E.get("beat"), V4E.get("since")
             st["live_market"] = market_open(now_ist())
@@ -395,6 +395,23 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4/settings":
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
+        if self.path == "/api/pick":
+            global ANGEL
+            from krt.calls import add_pick
+            ltp = d.get("ltp")
+            try:
+                from krt.angel_api import Angel
+                ANGEL = ANGEL or Angel()
+                q = ANGEL.quotes({d.get("exch") or "NFO": [str(d.get("token"))]}).get(str(d.get("token"))) or {}
+                ltp = float(q.get("ltp") or 0) or ltp
+            except Exception:
+                pass
+            c, msg = add_pick(d, ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            return self._send(200, _json({"ok": bool(c), "msg": msg}))
+        if self.path == "/api/pick/cancel":
+            from krt.calls import cancel_pick
+            ok = cancel_pick(d.get("id"), pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            return self._send(200, _json({"ok": ok, "msg": "Cancel ஆச்சு" if ok else "முடியல"}))
         if self.path == "/api/v4/scan":
             if V4_LK.locked():
                 return self._send(200, _json({"ok": False, "msg": "V4 scan ஏற்கனவே ஓடுது"}))
