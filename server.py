@@ -104,18 +104,42 @@ def v4_loop():
             if not mo and not (V4E["t"] is None or t.minute % 15 == 0):
                 continue
             done = slot
-            from krt.angel_api import Angel
-            from krt.instruments import load as load_inst
-            from krt import v4
-            ANGEL = ANGEL or Angel()
-            inst = load_inst(ROOT / "data" / "cache")
-            sig = v4.scan(ANGEL, inst, STATE.get("full"), t, live=mo)
-            if mo and sig:
-                v4.to_calls(sig, t)
-            V4E.update(err=None, t=str(t))
+            v4_run_once(t, mo)
         except Exception as e:
             V4E["err"] = str(e)
             traceback.print_exc()
+
+
+V4_LK = threading.Lock()
+
+
+def v4_run_once(t=None, mo=None):
+    global ANGEL
+    if not V4_LK.acquire(blocking=False):
+        return False            # முந்தைய scan இன்னும் ஓடுது
+    try:
+        from krt import v4
+        t = t or now_ist()
+        mo = market_open(t) if mo is None else mo
+        v4.STATE["prog"] = "Angel login…"
+        from krt.angel_api import Angel
+        from krt.instruments import load as load_inst
+        ANGEL = ANGEL or Angel()
+        v4.STATE["prog"] = "Instrument master…"
+        inst = load_inst(ROOT / "data" / "cache")
+        sig = v4.scan(ANGEL, inst, STATE.get("full"), t, live=mo)
+        if mo and sig:
+            v4.to_calls(sig, t)
+        V4E.update(err=None, t=str(t))
+        return True
+    except Exception as e:
+        V4E["err"] = str(e)
+        from krt import v4
+        v4.STATE["prog"] = ""
+        traceback.print_exc()
+        return False
+    finally:
+        V4_LK.release()
 
 
 def v4_backtest(days):
@@ -347,7 +371,9 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4":
             from krt import v4
             with v4.LOCK:
-                st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog")}
+                st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog", "prog", "tried")}
+            st["running"] = V4_LK.locked()
+            st["live_market"] = market_open(now_ist())
             st["settings"] = v4.settings()
             st["err"] = V4E["err"]
             return self._send(200, _json(st))
@@ -364,6 +390,11 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4/settings":
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
+        if self.path == "/api/v4/scan":
+            if V4_LK.locked():
+                return self._send(200, _json({"ok": False, "msg": "V4 scan ஏற்கனவே ஓடுது"}))
+            threading.Thread(target=v4_run_once, daemon=True).start()
+            return self._send(200, _json({"ok": True, "msg": "V4 scan ஆரம்பம்"}))
         if self.path == "/api/v4/backtest":
             from krt import v4
             if v4.STATE.get("bt_running"):

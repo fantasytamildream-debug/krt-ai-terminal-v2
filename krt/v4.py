@@ -35,7 +35,9 @@ DEFAULT = {
     "premium_trigger_pct": 2.0, "dup_minutes": 45, "stale_minutes": 3,
 }
 LOCK = threading.Lock()
-STATE = {"t": None, "indices": {}, "setups": [], "errors": [], "bt": None, "bt_running": False, "pending": {}, "last_sig": {}}
+STATE = {"t": None, "indices": {}, "setups": [], "errors": [], "bt": None, "bt_running": False, "pending": {}, "last_sig": {},
+         "prog": "", "tried": None}
+CACHE = {}      # idx → {"day", "m1", "f5"} — முந்தைய நாட்கள் data ஒரு நாளைக்கு ஒருமுறை மட்டும் fetch
 
 
 def clean(o):
@@ -119,24 +121,42 @@ def fut_token(inst, idx):
 
 
 def load_frames(ag, inst, idx, now):
-    """1m spot (7 calendar days) → 3m/5m/15m/1h. Futures volume 5m (இருந்தா) → fvol."""
+    """1m spot → 3m/5m/15m/1h. முந்தைய 7 நாள் ஒருமுறை (cache) + இன்றைய 1m மட்டும் ஒவ்வொரு நிமிடமும் (வேகம், API load குறைவு)."""
     now_ = pd.Timestamp(now).tz_localize(None) if pd.Timestamp(now).tzinfo else pd.Timestamp(now)
+    day0 = now_.normalize()
     ex, tok = INDEX_SPOT[idx]
-    start = (now_ - pd.Timedelta(days=7)).normalize() + pd.Timedelta(hours=9, minutes=15)
-    m1 = ag.candles(ex, tok, "ONE_MINUTE", start, now_)
-    m1 = _completed(m1, now_, 1)
-    if m1 is None or m1.empty:
-        return None
-    m1 = m1.between_time("09:15", "15:29")
-    fv = None
     ft = fut_token(inst, idx)
-    if ft:
-        f5 = ag.candles(ft[0], ft[1], "FIVE_MINUTE", start, now_)
-        f5 = _completed(f5, now_, 5)
-        if f5 is not None and not f5.empty:
-            fv = f5["volume"]
+    ch = CACHE.get(idx)
+    if not ch or ch["day"] != day0:
+        start = (day0 - pd.Timedelta(days=7)) + pd.Timedelta(hours=9, minutes=15)
+        h1 = ag.candles(ex, tok, "ONE_MINUTE", start, day0 - pd.Timedelta(minutes=1))
+        f5h = ag.candles(ft[0], ft[1], "FIVE_MINUTE", start, day0 - pd.Timedelta(minutes=1)) if ft else pd.DataFrame()
+        if h1 is None or h1.empty:
+            return None
+        ch = CACHE[idx] = {"day": day0, "m1": h1, "f5": f5h}
+    t0 = day0 + pd.Timedelta(hours=9, minutes=15)
+    parts = [ch["m1"]]
+    fparts = [ch["f5"]] if ch["f5"] is not None and not ch["f5"].empty else []
+    if now_ > t0:
+        td = ag.candles(ex, tok, "ONE_MINUTE", t0, now_)
+        if td is not None and not td.empty:
+            parts.append(td)
+        if ft:
+            tf = ag.candles(ft[0], ft[1], "FIVE_MINUTE", t0, now_)
+            if tf is not None and not tf.empty:
+                fparts.append(tf)
+    m1 = pd.concat(parts)
+    m1 = m1[~m1.index.duplicated(keep="last")].sort_index()
+    m1 = _completed(m1, now_, 1).between_time("09:15", "15:29")
+    if m1.empty:
+        return None
     fr = {"1M": m1, "3M": _resample(m1, "3min"), "5M": _resample(m1, "5min"), "15M": _resample(m1, "15min"),
           "1H": _resample(m1, "60min")}
+    fv = None
+    if fparts:
+        f5 = pd.concat(fparts)
+        f5 = _completed(f5[~f5.index.duplicated(keep="last")].sort_index(), now_, 5)
+        fv = f5["volume"] if not f5.empty else None
     if fv is not None:
         fr["5M"] = fr["5M"].join(fv.rename("fvol"), how="left")
     fr["has_vol"] = fv is not None and float(fr["5M"].get("fvol", pd.Series(dtype=float)).fillna(0).sum()) > 0
@@ -611,12 +631,15 @@ def scan(ag, inst, full, now, live=True):
     gex_by = {g.get("index"): g for g in (full or {}).get("gex") or []}
     chain_by = {x.get("index"): x for x in (full or {}).get("index") or []}
     out_idx, setups, signals, errors = {}, [], [], []
+    STATE["tried"] = t.strftime("%H:%M:%S")
     for idx in INDEX_SPOT:
         if not S["indices"].get(idx, True):
             out_idx[idx] = {"status": "OFF"}
             continue
+        STATE["prog"] = f"{idx} candles load…"
         try:
             fr = load_frames(ag, inst, idx, t)
+            STATE["prog"] = f"{idx} strategies…"
             if not fr or fr["5M"].empty or len(fr["5M"]) < 30:
                 out_idx[idx] = {"status": "NO DATA"}
                 continue
@@ -730,7 +753,7 @@ def scan(ag, inst, full, now, live=True):
     order = {"ENTRY CONFIRMED": 0, "WAIT FOR PREMIUM TRIGGER": 1, "ENTRY READY": 2, "SETUP FORMING": 3, "DUPLICATE (filtered)": 4}
     final.sort(key=lambda x: (order.get(x["status"], 5), -x["score"]))
     with LOCK:
-        STATE.update(t=t.strftime("%Y-%m-%d %H:%M:%S"), indices=clean(out_idx), setups=clean(final), errors=errors, market_open=mkt_open,
+        STATE.update(prog="", t=t.strftime("%Y-%m-%d %H:%M:%S"), indices=clean(out_idx), setups=clean(final), errors=errors, market_open=mkt_open,
                      settings=S)
     return clean(signals)
 

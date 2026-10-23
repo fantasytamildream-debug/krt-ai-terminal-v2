@@ -1102,14 +1102,14 @@ const yn=v=>v?'<span class="up">✓</span>':'<span class="dn">✗</span>';
 function v4Trades(){ const T=((LAST_S||{}).full||{}).tracking||{}; const m=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="V4") m.set(c.id,c)}); return [...m.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)); }
 function v4Strip(){
   const box=$("v4strip"); if(!box) return;
-  if(!V4||!V4.indices){ box.innerHTML=`<div class="v4strip"><b>🔥 KRT AI V4</b> <span class="hint">Scanner ஆரம்பமாகிறது… (market நேரத்தில் ஒவ்வொரு நிமிடமும்)</span></div>`; return; }
+  if(!V4||!V4.t){ box.innerHTML=`<div class="v4strip" onclick="goTab('v4m')"><b>🔥 KRT AI V4</b> <span class="hint">⏳ முதல் scan ${V4&&V4.running?"ஓடுகிறது":"காத்திருக்கிறது"}${V4&&V4.prog?" — "+esc(V4.prog):""}${V4&&V4.err?" · Error: "+esc(V4.err):""}</span></div>`; return; }
   const I=V4.indices, S=V4.setups||[], st=V4.settings||{};
   const nF=S.filter(x=>x.stage==="FORMING").length, nR=S.filter(x=>x.status!=="SETUP FORMING").length;
   const act=v4Trades().filter(c=>OPEN_ST.includes(c.status)).length;
   const on=Object.values(st.strategies||{}).filter(Boolean).length;
   const stale=Object.values(I).some(x=>x.status==="STALE");
   box.innerHTML=`<div class="v4strip" onclick="goTab('v4b')" title="Best Setups பார்க்க">
-    <b>🔥 KRT AI V4</b> <span class="cb-stat ${V4.market_open?'up':''}">Market ${V4.market_open?"LIVE":"CLOSED"}</span>
+    <b>🔥 KRT AI V4</b> <span class="cb-stat ${V4.live_market?'up':''}">Market ${V4.live_market?"LIVE":"CLOSED"}</span>
     <span class="cb-stat ${stale||V4.err?'dn':'up'}">Data ${V4.err?"ERROR":stale?"STALE":"CONNECTED"}</span>
     ${Object.entries(I).map(([k,v])=>`<span class="cb-stat">${k} <small>${esc(v.status||"–")}</small></span>`).join("")}
     <span class="cb-stat">Strategies ${on}/5</span><span class="cb-stat">Forming ${nF}</span><span class="cb-stat watch">Ready ${nR}</span><span class="cb-stat up">Active ${act}</span>
@@ -1117,21 +1117,30 @@ function v4Strip(){
 }
 function v4Master(){
   const P=$("p-v4m"); if(!P) return;
-  if(!V4||!V4.indices){ P.innerHTML=`<div class="cempty">V4 scanner data இன்னும் வரல. Angel One connect ஆனதும் server ஒவ்வொரு நிமிடமும் scan பண்ணும்.${V4&&V4.err?"<br>Error: "+esc(V4.err):""}</div>`; return; }
+  if(!V4||!V4.t){ P.innerHTML=v4Wait(); return; }
   const S=V4.setups||[], st=V4.settings||{};
   P.innerHTML=`<div class="v4head"><div class="v4title">KRT AI TERMINAL V4<br><small>FULL ACTIVE INDEX SCANNER</small></div>
-    <div class="kpis">${v4kp("Market",V4.market_open?"LIVE":"CLOSED")}${v4kp("Data",V4.err?"ERROR":"CONNECTED")}${v4kp("Last scan",esc((V4.t||"").slice(11,19)))}${v4kp("Setups forming",S.filter(x=>x.stage==="FORMING").length)}${v4kp("Entry ready",S.filter(x=>x.status!=="SETUP FORMING").length)}${v4kp("Active trades",v4Trades().filter(c=>OPEN_ST.includes(c.status)).length)}</div></div>
+    <div class="kpis">${v4kp("Market",V4.live_market?"LIVE":"CLOSED")}${v4kp("Data",V4.err?"ERROR":"CONNECTED")}${v4kp("Last scan",esc((V4.t||"").slice(11,19))+(V4.running?" 🔄":""))}${v4kp("Setups forming",S.filter(x=>x.stage==="FORMING").length)}${v4kp("Entry ready",S.filter(x=>x.status!=="SETUP FORMING").length)}${v4kp("Active trades",v4Trades().filter(c=>OPEN_ST.includes(c.status)).length)}</div></div>
    <div class="v4grid">${Object.entries(V4.indices).map(([k,v])=>`<div class="v4card">
       <div class="ctop"><b style="font-size:18px">${k}</b><span class="cb-stat ${v.status==="SCANNING"?'up':v.status==="STALE"||v.status==="ERROR"?'dn':''}">${esc(v.status||"–")}</span></div>
       ${v.regime?`<div style="margin-top:6px">Regime: <b>${esc(v.regime)}</b></div><div class="hint">Preferred: ${(v.preferred||[]).map(esc).join(", ")}</div>
       <div class="crow num"><span>Spot <b>${n2(v.spot)}</b></span><span>VWAP <b>${n2(v.vwap)}</b></span><span>ATR5 <b>${n2(v.atr5)}</b></span></div>
       <div class="hint">HTF ${esc(v.htf)} · PDH ${n2(v.pdh)} · PDL ${n2(v.pdl)} · ${esc(v.vol)}${v.vol_ratio?` ${v.vol_ratio}×`:""}</div>
       <div class="hint">Data time ${esc(v.data_time||"–")}</div>`:`<div class="hint">${esc(v.error||"")}</div>`}</div>`).join("")}</div>
+   <div style="margin-top:8px"><button onclick="v4Now()" ${V4.running?"disabled":""}>🔄 இப்போ V4 scan</button> <span class="hint">${V4.running?"ஓடுகிறது… "+esc(V4.prog||""):""}</span></div>
    <h2 class="sec">Active strategies</h2>
    <div class="v4grid">${["CQSMC","ORDERFLOW","GAMMA","SILVER","VWAPMR"].map(k=>`<div class="v4card"><b>${esc({CQSMC:"🥇 CQSMC PRO",ORDERFLOW:"🥈 Order Flow + Profile",GAMMA:"🥉 Gamma Squeeze",SILVER:"⚡ ICT Silver Bullet",VWAPMR:"💎 VWAP Mean Reversion"}[k])}</b> <span class="${(st.strategies||{})[k]?'up':'dn'}">${(st.strategies||{})[k]?"ACTIVE":"OFF"}</span></div>`).join("")}</div>
    ${(V4.errors||[]).length?`<div class="hint dn">Errors: ${V4.errors.map(esc).join(" · ")}</div>`:""}
    <div class="hint" style="margin-top:10px">Regime → strategy: Strong trend → CQSMC / Order Flow · Sideways → VWAP reversion · Liquidity reversal → Silver Bullet · High momentum → Gamma squeeze · Unclear → WAIT. Preferred strategy மட்டும் entry கொடுக்கும்; மற்றவை support. Data: Angel REST completed 1-min candles (tick data இல்லை), ஒவ்வொரு நிமிடமும் update. Browser close ஆனாலும் server-ல் scan ஓடும் — Render free plan sleep ஆனா நிற்கும் (always-on plan தேவை).</div>`;
 }
+function v4Wait(){
+  const r=V4||{};
+  return `<div class="cempty" style="font-size:15px">⏳ <b>V4 முதல் scan ${r.running?"ஓடுகிறது":"காத்திருக்கிறது"}</b>${r.prog?` — ${esc(r.prog)}`:""}
+   <div class="hint" style="margin-top:6px">Server restart / deploy ஆனதும் முதல் scan-க்கு 1–3 நிமிடம் ஆகும் (7 நாள் 1-min data load). அதுக்கு அப்புறம் ஒவ்வொரு நிமிடமும் update.${r.tried?` Last try ${esc(r.tried)}.`:""}</div>
+   ${r.err?`<div class="cwarn">Error: ${esc(r.err)}</div>`:""}
+   <button style="margin-top:8px" onclick="v4Now()" ${r.running?"disabled":""}>🔄 இப்போ V4 scan</button></div>`;
+}
+async function v4Now(){ const j=await post("/api/v4/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(loadV4,3000); }
 function v4Settings(){
   const st=(V4||{}).settings||{}; if(!st.indices) return "";
   const cb=(grp,k,lbl)=>`<label class="v4cb"><input type="checkbox" data-g="${grp}" data-k="${k}" ${(st[grp]||{})[k]?"checked":""}> ${esc(lbl||k)}</label>`;
@@ -1154,7 +1163,7 @@ async function v4Save(){
 }
 function v4Engine(){
   const P=$("p-v4s"); if(!P) return;
-  if(!V4||!V4.indices){ P.innerHTML=v4Settings()+`<div class="cempty">Strategy data இன்னும் வரல.</div>`; return; }
+  if(!V4||!V4.t){ P.innerHTML=v4Wait()+v4Settings(); return; }
   P.innerHTML=`<h2 class="sec">🧠 STRATEGY ENGINE — 4 index × 5 strategies</h2>
    <div class="hint">Stage: FORMING → READY → CONFIRMED. ★ = இந்த regime-க்கு preferred (entry கொடுக்கும்). Score = Trend 15 · Liquidity 20 · BOS/CHOCH 15 · Volume/Order flow 15 · Gamma/OI 15 · VWAP/Profile 10 · Option liquidity 10 (option check READY-ல் மட்டும்). Score ≠ win probability.</div>
    ${Object.entries(V4.indices).map(([k,v])=>`<h3 class="sec">${k} · ${esc(v.regime||v.status||"")}</h3>${(v.strategies||[]).length?simpleTbl(v.strategies,[
@@ -1203,7 +1212,7 @@ function v4Best(){
   const H=(((LAST_S||{}).full||{}).tracking||{}).history||[];
   const cmp=v4Perf(H.filter(c=>c.kind==="V4"||(c.source||"").startsWith("Gamma V3")),c=>c.kind==="V4"?"New V4":"Old Gamma V3 (GEX)");
   const BT=(V4||{}).bt;
-  P.innerHTML=`<h2 class="sec">🎯 BEST SETUPS</h2>
+  P.innerHTML=(!V4||!V4.t?v4Wait():"")+`<h2 class="sec">🎯 BEST SETUPS</h2>
    <div class="hint">🟢 85–100 high-quality · 🟡 70–84 watchlist · 🔴 &lt;70 skip. Score அதிகமா இருந்தாலும் risk / RR / data / market checks fail ஆனா ⛔ block. Row click → விவரம்.</div>
    ${S.length?simpleTbl(S,[["Index",x=>`<b>${esc(x.index)}</b>`],["Direction",x=>`<b class="${x.side==='CE'?'up':'dn'}">${x.side}</b>`],["Strategy",x=>esc(x.name)+(x.preferred?' ★':'')],
      ["Score",x=>`<b class="${x.score>=85?'up':x.score>=70?'watch':'dn'}">${x.score}</b>`],["Status",x=>`<span class="${V4STAT_CLS[x.status]||''}">${esc(x.status)}</span>${(x.block||[]).length?' ⛔':''}`],

@@ -9,6 +9,8 @@ INDEX_SPOT = {"NIFTY": ("NSE", "99926000"), "BANKNIFTY": ("NSE", "99926009"),
               "FINNIFTY": ("NSE", "99926037"), "SENSEX": ("BSE", "99919000")}
 INDEX_OPT_EXCH = {"NIFTY": "NFO", "BANKNIFTY": "NFO", "FINNIFTY": "NFO", "SENSEX": "BFO"}
 _MEM = {"day": None, "data": None}
+import threading as _th
+_LOAD_LK = _th.Lock()   # V4: இரண்டு thread ஒரே நேரத்தில் master download பண்ணாம
 
 
 def ist_today() -> dt.date:
@@ -65,6 +67,11 @@ def _build(cache_dir: Path) -> dict:
 
 
 def load(cache_dir: str | Path) -> dict:
+    with _LOAD_LK:
+        return _load(cache_dir)
+
+
+def _load(cache_dir: str | Path) -> dict:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     day = ist_today().isoformat()
