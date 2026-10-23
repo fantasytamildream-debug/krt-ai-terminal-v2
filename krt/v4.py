@@ -825,6 +825,16 @@ def journal_update(ag, final, t, mkt_open, live):
                       "sl": p["sl"], "sl0": p["sl"], "targets": p["targets"], "entry": None, "ltp": o["ltp"], "status": "WAITING",
                       "hits": [], "pnl": 0, "exit_time": None, "confirmed": s_["status"] == "ENTRY CONFIRMED"})
             changed = True
+    # பழைய SL→entry trail-ஐ புது lock rule-க்கு மாற்று (open: SL உயர்த்து · closed TRAIL SL (T1) ≤0: lock-ல் exit என re-calc)
+    from .calls import lock_price as _lp
+    for j in J:
+        if j["date"] != day or not j.get("entry") or len(j.get("hits") or []) != 1:
+            continue
+        lk = _lp(j["entry"], j["targets"][0], j["lot"])
+        if j["status"] == "T1 HIT" and j["sl"] < lk:
+            j["sl"] = lk; changed = True
+        elif str(j["status"]).startswith("TRAIL SL") and (j.get("pnl") or 0) <= 0 and not j.get("recalc"):
+            j.update(sl=lk, exit=lk, pnl=round((lk - j["entry"]) * j["lot"]), recalc=True); changed = True
     act = [j for j in J if j["date"] == day and j["status"] in ("WAITING", "OPEN", "T1 HIT", "T2 HIT")]
     if act:
         toks = {}

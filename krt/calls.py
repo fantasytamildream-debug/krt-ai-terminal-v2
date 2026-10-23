@@ -43,14 +43,39 @@ LOCK_RS = 1000          # V5.1: T1 hit ஆனா SL → entry + ₹1,000/lot (pr
 
 
 def lock_price(entry, t1, lot):
-    """T1 பின் புது SL: entry + ₹1,000/lot (T1-க்கு கீழே இருக்கணும் — இல்லைன்னா entry–T1 நடு)."""
+    """T1 பின் புது SL (profit lock): entry-க்கும் T1-க்கும் நடு (50%), குறைஞ்சது ₹1,000/lot — T1-க்கு கீழே.
+    உதா: entry 143, T1 182 → SL ≈ 162.5 (மறுபடி கீழே வந்தாலும் லாபம்)."""
     try:
-        lk = entry + LOCK_RS / float(lot)
-        if lk >= t1:
-            lk = entry + (t1 - entry) * 0.5
+        gap = float(t1) - float(entry)
+        if gap <= 0:
+            return entry
+        lk = entry + max(0.5 * gap, min(LOCK_RS / float(lot), 0.8 * gap))
         return round(round(lk / 0.05) * 0.05, 2)
     except Exception:
         return entry
+
+
+def relock(c, when=None):
+    """பழைய rule-ல் (SL → entry) trail ஆன calls-ஐ புது lock rule-க்கு மாற்றும்.
+    Open: SL-ஐ lock-க்கு உயர்த்தும். Closed 'TRAIL SL' (T1 மட்டும், ≤₹0): விலை T1 → கீழே வந்ததால் lock விலையை கடந்திருக்கும் → lock-ல் exit என re-calc."""
+    try:
+        t1_hit = any(h.startswith("T1 ") for h in c.get("hits") or [])
+        if not t1_hit or not c.get("targets"):
+            return False
+        lk = lock_price(c["entry"], c["targets"][0], c.get("lot"))
+        t2_hit = any(h.startswith("T2 ") for h in c.get("hits") or [])
+        if c["status"] in OPEN and not t2_hit and c["sl"] < lk:
+            c["sl"] = lk
+            c.setdefault("revisions", []).append({"t": when or "", "sl": lk, "why": "T1 → SL lock (V5.2 upgrade)"})
+            return True
+        if c["status"] == "TRAIL SL" and not t2_hit and (c.get("pnl_lot") or 0) <= 0 and not c.get("recalc"):
+            c["exit"], c["sl"] = lk, lk
+            c["pnl_lot"] = round((lk - c["entry"]) * c["lot"])
+            c["recalc"] = "V5.2 lock rule-ல் மறு கணக்கு (T1 பின் SL = entry–T1 நடு)"
+            return True
+    except Exception:
+        return False
+    return False
 
 
 def _r05(x):
@@ -298,6 +323,12 @@ def _gu_call(sig, now, day):
 
 def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=(),
                   footprint=(), power=(), gex=()):
+    try:
+        _d = STORE.load()
+        if any(relock(x, now.strftime("%H:%M")) for x in list(_d["calls"].values()) if x["date"] == str(now.date())):
+            STORE.dirty = True
+    except Exception:
+        pass
     d = STORE.load()
     calls, pub = d["calls"], d["published"]
     day = str(session.date())
@@ -608,7 +639,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                     c["status"] = f"T{i} HIT"
                     if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
                         c["sl"] = lock_price(c["entry"], c["targets"][0], c.get("lot"))  # T1 பின் SL → entry + ₹1,000 lock
-                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL lock +₹1,000"})
+                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL lock (entry–T1 நடு, min ₹1,000)"})
                         if gu_:
                             tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
                     if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):
