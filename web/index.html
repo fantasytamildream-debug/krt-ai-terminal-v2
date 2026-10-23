@@ -192,6 +192,28 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 .hero h1{font-size:clamp(20px,3vw,28px)}
 
 
+
+/* bell + mood */
+header{position:relative}
+.bell{position:relative;font-size:18px;padding:6px 12px}
+.bn{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;border-radius:99px;background:var(--line);color:var(--text);font-size:11.5px;font-weight:800;line-height:20px;text-align:center;padding:0 5px}
+.bn:empty{display:none}
+.bn.new{background:#ef4444;color:#fff;box-shadow:0 0 10px rgba(239,68,68,.8)}
+.bellbox{position:absolute;right:16px;top:70px;z-index:50;width:min(420px,92vw);max-height:70vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.bhead{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+.bhead button{padding:4px 8px;font-size:12px}
+.bitem{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13.5px}
+.bitem:hover{background:rgba(255,255,255,.05)}
+.bitem.unseen{background:rgba(245,185,66,.08);border-left:3px solid var(--watch)}
+.hero{border-radius:14px;padding:14px 16px;margin-top:10px;border:2px solid transparent;transition:all .3s}
+.hero.mood-unclear{border-color:var(--watch);background:rgba(245,185,66,.08)}
+.hero.mood-jackpot{border-color:var(--ce);background:rgba(60,207,142,.12);box-shadow:0 0 22px rgba(60,207,142,.35)}
+.hero.mood-crash{border-color:#ef4444;background:rgba(239,68,68,.15)}
+@media (prefers-reduced-motion:no-preference){.hero.mood-crash{animation:danger 1s ease-in-out infinite}@keyframes danger{50%{box-shadow:0 0 34px rgba(239,68,68,.9);background:rgba(239,68,68,.28)}}
+ .hero.mood-jackpot{animation:jgl 2.4s ease-in-out infinite}@keyframes jgl{50%{box-shadow:0 0 34px rgba(60,207,142,.6)}}}
+.moodtag{margin-top:8px;font-size:14px}.moodtag b{display:block;font-size:16px}.moodtag span{color:var(--muted)}
+.mood-crash .moodtag b{color:#f87171}.mood-jackpot .moodtag b{color:var(--ce)}.mood-unclear .moodtag b{color:var(--watch)}
+.why{font-size:12px;color:var(--watch);max-width:280px;white-space:normal;text-align:left;display:inline-block}
 /* V4 */
 .v4strip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;margin-bottom:10px;border:1px solid #f97316;border-radius:12px;background:rgba(249,115,22,.08);cursor:pointer;font-size:13px}
 .v4strip small{color:var(--muted)}
@@ -258,15 +280,18 @@ h2.sec{font-size:18px;margin:26px 0 10px}
   <header>
     <div class="brand">KRT Terminal<small>Rule-based F&amp;O scanner · Angel One live data</small></div>
     <div class="actions">
+      <button id="bellBtn" class="bell" onclick="bellToggle()" aria-label="Notifications">🔔<span id="bellN" class="bn"></span></button>
       <button id="scanBtn" class="primary">Full market scan</button>
       <button id="setBtn">Settings</button>
     </div>
   </header>
+  <div id="bellBox" class="bellbox" hidden></div>
 
   <div class="hero">
     <div>
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
+      <div class="moodtag" id="moodTag"></div>
     </div>
     <div class="meta num" id="meta"></div>
   </div>
@@ -1024,7 +1049,7 @@ function bigCall(c,s){
   const tg=(c.targets||[]).map((t,i)=>{const h=(c.hits||[]).some(x=>x.startsWith(`T${i+1} `));
     return `<span class="${h?'done':''}">T${i+1} ${n2(t)} <b class="up">${rs((t-e)*lot)}</b>${h?" ✅":""}</span>`}).join("");
   const slLoss=(+c.sl-e)*lot;
-  return `<article class="ccard ${side} ${J.pw.length?'power':''} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''}">
+  return `<article data-cid="${esc(c.id)}" class="ccard ${side} ${J.pw.length?'power':''} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''}">
     <div class="ctop"><div class="cbuy">${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
       <span class="crate" title="Rule-based score ${J.sc}/100">${"★".repeat(J.stars)}<i>${"★".repeat(5-J.stars)}</i> <b>${J.sc}</b></span></div>
     <div class="cmeta">⏱ ${c.date!==today?esc(c.date.slice(8,10)+"-"+c.date.slice(5,7))+" ":""}${esc(c.time)}${isNew?` <span class="newtag">🆕 ${age<=1?"இப்போ":age+" நிமி"}</span>`:""} · ${esc(c.source_label||c.source||c.kind)} · ${gradeB(c)} · ${c.hold_until?"Hold "+esc(c.hold_until.slice(5)):"Intraday"} · lot ${esc(c.lot)}</div>
@@ -1126,12 +1151,19 @@ function v4Master(){
       ${v.regime?`<div style="margin-top:6px">Regime: <b>${esc(v.regime)}</b></div><div class="hint">Preferred: ${(v.preferred||[]).map(esc).join(", ")}</div>
       <div class="crow num"><span>Spot <b>${n2(v.spot)}</b></span><span>VWAP <b>${n2(v.vwap)}</b></span><span>ATR5 <b>${n2(v.atr5)}</b></span></div>
       <div class="hint">HTF ${esc(v.htf)} · PDH ${n2(v.pdh)} · PDL ${n2(v.pdl)} · ${esc(v.vol)}${v.vol_ratio?` ${v.vol_ratio}×`:""}</div>
-      <div class="hint">Data time ${esc(v.data_time||"–")}</div>`:`<div class="hint">${esc(v.error||"")}</div>`}</div>`).join("")}</div>
-   <div style="margin-top:8px"><button onclick="v4Now()" ${V4.running?"disabled":""}>🔄 இப்போ V4 scan</button> <span class="hint">${V4.running?"ஓடுகிறது… "+esc(V4.prog||""):""}</span></div>
+      <div class="hint">Data time ${esc(v.data_time||"–")}</div>${v4Plain(k)}`:`<div class="hint">${esc(v.error||"")}</div>`}</div>`).join("")}</div>
+   <div style="margin-top:8px"><button onclick="v4Now()" ${V4.running?"disabled":""}>🔄 இப்போ V4 scan</button> <span class="hint">${V4.running?"ஓடுகிறது… "+esc(V4.prog||""):""} · Scanner heartbeat ${esc(V4.beat||"–")} · auto scan ஒவ்வொரு நிமிடமும்</span></div>
    <h2 class="sec">Active strategies</h2>
    <div class="v4grid">${["CQSMC","ORDERFLOW","GAMMA","SILVER","VWAPMR"].map(k=>`<div class="v4card"><b>${esc({CQSMC:"🥇 CQSMC PRO",ORDERFLOW:"🥈 Order Flow + Profile",GAMMA:"🥉 Gamma Squeeze",SILVER:"⚡ ICT Silver Bullet",VWAPMR:"💎 VWAP Mean Reversion"}[k])}</b> <span class="${(st.strategies||{})[k]?'up':'dn'}">${(st.strategies||{})[k]?"ACTIVE":"OFF"}</span></div>`).join("")}</div>
    ${(V4.errors||[]).length?`<div class="hint dn">Errors: ${V4.errors.map(esc).join(" · ")}</div>`:""}
    <div class="hint" style="margin-top:10px">Regime → strategy: Strong trend → CQSMC / Order Flow · Sideways → VWAP reversion · Liquidity reversal → Silver Bullet · High momentum → Gamma squeeze · Unclear → WAIT. Preferred strategy மட்டும் entry கொடுக்கும்; மற்றவை support. Data: Angel REST completed 1-min candles (tick data இல்லை), ஒவ்வொரு நிமிடமும் update. Browser close ஆனாலும் server-ல் scan ஓடும் — Render free plan sleep ஆனா நிற்கும் (always-on plan தேவை).</div>`;
+}
+function v4Plain(idx){
+  const S=((V4||{}).setups||[]).filter(x=>x.index===idx);
+  if(!S.length) return `<div class="cact" style="margin-top:8px"><b>இப்போ: WAIT</b>எந்த strategy-லும் setup இல்லை.</div>`;
+  const b=S[0];
+  const why=b.status==="ENTRY CONFIRMED"?"✅ Call கொடுத்தாச்சு — Calls tab பாருங்க":(b.block||[])[0]||(b.status==="WAIT FOR PREMIUM TRIGGER"?`Premium ₹${(b.plan||{}).trigger} தாண்டினா call`:"குறைவு: "+(b.missing||[]).slice(0,3).join(", "));
+  return `<div class="cact" style="margin-top:8px"><b class="${b.side==='CE'?'up':'dn'}">இப்போ: ${b.side} · ${esc(b.name)} · ${esc(b.stage)} · score ${b.score}</b>${esc(why)}</div>`;
 }
 function v4Wait(){
   const r=V4||{};
@@ -1165,6 +1197,8 @@ function v4Engine(){
   const P=$("p-v4s"); if(!P) return;
   if(!V4||!V4.t){ P.innerHTML=v4Wait()+v4Settings(); return; }
   P.innerHTML=`<h2 class="sec">🧠 STRATEGY ENGINE — 4 index × 5 strategies</h2>
+   <div class="v4grid">${Object.keys(V4.indices).map(k=>`<div class="v4card"><b>${k}</b> · ${esc((V4.indices[k]||{}).regime||(V4.indices[k]||{}).status||"")}${v4Plain(k)}</div>`).join("")}</div>
+   <div class="hint" style="margin:8px 0">இந்த tab = ஒவ்வொரு strategy-யும் எந்த condition pass / fail-ன்னு காட்டும் “உள் விவரம்”. Call இங்கே வராது — Best Setups → Calls tab-க்கு வரும்.</div>
    <div class="hint">Stage: FORMING → READY → CONFIRMED. ★ = இந்த regime-க்கு preferred (entry கொடுக்கும்). Score = Trend 15 · Liquidity 20 · BOS/CHOCH 15 · Volume/Order flow 15 · Gamma/OI 15 · VWAP/Profile 10 · Option liquidity 10 (option check READY-ல் மட்டும்). Score ≠ win probability.</div>
    ${Object.entries(V4.indices).map(([k,v])=>`<h3 class="sec">${k} · ${esc(v.regime||v.status||"")}</h3>${(v.strategies||[]).length?simpleTbl(v.strategies,[
       ["Strategy",r=>`<b>${esc(r.name)}</b>${r.preferred?' <span class="up">★</span>':''}`],["Side",r=>r.side?`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>`:"–"],
@@ -1213,10 +1247,16 @@ function v4Best(){
   const cmp=v4Perf(H.filter(c=>c.kind==="V4"||(c.source||"").startsWith("Gamma V3")),c=>c.kind==="V4"?"New V4":"Old Gamma V3 (GEX)");
   const BT=(V4||{}).bt;
   P.innerHTML=(!V4||!V4.t?v4Wait():"")+`<h2 class="sec">🎯 BEST SETUPS</h2>
-   <div class="hint">🟢 85–100 high-quality · 🟡 70–84 watchlist · 🔴 &lt;70 skip. Score அதிகமா இருந்தாலும் risk / RR / data / market checks fail ஆனா ⛔ block. Row click → விவரம்.</div>
+   <div class="suggest" style="font-size:14px"><b>📌 V4 call எப்போ வரும்? (3 step)</b>
+     <div>① <b>Strategy CONFIRMED</b> ஆகணும் + market நிலைக்கு பொருந்தணும் (Trend நாள் → CQSMC / Order Flow, Sideways → VWAP, Reversal → Silver Bullet, Momentum → Gamma). Market UNCLEAR-ஆ இருந்தா <b>2 strategies ஒரே side</b> confirm ஆகணும்.</div>
+     <div>② <b>Score 85+</b> (option liquid ஆனா +10 சேரும்).</div>
+     <div>③ Option premium <b>trigger விலையை தாண்டணும்</b> → <b class="up">ENTRY CONFIRMED</b> → Calls tab-ல் call + 🔔 bell-ல் msg.</div>
+     <div class="hint">“ஏன் இன்னும் call இல்லை?” column-ல் எது குறையுது-ன்னு தெரியும். Setups வராத நேரம் = market-ல் நல்ல chance இல்லை.</div></div>
+   <div class="hint">🟢 85–100 high-quality · 🟡 70–84 watchlist · 🔴 &lt;70 skip. Row click → விவரம்.</div>
    ${S.length?simpleTbl(S,[["Index",x=>`<b>${esc(x.index)}</b>`],["Direction",x=>`<b class="${x.side==='CE'?'up':'dn'}">${x.side}</b>`],["Strategy",x=>esc(x.name)+(x.preferred?' ★':'')],
      ["Score",x=>`<b class="${x.score>=85?'up':x.score>=70?'watch':'dn'}">${x.score}</b>`],["Status",x=>`<span class="${V4STAT_CLS[x.status]||''}">${esc(x.status)}</span>${(x.block||[]).length?' ⛔':''}`],
-     ["Premium",x=>x.option?n2(x.option.ltp):"–"],["Time",x=>esc(x.time)]],x=>`${x.index}|${x.side}|${x.strategy}`===V4SEL?"uprow":"")
+     ["Premium",x=>x.option?n2(x.option.ltp):"–"],["Time",x=>esc(x.time)],
+     ["ஏன் இன்னும் call இல்லை?",x=>x.status==="ENTRY CONFIRMED"?'<b class="up">✅ Call வந்தாச்சு</b>':`<span class="why">${esc((x.block||[])[0]||(x.status==="WAIT FOR PREMIUM TRIGGER"?`Premium ₹${(x.plan||{}).trigger} தாண்டணும்`:(x.missing||[]).length?"குறைவு: "+x.missing.slice(0,3).join(", "):"அடுத்த stage-க்கு காத்திருக்கு"))}</span>`]],x=>`${x.index}|${x.side}|${x.strategy}`===V4SEL?"uprow":"")
      :`<div class="cempty">இப்போ setup இல்லை — WAIT. Weak setups force பண்ணி call கொடுக்காது.</div>`}
    ${sel?v4Detail(sel):""}
    <h2 class="sec">📈 LIVE TRADE TRACKER (V4)</h2>
@@ -1234,6 +1274,53 @@ function v4Best(){
 async function v4BT(days){ const j=await post("/api/v4/backtest",{days}); alert(j.msg||"OK"); setTimeout(loadV4,1500); }
 function renderV4(){ try{ v4Strip(); v4Master(); v4Engine(); v4Best(); }catch(e){ console.error(e); } }
 async function loadV4(){ try{ const r=await fetch("/api/v4",{cache:"no-store"}); V4=await r.json(); renderV4(); }catch(e){} }
+/* ===== 🔔 Notifications + market mood ===== */
+function seenKey(){ return "krt_seen_"+String((LAST_S||{}).now||"").slice(0,10); }
+function seenSet(){ try{ return new Set(JSON.parse(localStorage.getItem(seenKey())||"[]")); }catch(e){ return new Set(); } }
+function saveSeen(S){ try{ localStorage.setItem(seenKey(), JSON.stringify([...S])); }catch(e){} }
+function bellItems(){
+  const f=(LAST_S||{}).full; if(!f) return [];
+  const T=(f.tracking||{}).today||[];
+  return [...T].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map((c,i)=>({n:i+1,c}));
+}
+function renderBell(){
+  const it=bellItems(), S=seenSet(), unseen=it.filter(x=>!S.has(x.c.id)).length;
+  $("bellN").textContent = unseen ? unseen : (it.length||"");
+  $("bellN").className = unseen ? "bn new" : "bn";
+  $("bellBtn").title = `${unseen} புது calls · இன்று மொத்தம் ${it.length}`;
+  const box=$("bellBox"); if(box.hidden) return;
+  box.innerHTML = `<div class="bhead"><b>🔔 இன்றைய calls (${it.length})</b>${unseen?` · <span class="dn">${unseen} புதுசு</span>`:""}<button onclick="bellAll()">எல்லாம் படிச்சாச்சு</button></div>
+   ${it.length?[...it].reverse().map(({n,c})=>`<div class="bitem ${S.has(c.id)?'':'unseen'}" onclick="bellOpen('${c.id}')">
+     <b>Msg ${n}</b> · ${esc(c.time)} ${S.has(c.id)?"":'<span class="newtag">NEW</span>'}<br>
+     <b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl0||c.sl)} · T1 ₹${n2((c.targets||[])[0])}
+     <div class="hint">${esc(c.source_label||c.source||c.kind)} · ${esc(c.status)} · P/L ₹${n2(c.pnl_lot)}</div></div>`).join(""):`<div class="hint" style="padding:10px">இன்னும் calls இல்லை.</div>`}`;
+}
+function bellToggle(){ const b=$("bellBox"); b.hidden=!b.hidden; renderBell(); }
+function bellAll(){ const S=seenSet(); bellItems().forEach(x=>S.add(x.c.id)); saveSeen(S); renderBell(); }
+function bellOpen(id){
+  const S=seenSet(); S.add(id); saveSeen(S); $("bellBox").hidden=true; renderBell();
+  const c=bellItems().map(x=>x.c).find(x=>x.id===id);
+  if(c && OPEN_ST.includes(c.status)){ goTab("cl"); FLASH=new Set([id]); if(LAST_S) renderCalls(LAST_S);
+    setTimeout(()=>{const el=document.querySelector(`[data-cid="${id}"]`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"});},150); }
+  else { goTab("tr"); }
+}
+document.addEventListener("click",e=>{ const b=$("bellBox"); if(b&&!b.hidden&&!e.target.closest("#bellBox")&&!e.target.closest("#bellBtn")) { b.hidden=true; } });
+function marketMood(s){
+  const f=s.full||{}, idx=(f.index||[]).find(x=>x.index==="NIFTY")||{}, pct=+idx.pct||0, tr=f.trend;
+  const v4n=((V4||{}).indices||{}).NIFTY||{};
+  const strong=((f.tracking||{}).today||[]).filter(c=>OPEN_ST.includes(c.status)&&c.grade==="A").length;
+  const v4ok=((V4||{}).setups||[]).some(x=>x.status==="ENTRY CONFIRMED");
+  if(pct<=-1.0 || (tr==="TRENDING DOWN" && pct<=-0.7) || (v4n.regime==="STRONG DOWNTREND" && pct<=-0.8))
+    return {k:"crash",t:`🔴 MARKET CRASH — DANGER (NIFTY ${pct.toFixed(2)}%)`,s:"பெரிய fall. CE வேண்டாம். PE-லயும் size பாதி, SL கண்டிப்பா. Panic-ல் trade பண்ணாதீங்க."};
+  if(((tr==="TRENDING UP"||tr==="TRENDING DOWN") && Math.abs(pct)>=0.5) || v4ok || strong>=2 || ["STRONG UPTREND","STRONG DOWNTREND","HIGH MOMENTUM"].includes(v4n.regime))
+    return {k:"jackpot",t:`🟢 JACKPOT MARKET — trend + strong setups (NIFTY ${pct>=0?"+":""}${pct.toFixed(2)}%)`,s:`${tr==="TRENDING DOWN"||pct<0?"PE":"CE"} side setups-க்கு நல்ல நாள். Grade A / ✅ calls மட்டும்.`};
+  return {k:"unclear",t:`🟡 MARKET UNCLEAR — WAIT (NIFTY ${pct>=0?"+":""}${pct.toFixed(2)}%)`,s:"Direction இல்லை. கம்மியா trade, ✅ எடுக்கலாம் calls மட்டும், 1 lot."};
+}
+function renderMood(s){
+  const m=marketMood(s), h=document.querySelector(".hero"); if(!h) return;
+  h.classList.remove("mood-crash","mood-jackpot","mood-unclear"); h.classList.add("mood-"+m.k);
+  $("moodTag").innerHTML=`<b>${esc(m.t)}</b><span>${esc(m.s)}</span>`;
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
@@ -1253,6 +1340,7 @@ function render(s){
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   renderFull(s);
+  try{ LAST_S=s; renderMood(s); renderBell(); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }

@@ -96,9 +96,12 @@ def v4_loop():
     while True:
         time.sleep(5)
         try:
-            t = now_ist()
-            slot = t.floor("1min")
-            if done == slot or t.second < 4 or not angel_configured():
+            # ⚠ now_ist() நிமிடத்துக்கு floor பண்ணும் (seconds = 0) — அதனால் இங்கே real clock
+            real = pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None)
+            V4E["beat"] = real.strftime("%H:%M:%S")
+            t = real.floor("1min")
+            slot = t
+            if done == slot or real.second < 5 or not angel_configured():
                 continue
             mo = market_open(t)
             if not mo and not (V4E["t"] is None or t.minute % 15 == 0):
@@ -117,6 +120,7 @@ def v4_run_once(t=None, mo=None):
     global ANGEL
     if not V4_LK.acquire(blocking=False):
         return False            # முந்தைய scan இன்னும் ஓடுது
+    V4E["since"] = pd.Timestamp.now(tz="Asia/Kolkata").strftime("%H:%M:%S")
     try:
         from krt import v4
         t = t or now_ist()
@@ -373,6 +377,7 @@ class H(BaseHTTPRequestHandler):
             with v4.LOCK:
                 st = {k: v4.STATE.get(k) for k in ("t", "indices", "setups", "errors", "market_open", "bt", "bt_running", "bt_prog", "prog", "tried")}
             st["running"] = V4_LK.locked()
+            st["beat"], st["since"] = V4E.get("beat"), V4E.get("since")
             st["live_market"] = market_open(now_ist())
             st["settings"] = v4.settings()
             st["err"] = V4E["err"]

@@ -37,6 +37,7 @@ DEFAULT = {
 LOCK = threading.Lock()
 STATE = {"t": None, "indices": {}, "setups": [], "errors": [], "bt": None, "bt_running": False, "pending": {}, "last_sig": {},
          "prog": "", "tried": None}
+NODATA = {}     # idx → காரணம்
 CACHE = {}      # idx → {"day", "m1", "f5"} — முந்தைய நாட்கள் data ஒரு நாளைக்கு ஒருமுறை மட்டும் fetch
 
 
@@ -128,11 +129,18 @@ def load_frames(ag, inst, idx, now):
     ft = fut_token(inst, idx)
     ch = CACHE.get(idx)
     if not ch or ch["day"] != day0:
-        start = (day0 - pd.Timedelta(days=7)) + pd.Timedelta(hours=9, minutes=15)
-        h1 = ag.candles(ex, tok, "ONE_MINUTE", start, day0 - pd.Timedelta(minutes=1))
-        f5h = ag.candles(ft[0], ft[1], "FIVE_MINUTE", start, day0 - pd.Timedelta(minutes=1)) if ft else pd.DataFrame()
+        h1 = None
+        for back in (7, 5, 3):        # Angel rate-limit / empty ஆனா சின்ன window-ல் மறுபடி
+            start = (day0 - pd.Timedelta(days=back)) + pd.Timedelta(hours=9, minutes=15)
+            h1 = ag.candles(ex, tok, "ONE_MINUTE", start, day0 - pd.Timedelta(minutes=1))
+            if h1 is not None and not h1.empty:
+                break
+            import time as _t
+            _t.sleep(1.0)
         if h1 is None or h1.empty:
+            NODATA[idx] = f"{idx} முந்தைய நாட்கள் 1-min candles Angel-ல் இருந்து வரல (rate limit / API) — அடுத்த நிமிடம் மறுபடி try"
             return None
+        f5h = ag.candles(ft[0], ft[1], "FIVE_MINUTE", start, day0 - pd.Timedelta(minutes=1)) if ft else pd.DataFrame()
         ch = CACHE[idx] = {"day": day0, "m1": h1, "f5": f5h}
     t0 = day0 + pd.Timedelta(hours=9, minutes=15)
     parts = [ch["m1"]]
@@ -149,7 +157,9 @@ def load_frames(ag, inst, idx, now):
     m1 = m1[~m1.index.duplicated(keep="last")].sort_index()
     m1 = _completed(m1, now_, 1).between_time("09:15", "15:29")
     if m1.empty:
+        NODATA[idx] = f"{idx} இன்றைய candles இல்லை"
         return None
+    NODATA.pop(idx, None)
     fr = {"1M": m1, "3M": _resample(m1, "3min"), "5M": _resample(m1, "5min"), "15M": _resample(m1, "15min"),
           "1H": _resample(m1, "60min")}
     fv = None
@@ -641,7 +651,7 @@ def scan(ag, inst, full, now, live=True):
             fr = load_frames(ag, inst, idx, t)
             STATE["prog"] = f"{idx} strategies…"
             if not fr or fr["5M"].empty or len(fr["5M"]) < 30:
-                out_idx[idx] = {"status": "NO DATA"}
+                out_idx[idx] = {"status": "NO DATA", "error": NODATA.get(idx, "Candles போதுமானதாக இல்லை")}
                 continue
             age = (t.tz_localize(None) if t.tzinfo else t) - pd.Timestamp(fr["data_time"])
             stale = mkt_open and age > pd.Timedelta(minutes=S["stale_minutes"])
@@ -658,13 +668,25 @@ def scan(ag, inst, full, now, live=True):
                 res["SILVER"] = s_silver(cx, t, S)
             if S["strategies"].get("VWAPMR"):
                 res["VWAPMR"] = s_vwapmr(cx, reg)
-            pref = PREFERRED.get(reg, [])
+            pref = list(PREFERRED.get(reg, []))
+            # V4.1 confluence: regime UNCLEAR / எதுவும் preferred இல்லைன்னா — CONFIRMED strategy + அதே side-ல் வேறு ஒரு strategy READY/CONFIRMED இருந்தா அது preferred
+            conf_side = {}
+            for k_, r_ in res.items():
+                if r_ and r_.get("side") and r_.get("stage") in ("READY", "CONFIRMED"):
+                    conf_side.setdefault(r_["side"], []).append(k_)
+            for k_, r_ in res.items():
+                if (r_ and r_.get("stage") == "CONFIRMED" and k_ not in pref and len(conf_side.get(r_["side"], [])) >= 2
+                        and not (k_ == "VWAPMR" and reg != "SIDEWAYS")):
+                    pref.append(k_)
+                    r_["confluence"] = True
             strat_rows = []
             for k, r in res.items():
                 if not r:
                     continue
                 r = dict(r)
                 r["strategy"], r["name"], r["preferred"] = k, SNAME[k], k in pref
+                if r.get("confluence"):
+                    r.setdefault("notes", []).insert(0, "🤝 Confluence: 2+ strategies ஒரே side")
                 sup = [k2 for k2, r2 in res.items() if k2 != k and r2 and r2.get("side") == r.get("side") and r2.get("stage")]
                 r["support"] = sup
                 r["score"] = score(r, False, S) if r.get("side") else 0
@@ -673,7 +695,8 @@ def scan(ag, inst, full, now, live=True):
                     setups.append({"index": idx, "side": r["side"], "strategy": k, "name": SNAME[k], "stage": r["stage"],
                                    "score": r["score"], "preferred": r["preferred"], "support": sup, "regime": reg,
                                    "chk": r["chk"], "notes": [n for n in r.get("notes", []) if n], "spot": round(cx["px"], 2),
-                                   "spot_sl": r.get("spot_sl"), "time": t.strftime("%H:%M"), "data_time": fr["data_time"], "stale": stale})
+                                   "spot_sl": r.get("spot_sl"), "time": t.strftime("%H:%M"), "data_time": fr["data_time"], "stale": stale,
+                                   "confluence": bool(r.get("confluence")), "missing": [a for a, b in r["chk"].items() if not b]})
             out_idx[idx] = {"status": "STALE" if stale else "SCANNING" if mkt_open else "MARKET CLOSED", "regime": reg,
                             "preferred": [SNAME[k] for k in pref] or ["WAIT"], "spot": round(cx["px"], 2), "vwap": round(cx["vwap"], 2),
                             "atr5": round(cx["atr"], 2), "htf": cx["htf"], "vol": "FUT volume" if cx["has_vol"] else "volume இல்லை (TWAP)",
@@ -713,7 +736,8 @@ def scan(ag, inst, full, now, live=True):
             else:
                 s_["block"].append("Option: " + why)
         if not s_["preferred"]:
-            s_["block"].append("Regime-க்கு preferred strategy இல்லை (supporting மட்டும்)")
+            s_["block"].append(f"Market {s_['regime']} — இந்த strategy-க்கு entry இல்லை (support மட்டும்)" if s_["regime"] != "UNCLEAR"
+                               else "Market UNCLEAR — 2 strategies ஒரே side-ல் confirm ஆகணும் (confluence)")
         if s_["score"] < S["min_score"]:
             s_["block"].append(f"Score {s_['score']} < {S['min_score']:.0f}")
         if not mkt_open:
