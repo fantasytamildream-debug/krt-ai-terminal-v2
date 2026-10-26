@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -476,7 +476,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if not o or not o.get("plan"):
                 continue
             kind = "POWER-B" if r.get("model") == "B" else "POWER-A"
-            rr = {"symbol": r["symbol"], "price": r["ltp"], "sl": r["ul_inval"], "targets": [], "stars": 5,
+            rr = {"symbol": r["symbol"], "price": r["ltp"], "sl": r["ul_inval"], "targets": [], "stars": r.get("stars", 4),
                   "confidence": f"{r['grade']} {r['score']}",
                   "reasons": [f"Model {r['model']} · {r.get('level_name')} {r['level']}", f"Retest {r.get('retest_bar', '–')} · entry bar {r.get('entry_bar', '–')}",
                               f"RVOL {r['rvol']}× · RS {r['rs_vs_nifty']:+.2f}%"]}
@@ -738,7 +738,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT")}
     summary["ALL"] = stats(allc)
     # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
     health = {}
@@ -1061,6 +1061,38 @@ def add_movers(rows, now):
             mine.append(c)
             n += 1
             tg(f"🚀 TOP MOVER · {r['symbol']} {o.get('strike'):g} {r['side']} ({r['pct']:+.2f}%, vol {r['vol_ratio']}×)\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"mov|{c['id']}")
+        if n:
+            STORE.dirty = True
+            STORE.save(force=True)
+    return n
+
+
+def add_breakouts(rows, now):
+    """📈 Breakout CE / 📉 Breakdown PE V2 → call. side-க்கு நாளைக்கு max 3 · symbol-க்கு ஒன்று."""
+    n = 0
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "BREAKOUT"]
+        for r in rows:
+            if sum(1 for x in mine if x["side"] == r["side"]) >= 3:
+                continue
+            if any(x["symbol"] == r["symbol"] for x in mine):
+                continue
+            o = r.get("option") or {}
+            if not ((o.get("plan") or {}).get("entry") and o.get("token")):
+                continue
+            src = "Breakout CE" if r["side"] == "CE" else "Breakdown PE"
+            rr = {"symbol": r["symbol"], "price": r["price"], "sl": r["sl"], "targets": r.get("targets") or [], "stars": r["stars"],
+                  "vol_ratio": r.get("vol_ratio"), "confidence": f"{r['stars']}★ · score {r['score']}", "reasons": [f"{'📈' if r['side'] == 'CE' else '📉'} {src}"] + r["why"]}
+            c = _new("BREAKOUT", src, rr, o, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(grade="A" if r["score"] >= 75 else "B", qcodes=[], qtext=[])
+            d["calls"][c["id"]] = c
+            mine.append(c)
+            n += 1
+            tg(f"{'📈' if r['side'] == 'CE' else '📉'} {src} {r['stars']}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"bo|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)

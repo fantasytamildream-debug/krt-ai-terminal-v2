@@ -743,6 +743,10 @@ def run_full(ag, prog=lambda m: None) -> dict:
             "errors": errors, "seconds": round(time.time() - t_start)}
     _res["gu_snap"] = (C.get("_gu_snap") or {})
     try:
+        _res["bo2"] = run_breakouts(ag, inst, _res, universe, now, live)
+    except Exception as e:
+        _res.setdefault("errors", []).append(f"Breakout V2: {e}")
+    try:
         compute_all_rounder(_res)
     except Exception as e:
         _res.setdefault("errors", []).append(f"All rounder: {e}")
@@ -1033,6 +1037,67 @@ def run_power(ag, res):
 MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 4, "min_score": 65}
 
 
+def run_breakouts(ag, inst, res, universe, now, live):
+    """📈📉 BREAKOUT CE / BREAKDOWN PE V2 — PDH/PWH/PMH மேல் (CE) / PDL/PWL/PML கீழ் (PE) fresh break · volume ≥1.5× ·
+    level-ல் இருந்து ≤1% · day range சரியான பக்கம் · NIFTY பெரிய எதிர் move இல்லை → strike + ₹ plan + ★ rating → call."""
+    from .calls import rupee_plan, add_breakouts
+    mins = now.hour * 60 + now.minute
+    U = {u["symbol"]: u for u in universe}
+    bu_tag = {}
+    for kind, rows in (res.get("oi_buildup") or {}).items():
+        for x in rows:
+            bu_tag[x["symbol"]] = kind
+    npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    out = {"CE": [], "PE": []}
+    for side, key in (("CE", "ce"), ("PE", "pe")):
+        for r0 in res.get(key) or []:
+            u = U.get(r0["symbol"]) or {}
+            vr, ext = r0.get("vol_ratio") or 0, r0.get("ext") or 9
+            hi, lo, ltp = u.get("high") or 0, u.get("low") or 0, r0.get("price") or 0
+            if r0.get("gap_only") or vr < 1.5 or ext > 1.0 or not (hi > lo > 0):
+                continue
+            pos = (ltp - lo) / (hi - lo)
+            if (side == "CE" and pos < 0.6) or (side == "PE" and pos > 0.4):
+                continue
+            if (side == "CE" and npct <= -0.4) or (side == "PE" and npct >= 0.4):
+                continue
+            k = bu_tag.get(r0["symbol"], "")
+            oi_ok = (side == "CE" and k in ("Long Built Up", "Short Covering")) or (side == "PE" and k in ("Short Built Up", "Long Unwinding"))
+            lvl = r0.get("ref_key", "")
+            sc = 30 + min(25, vr * 8) + (15 if lvl[1:2] == "M" else 10 if lvl[1:2] == "W" else 5) + (10 if ext <= 0.5 else 5)
+            sc += 10 if oi_ok else 0
+            sc += 5 if (pos >= 0.8 if side == "CE" else pos <= 0.2) else 0
+            sc += 5 if (side == "CE" and npct > 0.1) or (side == "PE" and npct < -0.1) else 0
+            sc = int(min(100, sc))
+            r = {"symbol": r0["symbol"], "side": side, "price": ltp, "pct": r0.get("pct"), "vol_ratio": vr, "levels": r0.get("levels"),
+                 "ref_level": r0.get("ref_level"), "sl": r0.get("sl"), "targets": list(r0.get("targets") or []), "score": sc,
+                 "stars": 5 if sc >= 85 else 4 if sc >= 75 else 3 if sc >= 65 else 2, "min_days": 0 if mins < 13 * 60 else 1,
+                 "why": [f"{'+'.join(r0.get('levels') or [])} {'break' if side == 'CE' else 'breakdown'} · {ext}% தூரம்", f"Volume {vr}×",
+                         f"Day range-ல் {int(pos * 100)}%", f"OI: {k or 'தெரியல'}"]}
+            out[side].append(r)
+        out[side].sort(key=lambda r: -r["score"])
+        out[side] = out[side][:4]
+    rows = out["CE"] + out["PE"]
+    if rows:
+        pick_options(ag, inst, rows)
+    for r in rows:
+        if "none" in (r.get("option") or {}) and r.get("option_ref"):
+            r["option"] = r["option_ref"]
+        attach_plan(r, r.get("option"), now, "Breakout/Breakdown")
+        o = r.get("option") or {}
+        p = o.get("plan") or {}
+        if p.get("entry") and o.get("lot"):
+            sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+            r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_], "codes": rc_}
+    if live and 9 * 60 + 30 <= mins <= 14 * 60:
+        try:
+            add_breakouts([r for r in rows if r["score"] >= 65 and r.get("rp") and not r["rp"]["codes"]
+                           and ((r.get("option") or {}).get("spread_pct") or 99) <= 5], now)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"Breakout calls: {e}")
+    return {"time": now.strftime("%H:%M"), "CE": out["CE"], "PE": out["PE"]}
+
+
 def run_movers(ag, inst, live_q, res, now, live):
     """🚀 TOP MOVERS (F&O) — moneycontrol gainers / losers மாதிரி: |%| ≥ 2 · volume ≥ 1.5× · day high / low அருகில் (continuation)
     → stock option strike + ₹ plan → score ≥65 ஆனா call (9:45–2:00, நாளைக்கு max 4)."""
@@ -1254,8 +1319,7 @@ def run_elite_fast(ag, res):
         pass
     try:
         res["tracking"] = update_calls(ag, session, now, live, [], [], [], [], {"10": [], "5": []}, add=False,
-                                       elite=[r for r in el["intraday"] if elite_ok(r, now, res.get("trend"))],
-                                       elite_hold=[r for r in hold if r["confidence"] >= 80])
+                                       elite=[], elite_hold=[])      # V5.5: Elite calls OFF (user request) — scan Goki-க்கு மட்டும்
     except Exception:
         pass
     return res

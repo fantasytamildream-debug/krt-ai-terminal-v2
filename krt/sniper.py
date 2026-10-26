@@ -419,7 +419,8 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 ST["setups"][key] = {"first_seen": st["first_seen"], "state": st["state"]}
                 easy(row, rg)
                 rows.append(row)
-                if st["state"] != "ENTRY CONFIRMED" or grade == "REJECT":
+                row["stars"] = 5 if score >= 85 else 4 if score >= 75 else 3 if score >= 65 else 2
+                if st["state"] != "ENTRY CONFIRMED" or score < 55:
                     continue
                 if key in ST.setdefault("opt", {}):      # முன்பே கணக்கிட்டது → அதே call details காட்டு
                     row.update(ST["opt"][key])
@@ -461,7 +462,12 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                     gates["₹2,500 SL cap OK"] = "SL_TIGHT" not in _rc
                     gates["T1 ₹1,500–2,000 realistic"] = "T1_UNREALISTIC" not in _rc
                 row["gates"] = gates
-                row["executable"] = all(gates.values()) and model == "A" and (grade in ("A+", "STRONG") or (range_mode and score >= 74))
+                soft_ = ("Regime allows", "Extension ≤0.8 ATR", f"Same-slot RVOL ≥{CFG['rvol_min']}")
+                core_ok = all(v for k, v in gates.items() if k not in soft_)
+                # V5.5: range day-லும் call — 3-step ENTRY CONFIRMED + option / SL / T1 gates ✓ + ext ≤1.2 ATR + RVOL ≥1.2 + score ≥60 (★ rating காட்டும்)
+                row["executable"] = model == "A" and core_ok and ext <= 1.2 and rvol >= 1.2 and score >= 60
+                if row["executable"] and not all(gates.values()):
+                    row["soft_warn"] = [k for k in soft_ if k in gates and not gates[k]]
                 row["research"] = model == "B"
                 row["ul_inval"] = round(inval, 2)
                 is_call = row["executable"] or (model == "B" and opt and all(v for k, v in gates.items() if k != "Regime allows"))

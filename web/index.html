@@ -324,7 +324,6 @@ header{position:relative}
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="pw">🎯 POWER OI</button>
-    <button role="tab" data-p="el">👑 Elite</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -675,7 +674,7 @@ function powerPane(f){
   const R=P.regime||{}, H=P.headline||{ok:false,text:"—"}, FN=P.funnel||{};
   const card=r=>`<div class="row ${r.executable?'elite':'strong'}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span>
       <span class="strongtag" style="${r.grade==='A+'?'':'background:var(--watch)'}">${esc(r.grade)} · ${r.score}</span><span class="when">⏱ ${esc(r.first_seen||"")}</span>
-      <span class="lvl">Model ${r.model}${r.model==='B'?' (reversal · research)':r.range_mode?' (🟡 range mode — stock தனி trend)':' (trend continuation)'} · ${r.side}</span></div><span class="status s-CONFIRMED">${esc(r.state)}</span></div>
+      <span class="lvl">Model ${r.model}${r.model==='B'?' (reversal · research)':r.range_mode?' (🟡 range mode — stock தனி trend)':' (trend continuation)'} · ${r.side} · <b style="color:var(--watch)">${"★".repeat(r.stars||0)}</b></span>${(r.soft_warn||[]).length?`<div class="cwarn">⚠ ${r.soft_warn.map(esc).join(" · ")} — கவனம் (1 lot)</div>`:""}</div><span class="status s-CONFIRMED">${esc(r.state)}</span></div>
     <div class="grid num"><div><span>LTP</span>${n2(r.ltp)}</div><div><span>Level</span>${n2(r.level)} <span class="hint">${esc(r.level_name||"")}</span></div><div><span>Same-slot RVOL</span>${n2(r.rvol)}×</div><div><span>RS vs NIFTY</span>${r.rs_vs_nifty>=0?"+":""}${n2(r.rs_vs_nifty)}%</div></div>
     <div class="chk">${Object.entries(r.parts||{}).map(([k,v])=>`<span>${esc(k)} <b>${v}</b></span>`).join("")}</div>
     <div style="margin-top:8px">${r.call_given?`<b class="up">📢 CALL கொடுத்தாச்சு ${esc(r.call_given)}</b> — கீழே strike / entry / SL / target`:(r.gates?`<b class="dn">🚫 Call இல்லை — ✗ ஆன gate: ${Object.entries(r.gates).filter(([k,v])=>!v).map(([k])=>esc(k)).join(", ")||"grade "+esc(r.grade)}</b>`:`<b style="color:var(--watch)">⏳ அடுத்த 5-min check-ல் option + gates கணக்கு ஆகும்</b>`)}</div>
@@ -687,7 +686,7 @@ function powerPane(f){
   </div>`;
   const pills=r=>(r.steps||[]).map((st,i)=>`<span class="pill ${st.ok?'on':''}">${i+1}. ${esc(st.name)} ${st.ok?'✓':'…'}</span>`).join("");
   const easyRow=r=>`<div class="row ${r.progress>=2?'strong':''}"><div class="top"><div><span class="sym">${esc(r.symbol)}</span> <b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>
-      <span class="hint">Model ${r.model}${r.model==='B'?' (research)':''} · ⏱ ${esc(r.first_seen||"")}</span></div><span class="strongtag" style="background:var(--watch)">${esc(r.grade)} ${r.score}</span></div>
+      <span class="hint">Model ${r.model}${r.model==='B'?' (research)':''} · ⏱ ${esc(r.first_seen||"")}</span></div><span class="strongtag" style="background:var(--watch)">${"★".repeat(r.stars||0)} ${esc(r.grade)} ${r.score}</span></div>
     <div class="pills">${pills(r)}</div>
     <div style="margin-top:8px">👉 <b>${esc((r.blockers||[])[0]||"")}</b></div>
     ${(r.blockers||[]).length>1?`<div class="hint">❌ இன்னும் குறை: ${(r.blockers||[]).slice(1).map(esc).join(" · ")}</div>`:""}
@@ -821,8 +820,9 @@ function renderFull(s){
     <div class="hint">${f.universe_count} F&O stocks scan ஆனது · ${f.seconds}s · *Vol ratio = இன்றைய volume ÷ 20-நாள் சராசரியின் அதே நேர பங்கு (approx)</div>
     ${(f.errors||[]).map(e=>`<div class="hint">⚠ ${esc(e)}</div>`).join("")}`;
   const TR=f.tracking||{};
-  $("p-bo").innerHTML = `${segBlock(TR,["Breakout/Breakdown"],"Breakout CE","CE")}<h2 class="sec">Breakout stocks (setups)</h2><div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
-  $("p-bd").innerHTML = `${segBlock(TR,["Breakout/Breakdown"],"Breakdown PE","PE")}<h2 class="sec">Breakdown stocks (setups)</h2><div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
+  BOROWS=[];
+  $("p-bo").innerHTML = `${boV2HTML(f,"CE")}${segBlock(TR,["Breakout CE","Breakout/Breakdown"],"Breakout CE","CE")}<h2 class="sec">Breakout stocks (setups)</h2><div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
+  $("p-bd").innerHTML = `${boV2HTML(f,"PE")}${segBlock(TR,["Breakdown PE","Breakout/Breakdown"],"Breakdown PE","PE")}<h2 class="sec">Breakdown stocks (setups)</h2><div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
   $("p-orb").innerHTML = f.orb_ready ? `<div class="hint">Entry = 5-min high/low break · SL = range மறுபக்கம் · Targets = range-ன் 1×/2×/3×. Top 5-க்கு option plan.</div>
     <h2 class="sec up">முதல் 5-min candle HIGH break (CE)</h2>${list(f.orb_up,"இப்போ எதுவும் இல்லை.")}
     <h2 class="sec dn">முதல் 5-min candle LOW break (PE)</h2>${list(f.orb_dn,"இப்போ எதுவும் இல்லை.")}` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
@@ -1531,6 +1531,24 @@ function moversHTML(f){
    ${MOVROWS.length?`<details class="tech" open><summary>📋 Movers strike list (இப்போ)</summary>${simpleTbl(MOVROWS.filter(r=>(r.option||{}).strike),[["⏱ முதல்",r=>esc(r.first||"")],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.option.strike)} ${r.side}</b>`],["Expiry",r=>esc(r.option.expiry||"")],["Score",r=>r.score],["Stage",r=>esc(r.stage||"")],["LTP",r=>n2(r.option.ltp)],["Entry",r=>r.rp?n2(r.rp.entry):"–"],["SL",r=>r.rp?`<b class="dn">${n2(r.rp.sl)}</b>`:"–"],["T1 / T2 / T3",r=>r.rp?r.rp.targets.map(n2).join(" / "):"–"],["",r=>`<button class="pickbtn pp" onclick="paperFromMover(${MOVROWS.indexOf(r)})">📝 Paper</button>`]])}</details>`:""}
    <h3 class="sec">🚀 இன்றைய Movers calls (${MC.length})</h3>
    ${MC.length?simpleTbl(MC,[["Time",c=>esc(c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls):`<div class="hint">இன்னும் Movers call இல்லை (score ≥65 + spread ≤5% வேணும்).</div>`}</div>`;
+}
+/* ===== 📈📉 Breakout V2 cards ===== */
+let BOROWS=[];
+function paperFromBO(i){ const r=BOROWS[i]; if(!r||!(r.option||{}).token){ alert("Strike / token இல்லை"); return; } const o=r.option;
+  paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:r.side==="CE"?"Breakout CE":"Breakdown PE",src_modules:["Breakout V2"]}); }
+function boV2HTML(f,side){
+  const B=(f.bo2||{})[side]||[]; const base=BOROWS.length; BOROWS=BOROWS.concat(B);
+  const st=n=>"★".repeat(n)+"☆".repeat(5-n);
+  return `<div class="earlybox" style="border-color:${side==='CE'?'var(--ce)':'var(--pe)'}"><b>${side==="CE"?"📈 BREAKOUT CE":"📉 BREAKDOWN PE"} — இப்போ best setups (V2) · ${esc((f.bo2||{}).time||"")}</b>
+   <div class="hint">${side==="CE"?"PDH / PWH / PMH மேல்":"PDL / PWL / PML கீழ்"} fresh break · volume ≥1.5× · level-ல் இருந்து ≤1% · day range சரியான பக்கம் · NIFTY பெரிய எதிர் move இல்லை → ★ rating ≥3 (score ≥65) + spread ≤5% ஆனா call (9:30–2:00, side-க்கு max 3).</div>
+   ${B.length?`<div class="earlygrid">${B.map((r,k)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard" style="border-color:${side==='CE'?'var(--ce)':'var(--pe)'}">
+     <div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${side==='CE'?'up':'dn'}">${side}</span></b><span class="crate">${st(r.stars)} <b>${r.score}</b></span></div>
+     ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · LTP ₹${n2(o.ltp)}${o.spread_pct<99?` · spread ${o.spread_pct}%`:""}</div></div>`:`<div class="hint">${esc(o.none||"Option தேடுது…")}</div>`}
+     ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk ₹${n2(p.risk)}</span></div>
+     <div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     ${o.wide_spread?`<div class="cwarn">⚠ ${esc(o.alt_reason||"")}</div>`:""}
+     <div class="hint">${r.why.map(esc).join(" · ")}</div>
+     ${o.token?`<button class="pickbtn pp" onclick="paperFromBO(${base+k})">📝 Paper</button>`:""}</div>`}).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ V2 rules pass ஆன ${side==="CE"?"breakout":"breakdown"} இல்லை.</div>`}</div>`;
 }
 function render(s){
   const f=s.full, r=s.result;
