@@ -292,8 +292,10 @@ def pick_options(ag, inst, rows):
                     "moneyness": mny, "bid": bid, "ask": ask,
                     "ltp": _f(q.get("ltp")), "spread_pct": round(spread, 2), "oi": int(_f(q.get("opnInterest"))),
                     "volume": int(_f(q.get("tradeVolume"))), "lot_cost": round(ask * c[5])}
-            if bid > 0 and (ref is None or spread < ref["spread_pct"]):
+            if bid > 0 and (ref is None or ref.get("no_depth") or spread < ref["spread_pct"]):
                 ref = cand
+            elif not bid and cand["ltp"] > 0 and (ref is None or (ref.get("no_depth") and cand["oi"] > ref["oi"])):
+                ref = dict(cand, no_depth=True, ask=cand["ltp"], bid=cand["ltp"])   # bid/ask இல்லை — LTP reference
             if spread <= smax and bid > 0:
                 alts.append(cand)
                 if mny != "1 OTM" and (best is None or cand["oi"] > best["oi"]):
@@ -302,7 +304,8 @@ def pick_options(ag, inst, rows):
             best["wide_spread"] = True
             best["alt_reason"] = f"Spread {best['spread_pct']}% — limit order மட்டும் (market order வேண்டாம்)"
         if not best and ref:
-            r["option_ref"] = dict(ref, wide_spread=True, alt_reason=f"Spread {ref['spread_pct']}% — liquidity குறைவு, reference மட்டும் (limit order)")
+            r["option_ref"] = dict(ref, wide_spread=True, alt_reason=("Bid/ask depth வரல — LTP reference (limit order)" if ref.get("no_depth")
+                                   else f"Spread {ref['spread_pct']}% — liquidity குறைவு, reference மட்டும் (limit order)"))
         r["option"] = best or {"none": "STOCK SETUP VALID — NO SUITABLE OPTION (spread / liquidity குறைவு)" +
                                (f" · Reference: {ref['strike']:g} {ref['type']} ({ref['moneyness']}) expiry {ref['expiry']} · LTP {ref['ltp']} · spread {ref['spread_pct']}%" if ref else "")}
         r["option_alts"] = sorted([a for a in alts if not best or a["contract"] != best["contract"]], key=lambda a: a["ask"])
@@ -1073,7 +1076,11 @@ def run_movers(ag, inst, live_q, res, now, live):
         sc += 5 if (side == "CE" and npct > -0.2) or (side == "PE" and npct < 0.2) else -5
         sc += min(15, abs(vel) * 15) if (vel > 0) == (side == "CE") else -10     # இப்போ வேகமா நகருதா
         why = [f"{pct:+.2f}% · volume {vr}×", f"🏃 5-min {vel:+.2f}%", f"Day range-ல் {int(pos * 100)}% இடம்", f"OI: {k or 'தெரியல'}"] + ([f"{'+'.join(broke)} break"] if broke else [])
+        fs = C.setdefault("mov_first", {})
+        fk = f"{now.date()}|{n}|{side}"
+        fs.setdefault(fk, now.strftime("%H:%M"))
         cands.append({"symbol": n, "side": side, "price": ltp, "pct": pct, "vol_ratio": vr, "pos": round(pos, 2), "oi": k, "vel": vel,
+                      "first": fs[fk], "min_days": 0 if mins < 13 * 60 else 1,       # intraday → இந்த மாத expiry (liquid)
                       "stage": "🟠 EARLY — இப்போ நகருது" if abs(pct) < MOVERS["min_pct"] else "🚀 MOVING",
                       "score": int(max(0, min(100, sc))), "why": why, "atr": round(atr, 2),
                       "sl": round(ltp - atr if side == "CE" else ltp + atr, 2), "targets": []})
@@ -1081,23 +1088,23 @@ def run_movers(ag, inst, live_q, res, now, live):
     top = cands[:8]
     cache = C.setdefault("mov_opt", {})
     day = str(now.date())
-    need = [r for r in top if not (cache.get(f"{day}|{r['symbol']}|{r['side']}") or {}).get("token")][:4]
+    need = [r for r in top if not (cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}") or {}).get("token")][:4]
     if need:
         pick_options(ag, inst, need)
         for r in need:
             o_ = r.get("option") if "none" not in (r.get("option") or {}) else (r.get("option_ref") or r.get("option"))
             if (o_ or {}).get("token"):
-                cache[f"{day}|{r['symbol']}|{r['side']}"] = o_      # கிடைச்சா மட்டும் cache — fail ஆனா அடுத்த tick மறுபடி
+                cache[f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}"] = o_      # கிடைச்சா மட்டும் cache — fail ஆனா அடுத்த tick மறுபடி
             else:
                 r["option"] = o_
     otoks = {}
     for r in top:
-        o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
+        o = cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}")
         if o and "none" not in o:
             otoks.setdefault(o["exch"], []).append(o["token"])
     oq = ag.quotes(otoks) if (live and otoks) else {}
     for r in top:
-        o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
+        o = cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}")
         if not o or "none" in o:
             if not (r.get("option") or {}).get("none"):
                 r["option"] = {"none": "Option தேடுது… (அடுத்த tick)"}

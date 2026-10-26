@@ -203,6 +203,8 @@ h2.sec{font-size:18px;margin:26px 0 10px}
 .gkcard.go{border-color:var(--ce);box-shadow:0 0 22px rgba(60,207,142,.45)}
 @media (prefers-reduced-motion:no-preference){.gkcard{animation:gold 2.2s ease-in-out infinite}@keyframes gold{50%{box-shadow:0 0 30px rgba(234,179,8,.6)}}}
 /* picks + early + v4plan */
+.mvstrike{margin:6px 0;padding:6px 8px;border-radius:8px;background:rgba(34,211,238,.1);font-size:14px}
+
 .pickbtn.pp{border-color:#38bdf8;color:#38bdf8}
 .earlybox{margin:10px 0 14px;padding:12px;border:2px solid #fb923c;border-radius:12px;background:rgba(251,146,60,.08)}
 .earlygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:8px}
@@ -1510,14 +1512,25 @@ function moversHTML(f){
   const M=f.movers; if(!M) return "";
   MOVROWS=M.rows||[];
   const g=(L,cl)=>(L||[]).map(x=>`<span class="cb-stat ${cl}">${esc(x.symbol)} ${x.pct>0?"+":""}${n2(x.pct)}% <small>${n2(x.vol_ratio)}×</small></span>`).join("");
-  return `<div class="earlybox" style="border-color:#22d3ee;background:rgba(34,211,238,.06)"><b>🚀 TOP MOVERS (F&amp;O) — live ${esc(M.time||"")}</b>
-   <div class="hint">🚀 MOVING = |%| ≥ 2 · 🟠 EARLY = |%| ≥ 1.2 + கடைசி ~5 நிமிடத்தில் +0.5% வேகம் (2% ஆகுறதுக்கு முன்னாலயே) · volume ≥ 1.5× · day high / low அருகில் → stock option strike + ₹ plan. Score (% · volume · 🏃 velocity · range இடம் · OI · level break) ≥65 + spread ≤5% ஆனா call (9:45–2:00, max 4). ~30 sec-க்கு ஒருமுறை update.</div>
-   <div class="cb-stats" style="margin-top:6px">${g(M.gainers,"up")}</div><div class="cb-stats" style="margin-top:4px">${g(M.losers,"dn")}</div>
-   ${MOVROWS.length?`<div class="earlygrid">${MOVROWS.map((r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard" style="border-color:#22d3ee"><div class="ctop"><b>${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${r.score}</b></span></div>
-     <div style="font-size:12.5px;font-weight:700;color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">${esc(r.stage||"")}</div>
+  const T=f.tracking||{}, mv=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="MOVERS") mv.set(c.id,c)});
+  const today=String((LAST_S||{}).now||"").slice(0,10), MC=[...mv.values()].filter(c=>c.date===today).sort((a,b)=>b.time.localeCompare(a.time));
+  const card=(r,i)=>{const o=r.option||{},p=r.rp;
+    return `<div class="earlycard mvcard" style="border-color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">
+     <div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${r.score}</b>/100</span></div>
+     <div style="font-size:12.5px;font-weight:700;color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">${esc(r.stage||"")} · ⏱ முதல் ${esc(r.first||"")}</div>
+     ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · ${esc(o.moneyness||"")} · LTP ₹${n2(o.ltp)}${o.spread_pct&&o.spread_pct<99?` · spread ${o.spread_pct}%`:""}</div></div>`:`<div class="hint">${esc(o.none||"Option தேடுது…")}</div>`}
+     ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk <b>₹${n2(p.risk)}</b></span></div>
+     <div class="ctg num">${p.targets.map((t,k)=>`<span>T${k+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[k])}</b></span>`).join("")}</div>`:""}
+     ${o.wide_spread?`<div class="cwarn">⚠ ${esc(o.alt_reason||"liquidity குறைவு")}</div>`:""}
      <div class="hint">${r.why.map(esc).join(" · ")}</div>
-     ${p?`<div class="crow num"><span>Entry <b>${n2(p.entry)}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span><span>Risk ₹${n2(p.risk)}</span></div><div class="hint num">T ${p.targets.map(n2).join(" / ")}${(p.codes||[]).length?" · ⚠ "+p.codes.join(","):""}${o.spread_pct>3?` · spread ${o.spread_pct}%`:""}</div>`:`<div class="hint">${esc(o.none||"")}</div>`}
-     ${o.token?`<button class="pickbtn pp" onclick="paperFromMover(${i})">📝 Paper</button>`:""}</div>`}).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ continuation mover இல்லை.</div>`}</div>`;
+     ${o.token?`<button class="pickbtn pp" onclick="paperFromMover(${i})">📝 Paper</button>`:""}</div>`;};
+  return `<div class="earlybox" style="border-color:#22d3ee;background:rgba(34,211,238,.06)"><b>🚀 TOP MOVERS (F&amp;O) — live ${esc(M.time||"")}</b>
+   <div class="hint">🚀 MOVING = |%| ≥ 2 · 🟠 EARLY = |%| ≥ 1.2 + கடைசி ~5 நிமிடத்தில் +0.5% வேகம் · volume ≥ 1.5× · day high / low அருகில் → <b>இந்த மாத expiry</b> stock option strike + Entry / SL / T1-T2-T3. Score ≥65 + spread ≤5% ஆனா call (9:45–2:00, max 4). ~30 sec update.</div>
+   <div class="cb-stats" style="margin-top:6px">${g(M.gainers,"up")}</div><div class="cb-stats" style="margin-top:4px">${g(M.losers,"dn")}</div>
+   ${MOVROWS.length?`<div class="earlygrid">${MOVROWS.map(card).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ continuation mover இல்லை.</div>`}
+   ${MOVROWS.length?`<details class="tech" open><summary>📋 Movers strike list (இப்போ)</summary>${simpleTbl(MOVROWS.filter(r=>(r.option||{}).strike),[["⏱ முதல்",r=>esc(r.first||"")],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.option.strike)} ${r.side}</b>`],["Expiry",r=>esc(r.option.expiry||"")],["Score",r=>r.score],["Stage",r=>esc(r.stage||"")],["LTP",r=>n2(r.option.ltp)],["Entry",r=>r.rp?n2(r.rp.entry):"–"],["SL",r=>r.rp?`<b class="dn">${n2(r.rp.sl)}</b>`:"–"],["T1 / T2 / T3",r=>r.rp?r.rp.targets.map(n2).join(" / "):"–"],["",r=>`<button class="pickbtn pp" onclick="paperFromMover(${MOVROWS.indexOf(r)})">📝 Paper</button>`]])}</details>`:""}
+   <h3 class="sec">🚀 இன்றைய Movers calls (${MC.length})</h3>
+   ${MC.length?simpleTbl(MC,[["Time",c=>esc(c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls):`<div class="hint">இன்னும் Movers call இல்லை (score ≥65 + spread ≤5% வேணும்).</div>`}</div>`;
 }
 function render(s){
   const f=s.full, r=s.result;
