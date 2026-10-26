@@ -892,7 +892,7 @@ def journal_to_call(j, t):
     day = str(t.date())
     with CALLS_LOCK:
         d = STORE.load()
-        if any(x["date"] == day and x["contract"] == j["contract"] and x["status"] in OPEN for x in d["calls"].values()):
+        if any(x["date"] == day and x["contract"] == j["contract"] and x["status"] in OPEN and x["kind"] != "PICK" for x in d["calls"].values()):
             return None
         tg_ = [x for x in j["targets"]]
         opt = {"token": j["token"], "exch": j["exch"], "contract": j["contract"], "strike": j["strike"], "type": j["side"],

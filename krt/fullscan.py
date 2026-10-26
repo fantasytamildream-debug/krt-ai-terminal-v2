@@ -267,8 +267,18 @@ def pick_options(ag, inst, rows):
         for c in chosen:
             toks.setdefault(c[6], []).append(c[0])
     qs = ag.quotes(toks) if toks else {}
+    miss = {ex: [t for t in ts if t not in qs] for ex, ts in toks.items()}
+    if any(miss.values()):
+        time.sleep(1.2)                       # Angel rate-limit → ஒருமுறை மறுபடி
+        try:
+            qs.update(ag.quotes({ex: ts for ex, ts in miss.items() if ts}) or {})
+        except Exception:
+            pass
     for r, chosen, atm in plan:
         best, alts, ref = None, [], None
+        if chosen and not any(qs.get(c[0]) for c in chosen):
+            r["option"] = {"none": "Option quote வரல (API) — அடுத்த tick-ல் மறுபடி", "retry": True}
+            continue
         smax = 6.0 if r.get("hold") else 5.0     # V5.3: stock options intraday 5% வரை (limit order), holding 6%
         for c in chosen:
             q = qs.get(c[0])
@@ -1031,9 +1041,19 @@ def run_movers(ag, inst, live_q, res, now, live):
             bu_tag[x["symbol"]] = kind
     npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
     cands = []
+    H = C.setdefault("mov_hist", {})
+    tnow = now.timestamp() if hasattr(now, "timestamp") else 0
+    for n, q in live_q.items():
+        h_ = H.setdefault(n, [])
+        h_.append((tnow, q.get("pct") or 0))
+        del h_[:-30]
     for n, q in live_q.items():
         pct, vr, hi, lo, ltp = q.get("pct") or 0, q.get("vol_ratio") or 0, q.get("high") or 0, q.get("low") or 0, q.get("ltp") or 0
-        if abs(pct) < MOVERS["min_pct"] or vr < MOVERS["min_vr"] or not (hi > lo > 0) or ltp <= 50:
+        h_ = H.get(n) or []
+        old = [p_ for t_, p_ in h_ if tnow - t_ >= 240]          # ~5 நிமிடத்துக்கு முன் %
+        vel = round(pct - old[-1], 2) if old else 0.0             # 🏃 velocity: கடைசி ~5 நிமிட move
+        early = abs(pct) >= 1.2 and abs(vel) >= 0.5 and (vel > 0) == (pct > 0) and vr >= 1.5
+        if (abs(pct) < MOVERS["min_pct"] and not early) or vr < MOVERS["min_vr"] or not (hi > lo > 0) or ltp <= 50:
             continue
         side = "CE" if pct > 0 else "PE"
         pos = (ltp - lo) / (hi - lo)
@@ -1051,19 +1071,25 @@ def run_movers(ag, inst, live_q, res, now, live):
         sc += 10 if broke else 0
         sc += 5 if ext <= 2.5 else -10
         sc += 5 if (side == "CE" and npct > -0.2) or (side == "PE" and npct < 0.2) else -5
-        why = [f"{pct:+.2f}% · volume {vr}×", f"Day range-ல் {int(pos * 100)}% இடம்", f"OI: {k or 'தெரியல'}"] + ([f"{'+'.join(broke)} break"] if broke else [])
-        cands.append({"symbol": n, "side": side, "price": ltp, "pct": pct, "vol_ratio": vr, "pos": round(pos, 2), "oi": k,
+        sc += min(15, abs(vel) * 15) if (vel > 0) == (side == "CE") else -10     # இப்போ வேகமா நகருதா
+        why = [f"{pct:+.2f}% · volume {vr}×", f"🏃 5-min {vel:+.2f}%", f"Day range-ல் {int(pos * 100)}% இடம்", f"OI: {k or 'தெரியல'}"] + ([f"{'+'.join(broke)} break"] if broke else [])
+        cands.append({"symbol": n, "side": side, "price": ltp, "pct": pct, "vol_ratio": vr, "pos": round(pos, 2), "oi": k, "vel": vel,
+                      "stage": "🟠 EARLY — இப்போ நகருது" if abs(pct) < MOVERS["min_pct"] else "🚀 MOVING",
                       "score": int(max(0, min(100, sc))), "why": why, "atr": round(atr, 2),
                       "sl": round(ltp - atr if side == "CE" else ltp + atr, 2), "targets": []})
     cands.sort(key=lambda r: -r["score"])
     top = cands[:8]
     cache = C.setdefault("mov_opt", {})
     day = str(now.date())
-    need = [r for r in top if cache.get(f"{day}|{r['symbol']}|{r['side']}") is None][:3]
+    need = [r for r in top if not (cache.get(f"{day}|{r['symbol']}|{r['side']}") or {}).get("token")][:4]
     if need:
         pick_options(ag, inst, need)
         for r in need:
-            cache[f"{day}|{r['symbol']}|{r['side']}"] = r.get("option") if "none" not in (r.get("option") or {}) else (r.get("option_ref") or r.get("option"))
+            o_ = r.get("option") if "none" not in (r.get("option") or {}) else (r.get("option_ref") or r.get("option"))
+            if (o_ or {}).get("token"):
+                cache[f"{day}|{r['symbol']}|{r['side']}"] = o_      # கிடைச்சா மட்டும் cache — fail ஆனா அடுத்த tick மறுபடி
+            else:
+                r["option"] = o_
     otoks = {}
     for r in top:
         o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
@@ -1073,7 +1099,8 @@ def run_movers(ag, inst, live_q, res, now, live):
     for r in top:
         o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
         if not o or "none" in o:
-            r["option"] = o or {"none": "Option தேடுது…"}
+            if not (r.get("option") or {}).get("none"):
+                r["option"] = {"none": "Option தேடுது… (அடுத்த tick)"}
             continue
         o = dict(o)
         qq = oq.get(o["token"])

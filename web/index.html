@@ -1511,9 +1511,10 @@ function moversHTML(f){
   MOVROWS=M.rows||[];
   const g=(L,cl)=>(L||[]).map(x=>`<span class="cb-stat ${cl}">${esc(x.symbol)} ${x.pct>0?"+":""}${n2(x.pct)}% <small>${n2(x.vol_ratio)}×</small></span>`).join("");
   return `<div class="earlybox" style="border-color:#22d3ee;background:rgba(34,211,238,.06)"><b>🚀 TOP MOVERS (F&amp;O) — live ${esc(M.time||"")}</b>
-   <div class="hint">|%| ≥ 2 · volume ≥ 1.5× · day high / low அருகில் (continuation) → stock option strike + ₹ plan. Score ≥65 + spread ≤5% ஆனா call (9:45–2:00, நாளைக்கு max 4).</div>
+   <div class="hint">🚀 MOVING = |%| ≥ 2 · 🟠 EARLY = |%| ≥ 1.2 + கடைசி ~5 நிமிடத்தில் +0.5% வேகம் (2% ஆகுறதுக்கு முன்னாலயே) · volume ≥ 1.5× · day high / low அருகில் → stock option strike + ₹ plan. Score (% · volume · 🏃 velocity · range இடம் · OI · level break) ≥65 + spread ≤5% ஆனா call (9:45–2:00, max 4). ~30 sec-க்கு ஒருமுறை update.</div>
    <div class="cb-stats" style="margin-top:6px">${g(M.gainers,"up")}</div><div class="cb-stats" style="margin-top:4px">${g(M.losers,"dn")}</div>
-   ${MOVROWS.length?`<div class="earlygrid">${MOVROWS.map((r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard" style="border-color:#22d3ee"><div class="ctop"><b>${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="hint">${r.score}</span></div>
+   ${MOVROWS.length?`<div class="earlygrid">${MOVROWS.map((r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard" style="border-color:#22d3ee"><div class="ctop"><b>${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${r.score}</b></span></div>
+     <div style="font-size:12.5px;font-weight:700;color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">${esc(r.stage||"")}</div>
      <div class="hint">${r.why.map(esc).join(" · ")}</div>
      ${p?`<div class="crow num"><span>Entry <b>${n2(p.entry)}</b></span><span>SL <b class="dn">${n2(p.sl)}</b></span><span>Risk ₹${n2(p.risk)}</span></div><div class="hint num">T ${p.targets.map(n2).join(" / ")}${(p.codes||[]).length?" · ⚠ "+p.codes.join(","):""}${o.spread_pct>3?` · spread ${o.spread_pct}%`:""}</div>`:`<div class="hint">${esc(o.none||"")}</div>`}
      ${o.token?`<button class="pickbtn pp" onclick="paperFromMover(${i})">📝 Paper</button>`:""}</div>`}).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ continuation mover இல்லை.</div>`}</div>`;

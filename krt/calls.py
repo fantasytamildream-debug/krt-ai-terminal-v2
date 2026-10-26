@@ -343,7 +343,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             return None            # Market closed → புது live call இல்லை
         intra_ = not c.get("hold_until")
         for x in calls.values():   # ஒரே contract ஒரே நாள் வேறு setup-லும் வந்தா → புது call இல்லை, source சேர்த்து ஒரே call
-            if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_ and x["kind"] != "MACHINE":
+            if x["date"] == c["date"] and x["contract"] == c["contract"] and (not x.get("hold_until")) == intra_ and x["kind"] not in ("MACHINE", "PICK") and c["kind"] not in ("MACHINE", "PICK"):
                 srcs = x.setdefault("sources", [x.get("source") or x["kind"]])
                 if c["source"] not in srcs:
                     srcs.append(c["source"])
@@ -412,7 +412,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     seen_ = {}
     for cid_ in sorted(calls, key=lambda k: (calls[k]["date"], calls[k]["time"])):
         x = calls[cid_]
-        k_ = (x["date"], x["contract"], bool(x.get("hold_until")), bool(x.get("shadow")), x.get("variant"), x["kind"] == "MACHINE")
+        k_ = (x["date"], x["contract"], bool(x.get("hold_until")), bool(x.get("shadow")), x.get("variant"), x["kind"] if x["kind"] in ("MACHINE", "PICK") else "")
         if k_ in seen_:
             keep = calls[seen_[k_]]
             srcs = keep.setdefault("sources", [keep.get("source") or keep["kind"]])
