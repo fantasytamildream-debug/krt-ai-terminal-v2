@@ -856,6 +856,12 @@ def fast_tick(ag, res):
             live_q[n] = {"ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")), "volume": int(vol),
                          "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0,
                          "high": _f(q.get("high")), "low": _f(q.get("low")), "open": _f(q.get("open"))}
+    try:
+        res["movers"] = run_movers(ag, inst, live_q, res, now, live)
+        res["movers"]["gainers"] = [{"symbol": k_, **v_} for k_, v_ in res["movers"]["gainers"]]
+        res["movers"]["losers"] = [{"symbol": k_, **v_} for k_, v_ in res["movers"]["losers"]]
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Movers: {e}")
     seen = set()
     for key in ("best", "ce", "pe", "orb_up", "orb_dn", "high_volume"):
         for r in res.get(key) or []:
@@ -1009,6 +1015,86 @@ def run_power(ag, res):
     except Exception:
         pass
     return res
+
+
+MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 4, "min_score": 65}
+
+
+def run_movers(ag, inst, live_q, res, now, live):
+    """🚀 TOP MOVERS (F&O) — moneycontrol gainers / losers மாதிரி: |%| ≥ 2 · volume ≥ 1.5× · day high / low அருகில் (continuation)
+    → stock option strike + ₹ plan → score ≥65 ஆனா call (9:45–2:00, நாளைக்கு max 4)."""
+    from .calls import rupee_plan, add_movers
+    mins = now.hour * 60 + now.minute
+    bu_tag = {}
+    for kind, rows in (res.get("oi_buildup") or {}).items():
+        for x in rows:
+            bu_tag[x["symbol"]] = kind
+    npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    cands = []
+    for n, q in live_q.items():
+        pct, vr, hi, lo, ltp = q.get("pct") or 0, q.get("vol_ratio") or 0, q.get("high") or 0, q.get("low") or 0, q.get("ltp") or 0
+        if abs(pct) < MOVERS["min_pct"] or vr < MOVERS["min_vr"] or not (hi > lo > 0) or ltp <= 50:
+            continue
+        side = "CE" if pct > 0 else "PE"
+        pos = (ltp - lo) / (hi - lo)
+        if (side == "CE" and pos < 0.7) or (side == "PE" and pos > 0.3):
+            continue                     # day high / low-ல் இருந்து விலகிடுச்சு — fade ஆகுது
+        f = (C.get("feat") or {}).get(n) or {}
+        lv = (C.get("levels") or {}).get(n) or {}
+        atr = f.get("atr") or ltp * 0.02
+        k = bu_tag.get(n, "")
+        oi_ok = (side == "CE" and k in ("Long Built Up", "Short Covering")) or (side == "PE" and k in ("Short Built Up", "Long Unwinding"))
+        broke = [x for x in (("PDH", "PWH") if side == "CE" else ("PDL", "PWL")) if lv.get(x) and ((ltp > lv[x]) if side == "CE" else (ltp < lv[x]))]
+        ext = abs(ltp - (q.get("open") or ltp)) / atr if atr else 0
+        sc = min(30, abs(pct) * 7) + min(25, vr * 8) + (15 if (pos >= 0.85 if side == "CE" else pos <= 0.15) else 8)
+        sc += 15 if oi_ok else 0
+        sc += 10 if broke else 0
+        sc += 5 if ext <= 2.5 else -10
+        sc += 5 if (side == "CE" and npct > -0.2) or (side == "PE" and npct < 0.2) else -5
+        why = [f"{pct:+.2f}% · volume {vr}×", f"Day range-ல் {int(pos * 100)}% இடம்", f"OI: {k or 'தெரியல'}"] + ([f"{'+'.join(broke)} break"] if broke else [])
+        cands.append({"symbol": n, "side": side, "price": ltp, "pct": pct, "vol_ratio": vr, "pos": round(pos, 2), "oi": k,
+                      "score": int(max(0, min(100, sc))), "why": why, "atr": round(atr, 2),
+                      "sl": round(ltp - atr if side == "CE" else ltp + atr, 2), "targets": []})
+    cands.sort(key=lambda r: -r["score"])
+    top = cands[:8]
+    cache = C.setdefault("mov_opt", {})
+    day = str(now.date())
+    need = [r for r in top if cache.get(f"{day}|{r['symbol']}|{r['side']}") is None][:3]
+    if need:
+        pick_options(ag, inst, need)
+        for r in need:
+            cache[f"{day}|{r['symbol']}|{r['side']}"] = r.get("option") if "none" not in (r.get("option") or {}) else (r.get("option_ref") or r.get("option"))
+    otoks = {}
+    for r in top:
+        o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
+        if o and "none" not in o:
+            otoks.setdefault(o["exch"], []).append(o["token"])
+    oq = ag.quotes(otoks) if (live and otoks) else {}
+    for r in top:
+        o = cache.get(f"{day}|{r['symbol']}|{r['side']}")
+        if not o or "none" in o:
+            r["option"] = o or {"none": "Option தேடுது…"}
+            continue
+        o = dict(o)
+        qq = oq.get(o["token"])
+        if qq and qq.get("ltp"):
+            o["ltp"] = float(qq["ltp"])
+            o["ask"] = o["ltp"]
+        r["option"] = o
+        attach_plan(r, o, now, "Top Movers")
+        p = o.get("plan") or {}
+        if p.get("entry"):
+            sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+            r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_], "codes": rc_}
+    if live and 9 * 60 + 45 <= mins <= 14 * 60:
+        try:
+            add_movers([r for r in top if r["score"] >= MOVERS["min_score"] and r.get("rp") and not r["rp"]["codes"]
+                        and (r["option"].get("spread_pct") or 9) <= 5], now)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"Movers calls: {e}")
+    return {"time": now.strftime("%H:%M:%S"), "rows": top,
+            "gainers": sorted([x for x in live_q.items() if (x[1].get("pct") or 0) > 0], key=lambda x: -x[1]["pct"])[:8],
+            "losers": sorted([x for x in live_q.items() if (x[1].get("pct") or 0) < 0], key=lambda x: x[1]["pct"])[:8]}
 
 
 def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):

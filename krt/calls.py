@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -738,7 +738,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS")}
     summary["ALL"] = stats(allc)
     # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
     health = {}
@@ -1034,3 +1034,34 @@ def exit_pick(cid, ltp, now):
         STORE.dirty = True
         STORE.save(force=True)
     return True, f"Exit ₹{px} — P/L ₹{c['pnl_lot'] * c.get('lots', 1):,}"
+
+
+def add_movers(rows, now):
+    """🚀 Top Movers → paper call. நாளைக்கு max 4 · symbol-க்கு ஒன்று."""
+    n = 0
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "MOVERS"]
+        for r in rows:
+            if len(mine) + n >= 4:
+                break
+            if any(x["symbol"] == r["symbol"] for x in mine):
+                continue
+            o = r.get("option") or {}
+            if not ((o.get("plan") or {}).get("entry") and o.get("token")):
+                continue
+            rr = {"symbol": r["symbol"], "price": r["price"], "sl": r["sl"], "targets": r.get("targets") or [], "stars": 4,
+                  "vol_ratio": r.get("vol_ratio"), "confidence": f"Movers score {r['score']}", "reasons": ["🚀 Top mover"] + r["why"]}
+            c = _new("MOVERS", "Top Movers", rr, o, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(grade="A" if r["score"] >= 80 else "B", qcodes=[], qtext=[])
+            d["calls"][c["id"]] = c
+            mine.append(c)
+            n += 1
+            tg(f"🚀 TOP MOVER · {r['symbol']} {o.get('strike'):g} {r['side']} ({r['pct']:+.2f}%, vol {r['vol_ratio']}×)\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"mov|{c['id']}")
+        if n:
+            STORE.dirty = True
+            STORE.save(force=True)
+    return n

@@ -91,6 +91,23 @@ def do_full():
 V4E = {"err": None, "t": None}
 
 
+def _snap_put(c):
+    """Call-ஐ STATE['full']['tracking'] snapshot-ல் உடனே சேர்/update (today + history)."""
+    if not c:
+        return
+    tr = (STATE.get("full") or {}).get("tracking")
+    if not isinstance(tr, dict):
+        return
+    for key in ("today", "history"):
+        lst = tr.setdefault(key, [])
+        for i, x in enumerate(lst):
+            if x.get("id") == c["id"]:
+                lst[i] = dict(c)
+                break
+        else:
+            lst.insert(0, dict(c))
+
+
 def v4_loop():
     """🔥 KRT AI V4: market நேரத்தில் ஒவ்வொரு நிமிடமும் (completed 1-min candle) 4 index × 5 strategies. Browser close ஆனாலும் server-ல் ஓடும்."""
     global ANGEL
@@ -409,7 +426,9 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 pass
             c, msg = add_pick(d, ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None), d.get("lots") or 1)
-            return self._send(200, _json({"ok": bool(c), "msg": msg}))
+            if c:
+                _snap_put(c)       # அடுத்த scan-க்கு காத்திருக்காம Paper Trade tab-ல் உடனே தெரியும்
+            return self._send(200, _json({"ok": bool(c), "msg": msg, "id": (c or {}).get("id")}))
         if self.path == "/api/pick/exit":
             from krt.calls import exit_pick, STORE as _ST
             c_ = (_ST.load()["calls"]).get(d.get("id")) or {}
@@ -422,10 +441,15 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 pass
             ok, msg = exit_pick(d.get("id"), ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            if ok:
+                _snap_put(_ST.load()["calls"].get(d.get("id")))
             return self._send(200, _json({"ok": ok, "msg": msg}))
         if self.path == "/api/pick/cancel":
             from krt.calls import cancel_pick
             ok = cancel_pick(d.get("id"), pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            if ok:
+                from krt.calls import STORE as _ST2
+                _snap_put(_ST2.load()["calls"].get(d.get("id")))
             return self._send(200, _json({"ok": ok, "msg": "Cancel ஆச்சு" if ok else "முடியல"}))
         if self.path == "/api/v4/scan":
             if V4_LK.locked():
