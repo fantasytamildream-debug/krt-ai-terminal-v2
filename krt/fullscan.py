@@ -1009,6 +1009,47 @@ def run_power(ag, res):
     return res
 
 
+def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
+    """👑 GOKI MANNAN JACKPOT RADAR — FINAL SCANER MASTER (CE) + DOW EARANGUM (PE) → analysis score → top 3 + calls."""
+    from .goki import scan as goki_scan, STATE as GST
+    from .calls import rupee_plan, add_goki
+    npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    rows = goki_scan(ag, inst, C, universe, bu_tag, npct, nret, now, session, live,
+                     (el.get("intraday") or []) + (el.get("almost") or []))
+    top = rows[:8]
+    pick_options(ag, inst, top)
+    mins = now.hour * 60 + now.minute
+    for r in top:
+        attach_plan(r, r.get("option"), now, "Goki Mannan")
+        o = r.get("option") or {}
+        p = o.get("plan") or {}
+        r["action"], r["why_not"] = "WATCH", []
+        if p.get("entry") and o.get("lot"):
+            sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+            r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_]}
+            if rc_:
+                r["why_not"] += rc_
+        else:
+            r["why_not"].append((o.get("none") or "Option இல்லை")[:90])
+        if not r["full"]:
+            r["why_not"].append("Scanner 8/9 — ஒரு rule குறைவு")
+        if r["score"] < 70:
+            r["why_not"].append(f"Score {r['score']} < 70")
+        if not (9 * 60 + 30 <= mins <= 14 * 60 + 30):
+            r["why_not"].append("நேரம் 9:30–2:30 இல்லை")
+        if not r["why_not"] and r.get("rp"):
+            r["action"] = "ENTRY"
+    radar = {"time": now.strftime("%H:%M"), "date": str(now.date()), "top": top[:3], "rows": rows[:20],
+             "ce": sum(1 for r in rows if r["side"] == "CE" and r["full"]), "pe": sum(1 for r in rows if r["side"] == "PE" and r["full"])}
+    if live:
+        try:
+            add_goki([r for r in top[:3] if r["action"] == "ENTRY"], now)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"Goki calls: {e}")
+    GST["radar"] = radar
+    return radar
+
+
 def run_elite_fast(ag, res):
     """⚡ 15-min candle முடிந்த உடனே Elite மட்டும் (deep scan-க்கு காத்திருக்காமல்) — quotes + 15m candles மட்டும்."""
     from .elite import scan as elite_scan
@@ -1077,6 +1118,10 @@ def run_elite_fast(ag, res):
     el["jackpot"] = [r for r in el["intraday"] + hold if r.get("jackpot")]
     el["time"] = now.strftime("%H:%M")
     res["elite"] = el
+    try:
+        res["goki"] = run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res)
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Goki: {e}")
     try:
         compute_all_rounder(res)
     except Exception:

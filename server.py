@@ -59,6 +59,8 @@ def do_full():
         with API_LOCK:
             res = run_full(ANGEL, lambda m: STATE.update(progress=m))
         old = STATE.get("full") or {}
+        if old.get("goki") and not res.get("goki"):
+            res["goki"] = old["goki"]            # 👑 Goki radar — 15-min loop, deep scan அழிக்கக்கூடாது
         if old.get("power") and not res.get("power"):
             res["power"] = old["power"]          # POWER OI தனி loop — deep scan அழிக்கக்கூடாது
             try:

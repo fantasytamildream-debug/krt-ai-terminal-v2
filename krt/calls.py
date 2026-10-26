@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -964,3 +964,38 @@ def cancel_pick(cid, now):
         STORE.dirty = True
         STORE.save(force=True)
     return True
+
+
+def add_goki(rows, now):
+    """👑 Goki Mannan Jackpot → paper call (top 3, score ≥70, scanner 9/9). நாளைக்கு max 5 · symbol+side-க்கு ஒன்று."""
+    if now.weekday() >= 5 or not (9 * 60 + 30 <= now.hour * 60 + now.minute <= 14 * 60 + 30):
+        return 0
+    n = 0
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "GOKI"]
+        for r in rows:
+            if len(mine) + n >= 5:
+                break
+            if any(x["symbol"] == r["symbol"] and x["side"] == r["side"] for x in mine):
+                continue
+            o = r.get("option") or {}
+            if not ((o.get("plan") or {}).get("entry") and o.get("token")):
+                continue
+            rr = {"symbol": r["symbol"], "price": r["price"], "sl": r["sl"], "targets": r.get("targets") or [], "stars": 5,
+                  "vol_ratio": r.get("vol_ratio"), "confidence": f"Goki score {r['score']}",
+                  "reasons": [f"👑 {r['scanner']} {'9/9' if r['full'] else '8/9'}"] + [f"{'✓' if v else '✗'} {k}" for k, v in r["chk"].items()]}
+            c = _new("GOKI", "Goki Mannan Jackpot", rr, o, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(grade="A", qcodes=[], qtext=[], goki={"scanner": r["scanner"], "score": r["score"], "found": r.get("found")})
+            d["calls"][c["id"]] = c
+            mine.append(c)
+            n += 1
+            tg(f"👑 GOKI MANNAN JACKPOT\n{r['symbol']} {o.get('strike'):g} {r['side']} · {r['scanner']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · "
+               f"T1 ₹{c['targets'][0]} / T2 ₹{c['targets'][1]} / T3 ₹{c['targets'][2]}\nScore {r['score']} (paper/alert only)", f"goki|{c['id']}")
+        if n:
+            STORE.dirty = True
+            STORE.save(force=True)
+    return n
