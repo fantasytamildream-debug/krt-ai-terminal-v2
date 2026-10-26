@@ -269,7 +269,7 @@ def pick_options(ag, inst, rows):
     qs = ag.quotes(toks) if toks else {}
     for r, chosen, atm in plan:
         best, alts, ref = None, [], None
-        smax = 6.0 if r.get("hold") else 3.0     # holding (swing / elite hold): அடுத்த மாத option spread அதிகம் — 6% வரை OK
+        smax = 6.0 if r.get("hold") else 5.0     # V5.3: stock options intraday 5% வரை (limit order), holding 6%
         for c in chosen:
             q = qs.get(c[0])
             if not q:
@@ -291,6 +291,8 @@ def pick_options(ag, inst, rows):
         if best and best["spread_pct"] > 3:
             best["wide_spread"] = True
             best["alt_reason"] = f"Spread {best['spread_pct']}% — limit order மட்டும் (market order வேண்டாம்)"
+        if not best and ref:
+            r["option_ref"] = dict(ref, wide_spread=True, alt_reason=f"Spread {ref['spread_pct']}% — liquidity குறைவு, reference மட்டும் (limit order)")
         r["option"] = best or {"none": "STOCK SETUP VALID — NO SUITABLE OPTION (spread / liquidity குறைவு)" +
                                (f" · Reference: {ref['strike']:g} {ref['type']} ({ref['moneyness']}) expiry {ref['expiry']} · LTP {ref['ltp']} · spread {ref['spread_pct']}%" if ref else "")}
         r["option_alts"] = sorted([a for a in alts if not best or a["contract"] != best["contract"]], key=lambda a: a["ask"])
@@ -1020,6 +1022,8 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
     pick_options(ag, inst, top)
     mins = now.hour * 60 + now.minute
     for r in top:
+        if "none" in (r.get("option") or {}) and r.get("option_ref"):
+            r["option"] = r["option_ref"]          # strike எப்போதும் காட்டு (wide spread warning-ஓட)
         attach_plan(r, r.get("option"), now, "Goki Mannan")
         o = r.get("option") or {}
         p = o.get("plan") or {}
@@ -1031,6 +1035,8 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
                 r["why_not"] += rc_
         else:
             r["why_not"].append((o.get("none") or "Option இல்லை")[:90])
+        if o.get("wide_spread") and (o.get("spread_pct") or 0) > 5:
+            r["why_not"].append(f"Spread {o.get('spread_pct')}% — limit order, paper மட்டும்")
         if not r["full"]:
             r["why_not"].append("Scanner 8/9 — ஒரு rule குறைவு")
         if r["score"] < 70:

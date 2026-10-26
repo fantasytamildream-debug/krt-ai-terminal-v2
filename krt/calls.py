@@ -193,7 +193,7 @@ def _reject(day, kind, src, r, opt, code, now=None, extra=""):
     SKIPPED["n"] += 1
     SKIPPED["log"].append({"time": now.strftime("%H:%M") if now is not None else "", "kind": kind, "source": src,
                            "symbol": r.get("symbol"), "contract": (opt or {}).get("contract"), "code": code, "detail": extra})
-    del SKIPPED["log"][:-80]
+    del SKIPPED["log"][:-400]
 
 
 def _new(kind, src, r, opt, now, day, hold=0, session=None):
@@ -533,7 +533,17 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if cid:
                 flag[gk] = cid
     if add and live and mins < 15 * 60 + 15:
+        npc = MARKET.get("nifty_pct") or 0
         for p in patterns:
+            # V5.3 Pattern 5D upgrade (win 22% இருந்தது): CONFIRMED / TRIGGERED + score ≥70 + NIFTY direction எதிர் இல்லை + 10:00–2:00
+            if p.get("status") not in ("CONFIRMED", "TRIGGERED") or (p.get("score") or 0) < 70:
+                continue
+            if not (10 * 60 <= mins <= 14 * 60):
+                continue
+            if (p.get("side") == "CE" and npc < -0.15) or (p.get("side") == "PE" and npc > 0.15):
+                continue
+            if p.get("status") == "TRIGGERED" and not p.get("vol_dry"):
+                continue          # breakout முன் volume dry-up இல்லாத triggered pattern = fake break அதிகம்
             r = dict(p)
             r["reasons"] = [f"{p['pattern']} ({p['timeframe']}) {p['status']}", p["confirm_rule"], p.get("note", "")]
             r["confidence"] = f"{p.get('stars', 0)}★"
@@ -728,8 +738,18 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK")}
     summary["ALL"] = stats(allc)
+    # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
+    health = {}
+    for k_ in ("POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "SWING 5D", "SWING 10D", "PATTERN 5D", "GU-INTRADAY", "GU-HOLDING",
+               "GAMMA", "ALL ROUNDER", "JACKPOT", "INTRADAY", "MACHINE", "V4", "GOKI"):
+        rej = {}
+        for x in SKIPPED.get("log") or []:
+            if x["kind"] == k_ or (k_ == "SWING 5D" and x["kind"] == "SWING 5D") :
+                rej[x["code"]] = rej.get(x["code"], 0) + 1
+        health[k_] = {"today": sum(1 for c in allc if c["kind"] == k_ and c["date"] == day), "all": sum(1 for c in allc if c["kind"] == k_),
+                      "rejects": sorted(rej.items(), key=lambda kv: -kv[1])[:4]}
     # Setup type ranking — எந்த setup உண்மையில் வேலை செய்கிறது
     groups = {}
     for c in allc:
@@ -835,7 +855,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             "skipped_today": SKIPPED["n"] if SKIPPED["day"] == day else 0, "segments": segments, "best_setup": seg_rank[:3], "today": today, "rows": today, "jackpot": [c for c in allc if c["kind"] == "JACKPOT"][:40],
             "jackpot_today": [c for c in today if c["kind"] == "JACKPOT"],
             "swing_open": [c for c in allc if c.get("hold_until") and c["status"] in OPEN],
-            "history": allc[:150], "summary": summary, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
+            "history": allc[:150], "summary": summary, "health": health, "ranking": ranking, "best_ids": best_ids, "swing_published": flag.get("swing"),
             "store": "GitHub (நிரந்தரம்)" if STORE.remote else "Server disk (restart / deploy-ல் அழியலாம்)",
             "store_error": STORE.error,
             "note": "5-min snapshot LTP அடிப்படையில் — இடையில் தொட்டு திரும்பியதை miss பண்ணலாம். Paper tracking மட்டும்."}
@@ -926,7 +946,7 @@ def add_machine(rows, now):
     return n
 
 
-def add_pick(row, ltp, now):
+def add_pick(row, ltp, now, lots=1):
     """✋ My pick (Live Board-ல் நீங்க தேர்ந்தது) → paper call. Entry = இப்போ LTP. ₹ rules: SL ≤ ₹2,500 · T1 ₹2K · T2 ₹4K · T3 ₹6K."""
     if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute < 15 * 60 + 25):
         return None, "Market நேரம் இல்லை"
@@ -947,7 +967,8 @@ def add_pick(row, ltp, now):
         c = _new("PICK", "My pick", r, opt, now, day)
         if not c:
             return None, "Plan உருவாக்க முடியல (SL / target)"
-        c.update(grade="P", qcodes=[], qtext=[], picked_rank=row.get("rank"))
+        c.update(grade="P", qcodes=[], qtext=[], picked_rank=row.get("rank"), lots=max(1, int(lots or 1)), paper=True,
+                 from_src=row.get("from_src") or "Smart Rank")
         d["calls"][c["id"]] = c
         STORE.dirty = True
         STORE.save(force=True)
@@ -999,3 +1020,17 @@ def add_goki(rows, now):
             STORE.dirty = True
             STORE.save(force=True)
     return n
+
+
+def exit_pick(cid, ltp, now):
+    """📝 Paper trade manual exit — இப்போ LTP-ல் close."""
+    with CALLS_LOCK:
+        d = STORE.load()
+        c = d["calls"].get(cid)
+        if not c or c["kind"] != "PICK" or c["status"] not in OPEN:
+            return False, "Open paper trade இல்லை"
+        px = float(ltp or c.get("ltp") or c["entry"])
+        _close(c, "MANUAL EXIT", px, str(now))
+        STORE.dirty = True
+        STORE.save(force=True)
+    return True, f"Exit ₹{px} — P/L ₹{c['pnl_lot'] * c.get('lots', 1):,}"

@@ -408,8 +408,21 @@ class H(BaseHTTPRequestHandler):
                 ltp = float(q.get("ltp") or 0) or ltp
             except Exception:
                 pass
-            c, msg = add_pick(d, ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            c, msg = add_pick(d, ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None), d.get("lots") or 1)
             return self._send(200, _json({"ok": bool(c), "msg": msg}))
+        if self.path == "/api/pick/exit":
+            from krt.calls import exit_pick, STORE as _ST
+            c_ = (_ST.load()["calls"]).get(d.get("id")) or {}
+            ltp = c_.get("ltp")
+            try:
+                from krt.angel_api import Angel
+                ANGEL = ANGEL or Angel()
+                q = ANGEL.quotes({c_.get("exch") or "NFO": [str(c_.get("token"))]}).get(str(c_.get("token"))) or {}
+                ltp = float(q.get("ltp") or 0) or ltp
+            except Exception:
+                pass
+            ok, msg = exit_pick(d.get("id"), ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))
+            return self._send(200, _json({"ok": ok, "msg": msg}))
         if self.path == "/api/pick/cancel":
             from krt.calls import cancel_pick
             ok = cancel_pick(d.get("id"), pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None))

@@ -319,6 +319,7 @@ header{position:relative}
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
+    <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="pw">🎯 POWER OI</button>
     <button role="tab" data-p="el">👑 Elite</button>
     <button role="tab" data-p="ov">Overview</button>
@@ -342,6 +343,7 @@ header{position:relative}
   <section class="pane" id="p-cl"><div id="v4strip"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div></section>
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
+  <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
   <section class="pane" id="p-ov" hidden></section>
@@ -865,8 +867,9 @@ function renderFull(s){
   const bs=((f.tracking||{}).best_setup)||[];
   const bsHTML=bs.length?`<div class="suggest">🏆 <b>இப்போது வரை best setup:</b> ${bs.map((b,i)=>`${i+1}. <b>${esc(b.source)}</b> (avg ₹${n2(b.avg)}/call · win ${b.win_rate??"–"}% · ${b.closed} closed)`).join(" &nbsp; ")}<div class="hint">குறைந்தது 10 closed calls உள்ள setups மட்டும், சராசரி லாபம் வைத்து.</div></div>`:"";
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
+  try{ $("p-pt").innerHTML = paperHTML(f); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
-  $("p-lb").innerHTML = healthHTML(s,f) + picksHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  $("p-lb").innerHTML = healthHTML(s,f) + healthModHTML(f) + picksHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -1079,6 +1082,7 @@ function bigCall(c,s){
     <div class="cpl ${up?'up':'dn'}">இப்போ ${rs(c.pnl_lot||0)} <small>/ lot</small></div>
     <div class="ctg num">${tg}</div>
     <div class="hint">${slLoss>=0?"SL entry-க்கு மேல — நஷ்டம் இல்லை":"SL hit ஆனா "+rs(slLoss)+" / lot"} · 1 lot = ₹${n2(Math.round(e*lot))}</div>
+    <div style="margin-top:6px"><button class="pickbtn" style="border-color:#38bdf8;color:#38bdf8" onclick="paperFromCall('${esc(c.id)}')">📝 Paper</button></div>
     <div class="cverd ${J.cls}"><b>${J.v}</b>${J.plus.length||J.minus.length?`<div class="hint">${J.plus.map(x=>`<span class="up">✓ ${esc(x)}</span>`).concat(J.minus.map(x=>`<span class="dn">✗ ${esc(x)}</span>`)).join(" · ")}</div>`:""}</div>
   </article>`;
 }
@@ -1349,9 +1353,7 @@ function renderMood(s){
 let SMART_ROWS=[];
 async function pickRow(i){
   const r=SMART_ROWS[i]; if(!r) return;
-  if(!confirm(`${r.symbol} ${n2(r.strike)} ${r.side} pick பண்ணணுமா?\nEntry = இப்போ LTP · SL ≤ ₹2,500 · T1 ₹2K / T2 ₹4K / T3 ₹6K (paper)`)) return;
-  const j=await post("/api/pick",{symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,contract:r.contract,token:r.token,exch:r.exch,lot:r.lot,ltp:r.ltp,sl:r.sl,rank:r.rank,early:r.early,src_modules:r.src_modules});
-  alert(j.msg||""); setTimeout(load,800);
+  paperGo({symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,contract:r.contract,token:r.token,exch:r.exch,lot:r.lot,ltp:r.ltp,sl:r.sl,rank:r.rank,early:r.early,src_modules:r.src_modules,from_src:"Smart Rank"});
 }
 async function cancelPick(id){ if(!confirm("இந்த pick-ஐ cancel பண்ணணுமா?")) return; const j=await post("/api/pick/cancel",{id}); alert(j.msg); setTimeout(load,800); }
 function picksHTML(f){
@@ -1366,9 +1368,7 @@ function picksHTML(f){
 async function v4PickRow(i){
   const x=((V4||{}).setups||[])[i]; if(!x||!x.option) return;
   const o=x.option;
-  if(!confirm(`${x.index} ${n2(o.strike)} ${x.side} (${x.name}) pick பண்ணணுமா?\nEntry = இப்போ LTP · SL ≤ ₹2,500 · T1 ₹2K / T2 ₹4K / T3 ₹6K (paper)`)) return;
-  const j=await post("/api/pick",{symbol:x.index,side:x.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(x.plan||{}).sl,rank:x.score,early:`V4 ${x.name} ${x.stage}`,src_modules:[x.name]});
-  alert(j.msg||""); setTimeout(load,800);
+  paperGo({symbol:x.index,side:x.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(x.plan||{}).sl,rank:x.score,early:`V4 ${x.name} ${x.stage}`,src_modules:[x.name],from_src:"V4 "+x.name});
 }
 function v4FastHTML(){
   const S=((V4||{}).setups||[]).map((x,i)=>({x,i})).filter(({x})=>x.option&&x.plan&&["READY","CONFIRMED"].includes(x.stage)).sort((a,b)=>b.x.score-a.x.score).slice(0,4);
@@ -1421,9 +1421,11 @@ function gokiCard(r,i){
    <div class="ctop"><div class="cbuy">#${i+1} ${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></div><span class="crate"><b>${r.score}</b>/100</span></div>
    <div class="cmeta">👑 ${esc(r.scanner)} ${r.full?"9/9 ✓":"8/9"} · ⏱ ${esc(r.found||"")} · ${o.expiry?"expiry "+esc(o.expiry)+" · lot "+o.lot:""}</div>
    <div class="crow num"><span>Stock <b>${n2(r.price)}</b></span><span>Stock SL <b class="dn">${n2(r.sl)}</b></span><span>Opt LTP <b>${n2(o.ltp)}</b></span></div>
+   ${o.wide_spread?`<div class="cwarn">⚠ Spread ${o.spread_pct}% — liquidity குறைவு, limit order மட்டும்</div>`:""}
    ${p.entry?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk <b>₹${n2(p.risk)}</b></span></div>
    <div class="ctg num">${p.targets.map((t,k)=>`<span>T${k+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[k])}</b></span>`).join("")}</div>`:`<div class="hint">${esc((r.why_not||[])[0]||"Option plan இல்லை")}</div>`}
    ${act}
+   ${o.token?`<button class="pickbtn" style="border-color:#38bdf8;color:#38bdf8" onclick="paperFromGoki(${i})">📝 Paper trade</button>`:""}
    <div class="chk" style="margin-top:6px">${Object.entries(r.chk||{}).map(([a,b])=>`<span class="${b?'up':'dn'}">${b?'✓':'✗'} ${esc(a)}</span>`).join("")}</div>
    <details class="tech"><summary>Scanner rules</summary><div class="chk">${Object.entries(r.rules||{}).map(([a,b])=>`<span class="${b?'up':'dn'}">${b?'✓':'✗'} ${esc(a)}</span>`).join("")}</div></details></div>`;
 }
@@ -1449,6 +1451,49 @@ function gokiHTML(f){
    ${done.length?simpleTbl(done,cols,callCls):`<div class="empty">இன்னும் முடிந்த call இல்லை.</div>`}
    ${G&&G.rows&&G.rows.length>3?`<h2 class="sec">📋 எல்லா candidates (${G.rows.length})</h2>`+simpleTbl(G.rows,[["Stock",r=>`<b>${esc(r.symbol)}</b>`],["Side",r=>`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>`],["Scanner",r=>esc(r.scanner)+(r.full?" 9/9":" 8/9")],["Score",r=>r.score],["Price",r=>n2(r.price)],["15m vol",r=>((r.info||{}).vol_x??"–")+"×"],["OI",r=>esc(r.oi||"–")],["Found",r=>esc(r.found||"")]]):""}
    <div class="hint" style="margin-top:10px">⚠ Chartink-ஐ நேரடியா call பண்ணல — அதே rules Angel One data-வில் நாமே கணக்கிடுறோம் (VWAP / RSI-ல் சின்ன வித்தியாசம் வரலாம்). “Institution entry” = 15m volume + futures OI வைத்து ஊகம். Market cap data இல்லை (F&O stocks ₹1,000 Cr+ என்று எடுத்துக்கொள்ளப்படும்). Score = rule-based ranking, AI prediction / guarantee இல்லை. Calls: SL ≤ ₹2,500 · T1 ₹2K / T2 ₹4K / T3 ₹6K · T1 → SL entry–T1 நடு · 3:20 exit (paper).</div>`;
+}
+/* ===== 📝 PAPER TRADE ===== */
+function capGet(){ try{ return +localStorage.getItem("krt_cap")||100000; }catch(e){ return 100000; } }
+function capSet(v){ try{ localStorage.setItem("krt_cap", String(+v||100000)); }catch(e){} if(LAST_S) $("p-pt").innerHTML=paperHTML(LAST_S.full||{}); }
+async function paperGo(o){
+  const lots=prompt(`📝 Paper trade: ${o.symbol} ${n2(o.strike)} ${o.side}\nஎத்தனை lot? (1 lot = ${o.lot})\nEntry = இப்போ LTP · SL ≤ ₹2,500/lot · T1 ₹2K · T2 ₹4K · T3 ₹6K`,"1");
+  if(lots===null) return;
+  const j=await post("/api/pick",Object.assign({},o,{lots:Math.max(1,parseInt(lots)||1)}));
+  alert(j.msg||""); setTimeout(load,800);
+}
+function paperFromCall(id){
+  const c=(((LAST_S||{}).full||{}).tracking||{}).today?.find(x=>x.id===id); if(!c) return;
+  paperGo({symbol:c.symbol,side:c.side,strike:c.strike,expiry:c.expiry,contract:c.contract,token:c.token,exch:c.exch,lot:c.lot,ltp:c.ltp,sl:c.sl,from_src:c.source_label||c.source||c.kind,src_modules:[c.source||c.kind]});
+}
+function paperFromGoki(i){
+  const r=((((LAST_S||{}).full||{}).goki||{}).top||[])[i]; if(!r||!r.option||!r.option.token){ alert("Strike / token இல்லை"); return; }
+  const o=r.option; paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"Goki "+r.scanner,src_modules:["Goki "+r.scanner]});
+}
+async function paperExit(id){ if(!confirm("இப்போ LTP-ல் exit பண்ணணுமா?")) return; const j=await post("/api/pick/exit",{id}); alert(j.msg); setTimeout(load,800); }
+function paperHTML(f){
+  const T=f.tracking||{}, m=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="PICK") m.set(c.id,c)});
+  const all=[...m.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const L=c=>c.lots||1, pl=c=>(c.pnl_lot||0)*L(c);
+  const open=all.filter(c=>OPEN_ST.includes(c.status)), done=all.filter(c=>!OPEN_ST.includes(c.status)&&c.status!=="CANCELLED");
+  const cap=capGet(), realised=done.reduce((a,c)=>a+pl(c),0), unreal=open.reduce((a,c)=>a+pl(c),0);
+  const used=open.reduce((a,c)=>a+c.entry*c.lot*L(c),0), wins=done.filter(c=>pl(c)>0).length;
+  const today=String((LAST_S||{}).now||"").slice(0,10), tpl=all.filter(c=>c.date===today).reduce((a,c)=>a+pl(c),0);
+  const k=(t,v,cl)=>`<div class="kpi"><span>${t}</span><b class="${cl||''}">${v}</b></div>`;
+  const cols=[["Date / Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b><div class="hint">${esc(c.from_src||"")} · ${esc(c.expiry||"")}</div>`],
+    ["Lots",c=>`${L(c)} × ${c.lot}`],["Entry",c=>n2(c.entry)],["LTP / Exit",c=>n2(c.exit??c.ltp)],["SL",c=>n2(c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],
+    ["P/L",c=>`<b class="${pl(c)>=0?'up':'dn'}">₹${n2(pl(c))}</b>`],["Status",c=>`${statusCell(c)}${c.exit_time?`<div class="hint">${esc(String(c.exit_time).slice(5,16))}</div>`:""}`],
+    ["",c=>OPEN_ST.includes(c.status)?`<button onclick="paperExit('${c.id}')">Exit</button> <button onclick="cancelPick('${c.id}')">✕</button>`:""]];
+  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📝 PAPER TRADE — practice account</h2>
+    <div class="hint">எந்த call / setup-லும் <b>📝 Paper</b> (அல்லது ✋ Pick) அழுத்தினா இங்கே வரும் — lot எண்ணிக்கை நீங்களே. Entry = அந்த நேர LTP · SL ≤ ₹2,500/lot · T1 ₹2K / T2 ₹4K / T3 ₹6K · T1 → SL entry–T1 நடு · T3 / SL / 3:20 auto exit · <b>Exit</b> button-ல் நீங்களே வெளியே வரலாம். உண்மையான order போகாது.</div>
+    <div style="margin-top:8px">Capital ₹ <input type="number" value="${cap}" style="width:120px" onchange="capSet(this.value)"></div>
+    <div class="kpis" style="margin-top:8px">${k("Capital",`₹${n2(cap)}`)}${k("Equity",`₹${n2(cap+realised+unreal)}`,(realised+unreal)>=0?'up':'dn')}${k("Realised",`₹${n2(realised)}`,realised>=0?'up':'dn')}${k("Open P/L",`₹${n2(unreal)}`,unreal>=0?'up':'dn')}${k("இன்று",`₹${n2(tpl)}`,tpl>=0?'up':'dn')}${k("Win",`${wins}/${done.length}${done.length?` (${Math.round(wins/done.length*100)}%)`:""}`)}${k("Margin used",`₹${n2(Math.round(used))}`)}${k("Return",`${cap?((realised+unreal)/cap*100).toFixed(1):0}%`,(realised+unreal)>=0?'up':'dn')}</div></div>
+   <h2 class="sec">🟢 Open positions (${open.length})</h2>${open.length?simpleTbl(open,cols,callCls):`<div class="empty">Open position இல்லை. Calls / Goki / Live Board / Best Setups-ல் 📝 Paper அழுத்துங்க.</div>`}
+   <h2 class="sec">📜 Trade history (${done.length})</h2>${done.length?simpleTbl(done,cols,callCls):`<div class="empty">இன்னும் முடிந்த paper trade இல்லை.</div>`}`;
+}
+function healthModHTML(f){
+  const H=(f.tracking||{}).health||{}; if(!Object.keys(H).length) return "";
+  const why={"POWER-A":"POWER OI 3-step (breakout → retest → confirm) + score 80 (range 74)","POWER-B":"Reversal research model (paper)","ELITE":"Final Scanner 9 rules (அல்லது 8/9) + confidence 75+","ELITE HOLD":"GROK weekly + Final scanner + confidence 80+","SWING 5D":"2:30–3:25 publish · score 75+ · volume 1.5×","SWING 10D":"2:30–3:25 · score 80+ · PWH/PMH break","PATTERN 5D":"CONFIRMED / TRIGGERED + score 70 + volume dry-up","GU-INTRADAY":"Option OI unwind + volume + consolidation (அரிது)","GU-HOLDING":"GU + expiry gap (அரிது)","GOKI":"Final Scanner / Dow Earangum 9/9 + score 70"};
+  return `<details class="tech"><summary>🩺 Module health — ஏன் சில modules-ல் call வரல?</summary>${simpleTbl(Object.entries(H).map(([k,v])=>({k,...v})),[["Module",r=>`<b>${esc(r.k)}</b>`],["இன்று",r=>r.today],["மொத்தம்",r=>r.all],["இன்று reject காரணம்",r=>(r.rejects||[]).map(([c,n])=>`${esc(c)} ×${n}`).join(" · ")||'<span class="hint">candidate வரல (setup rules pass ஆகல)</span>'],["Call வர என்ன வேணும்",r=>`<span class="hint">${esc(why[r.k]||"")}</span>`]])}</details>`;
 }
 function render(s){
   const f=s.full, r=s.result;
