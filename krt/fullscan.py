@@ -1110,7 +1110,7 @@ def run_breakouts(ag, inst, res, universe, now, live):
             sc = int(min(100, sc))
             r = {"symbol": r0["symbol"], "side": side, "price": ltp, "pct": r0.get("pct"), "vol_ratio": vr, "levels": r0.get("levels"),
                  "ref_level": r0.get("ref_level"), "sl": r0.get("sl"), "targets": list(r0.get("targets") or []), "score": sc,
-                 "stars": 5 if sc >= 85 else 4 if sc >= 75 else 3 if sc >= 65 else 2, "min_days": 0 if mins < 13 * 60 else 1,
+                 "stars": 5 if sc >= 85 else 4 if sc >= 75 else 3 if sc >= 65 else 2, "min_days": 1,
                  "why": [f"{'+'.join(r0.get('levels') or [])} {'break' if side == 'CE' else 'breakdown'} · {ext}% தூரம்", f"Volume {vr}×",
                          f"Day range-ல் {int(pos * 100)}%", f"OI: {k or 'தெரியல'}"]}
             out[side].append(r)
@@ -1185,7 +1185,7 @@ def run_movers(ag, inst, live_q, res, now, live):
         fk = f"{now.date()}|{n}|{side}"
         fs.setdefault(fk, now.strftime("%H:%M"))
         cands.append({"symbol": n, "side": side, "price": ltp, "pct": pct, "vol_ratio": vr, "pos": round(pos, 2), "oi": k, "vel": vel,
-                      "first": fs[fk], "min_days": 0 if mins < 13 * 60 else 1,       # intraday → இந்த மாத expiry (liquid)
+                      "first": fs[fk], "min_days": 1,       # stock: NSE monthly · expiry நாள் அன்னைக்கு அடுத்த மாதம்
                       "stage": "🟠 EARLY — இப்போ நகருது" if abs(pct) < MOVERS["min_pct"] else "🚀 MOVING",
                       "score": int(max(0, min(100, sc))), "why": why, "atr": round(atr, 2),
                       "sl": round(ltp - atr if side == "CE" else ltp + atr, 2), "targets": []})
@@ -1193,23 +1193,23 @@ def run_movers(ag, inst, live_q, res, now, live):
     top = cands[:8]
     cache = C.setdefault("mov_opt", {})
     day = str(now.date())
-    need = [r for r in top if not (cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}") or {}).get("token")][:4]
+    need = [r for r in top if not (cache.get(f"{day}|v6|{r['symbol']}|{r['side']}") or {}).get("token")][:4]
     if need:
         pick_options(ag, inst, need)
         for r in need:
             o_ = r.get("option") if "none" not in (r.get("option") or {}) else (r.get("option_ref") or r.get("option"))
             if (o_ or {}).get("token"):
-                cache[f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}"] = o_      # கிடைச்சா மட்டும் cache — fail ஆனா அடுத்த tick மறுபடி
+                cache[f"{day}|v6|{r['symbol']}|{r['side']}"] = o_      # கிடைச்சா மட்டும் cache — fail ஆனா அடுத்த tick மறுபடி
             else:
                 r["option"] = o_
     otoks = {}
     for r in top:
-        o = cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}")
+        o = cache.get(f"{day}|v6|{r['symbol']}|{r['side']}")
         if o and "none" not in o:
             otoks.setdefault(o["exch"], []).append(o["token"])
     oq = ag.quotes(otoks) if (live and otoks) else {}
     for r in top:
-        o = cache.get(f"{day}|m{r.get('min_days', 0)}|{r['symbol']}|{r['side']}")
+        o = cache.get(f"{day}|v6|{r['symbol']}|{r['side']}")
         if not o or "none" in o:
             if not (r.get("option") or {}).get("none"):
                 r["option"] = {"none": "Option தேடுது… (அடுத்த tick)"}
@@ -1232,6 +1232,8 @@ def run_movers(ag, inst, live_q, res, now, live):
         except Exception as e:
             res.setdefault("errors", []).append(f"Movers calls: {e}")
     LOG = C.setdefault("mov_log", {})
+    for k_ in [k_ for k_, v_ in LOG.items() if ((v_.get("option") or {}).get("exch") == "BFO")]:
+        LOG.pop(k_, None)
     for r in top:
         if (r.get("option") or {}).get("strike"):
             LOG[f"{day}|{r['symbol']}|{r['side']}"] = {k_: r.get(k_) for k_ in ("symbol", "side", "score", "stage", "first", "pct", "vol_ratio", "option", "rp", "why")}
@@ -1253,7 +1255,7 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
     top = rows[:8]
     mins = now.hour * 60 + now.minute
     for r in top:
-        r["min_days"] = 0 if mins < 13 * 60 else 1      # இந்த expiry (liquid) — தூர expiry-ல் trade இல்லாம LTP நின்னுடுது
+        r["min_days"] = 1      # NSE monthly · expiry நாள் → அடுத்த மாதம்
     pick_options(ag, inst, top)
     for r in top:
         if "none" in (r.get("option") or {}) and r.get("option_ref"):

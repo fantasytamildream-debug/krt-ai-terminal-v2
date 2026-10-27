@@ -96,6 +96,12 @@ def contracts(data: dict, name: str, min_days: int = 2):
     if not rows:
         return None, []
     today = ist_today()
+    is_index = name in INDEX_OPT_EXCH
+    if not is_index:
+        # V6: stock options = NSE (NFO) மட்டும். BSE (BFO) stock options-ல் trade இல்லை → LTP நின்னுடும், depth வராது.
+        nfo = [r for r in rows if r[6] == "NFO"]
+        rows = nfo or rows
+        min_days = max(min_days, 1)      # Stock monthly expiry நாள் அன்னைக்கு → அடுத்த மாத (Nov) contract
     exps = sorted({r[2] for r in rows if r[2] >= today.isoformat()})     # expired contracts scan ஆகாது
     if not exps:
         return None, []

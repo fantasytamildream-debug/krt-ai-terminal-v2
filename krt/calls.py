@@ -327,6 +327,12 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         _d = STORE.load()
         if any(relock(x, now.strftime("%H:%M")) for x in list(_d["calls"].values()) if x["date"] == str(now.date())):
             STORE.dirty = True
+        for x in _d["calls"].values():
+            # V6: BSE (BFO) stock option calls — trade இல்லாத contract → VOID (P/L கணக்கில் இல்லை)
+            if x["status"] in OPEN and x.get("exch") == "BFO" and x["symbol"] not in ("SENSEX", "BANKEX"):
+                x.update(status="VOID", exit=x.get("ltp"), exit_time=str(now), pnl_lot=0,
+                         recalc="BSE stock option (trade இல்லை) — NSE strike-ல் மறுபடி வரும்")
+                STORE.dirty = True
     except Exception:
         pass
     d = STORE.load()
