@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -738,7 +738,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT", "ORB", "VOI")}
     summary["ALL"] = stats(allc)
     # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
     health = {}
@@ -1044,9 +1044,9 @@ def add_movers(rows, now):
         d = STORE.load()
         mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "MOVERS"]
         for r in rows:
-            if len(mine) + n >= 4:
+            if len(mine) + n >= 25:
                 break
-            if any(x["symbol"] == r["symbol"] for x in mine):
+            if any(x["symbol"] == r["symbol"] and x["side"] == r["side"] for x in mine):
                 continue
             o = r.get("option") or {}
             if not ((o.get("plan") or {}).get("entry") and o.get("token")):
@@ -1093,6 +1093,36 @@ def add_breakouts(rows, now):
             mine.append(c)
             n += 1
             tg(f"{'📈' if r['side'] == 'CE' else '📉'} {src} {r['stars']}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"bo|{c['id']}")
+        if n:
+            STORE.dirty = True
+            STORE.save(force=True)
+    return n
+
+
+def add_simple(kind, src, rows, now, max_day=4):
+    """V2 modules (5-min ORB / Volume+OI) → நேரடி call. நாளைக்கு max · symbol+side-க்கு ஒன்று."""
+    n = 0
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == kind]
+        for r in rows:
+            if len(mine) >= max_day:
+                break
+            if any(x["symbol"] == r["symbol"] and x["side"] == r["side"] for x in mine):
+                continue
+            o = r.get("option") or {}
+            rr = {"symbol": r["symbol"], "price": r.get("price"), "sl": r.get("sl"), "targets": r.get("targets") or [], "stars": r.get("stars", 3),
+                  "vol_ratio": r.get("vol_ratio"), "confidence": f"{r.get('stars', 3)}★ · score {r.get('score')}",
+                  "reasons": [f"⚡ {src} V2"] + list(r.get("reasons") or [])[:4]}
+            c = _new(kind, src, rr, o, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(grade="A" if (r.get("score") or 0) >= 75 else "B", qcodes=[], qtext=[])
+            d["calls"][c["id"]] = c
+            mine.append(c)
+            n += 1
+            tg(f"⚡ {src} {r.get('stars', 3)}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"v2|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)

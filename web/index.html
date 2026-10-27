@@ -826,11 +826,11 @@ function renderFull(s){
   $("p-orb").innerHTML = f.orb_ready ? `<div class="hint">Entry = 5-min high/low break · SL = range மறுபக்கம் · Targets = range-ன் 1×/2×/3×. Top 5-க்கு option plan.</div>
     <h2 class="sec up">முதல் 5-min candle HIGH break (CE)</h2>${list(f.orb_up,"இப்போ எதுவும் இல்லை.")}
     <h2 class="sec dn">முதல் 5-min candle LOW break (PE)</h2>${list(f.orb_dn,"இப்போ எதுவும் இல்லை.")}` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
-  $("p-orb").innerHTML = segBlock(TR,["5-min ORB"],"5-min ORB") + $("p-orb").innerHTML;
+  $("p-orb").innerHTML = v2CardsHTML(f.orb2,"⚡ 5-min ORB V2 — இப்போ setups","#a78bfa") + segBlock(TR,["5-min ORB"],"5-min ORB") + $("p-orb").innerHTML;
   const bu=f.oi_buildup||{};
   const buCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Fut OI",r=>big(r.oi)],["OI chg",r=>pc(r.oi_chg)]];
   const vp=f.volume_oi_picks||{};
-  $("p-vol").innerHTML = `${segBlock(TR,["Volume+OI"],"Volume + OI")}<div class="hint">Pick rule: volume ratio ≥ 1.5× + Futures OI buildup + விலை direction ஒத்துப்போகணும்.</div>
+  $("p-vol").innerHTML = `${v2CardsHTML(f.voi2,"⚡ Volume + OI V2 — இப்போ setups","#f472b6")}${segBlock(TR,["Volume+OI"],"Volume + OI")}<div class="hint">Pick rule: volume ratio ≥ 1.5× + Futures OI buildup + விலை direction ஒத்துப்போகணும்.</div>
     <h2 class="sec up">Best 3 CE (Volume + OI)</h2>${list(vp.CE,"இப்போ rules-க்கு பொருந்தும் CE pick இல்லை.")}
     <h2 class="sec dn">Best 3 PE (Volume + OI)</h2>${list(vp.PE,"இப்போ rules-க்கு பொருந்தும் PE pick இல்லை.")}
     <h2 class="sec">அதிக volume F&O stocks</h2>${simpleTbl(f.high_volume,[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Volume",r=>big(r.volume)],["Vol ratio*",r=>n2(r.vol_ratio)+"×"],["Fut OI",r=>esc(r.oi_tag||"–")]])}
@@ -1426,7 +1426,7 @@ function gokiCard(r,i){
    <div class="ctop"><div class="cbuy">#${i+1} ${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></div><span class="crate"><b>${r.score}</b>/100</span></div>
    <div class="cmeta">👑 ${esc(r.scanner)} ${r.full?"9/9 ✓":"8/9"} · ⏱ ${esc(r.found||"")} · ${o.expiry?"expiry "+esc(o.expiry)+" · lot "+o.lot:""}</div>
    <div class="crow num"><span>Stock <b>${n2(r.price)}</b></span><span>Stock SL <b class="dn">${n2(r.sl)}</b></span><span>Opt LTP <b>${n2(o.ltp)}</b></span></div>
-   ${o.wide_spread?`<div class="cwarn">⚠ Spread ${o.spread_pct}% — liquidity குறைவு, limit order மட்டும்</div>`:""}
+   ${o.wide_spread?`<div class="cwarn">⚠ ${o.no_depth?"Bid/ask depth வரல — LTP வைத்து plan":"Spread "+o.spread_pct+"%"} — limit order மட்டும்</div>`:""}
    ${p.entry?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk <b>₹${n2(p.risk)}</b></span></div>
    <div class="ctg num">${p.targets.map((t,k)=>`<span>T${k+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[k])}</b></span>`).join("")}</div>`:`<div class="hint">${esc((r.why_not||[])[0]||"Option plan இல்லை")}</div>`}
    ${act}
@@ -1508,6 +1508,8 @@ function pbtn(c){ return (c&&c.token&&OPEN_ST.includes(c.status)&&c.kind!=="PICK
 let MOVROWS=[];
 function paperFromMover(i){ const r=MOVROWS[i]; if(!r||!(r.option||{}).token){ alert("Strike / token இன்னும் வரல"); return; } const o=r.option;
   paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"Top Movers",src_modules:["Top Movers"]}); }
+function paperFromMoverLog(i){ const r=((((LAST_S||{}).full||{}).movers||{}).log||[])[i]; if(!r||!(r.option||{}).token) return; const o=r.option;
+  paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"Top Movers",src_modules:["Top Movers"]}); }
 function moversHTML(f){
   const M=f.movers; if(!M) return "";
   MOVROWS=M.rows||[];
@@ -1525,10 +1527,10 @@ function moversHTML(f){
      <div class="hint">${r.why.map(esc).join(" · ")}</div>
      ${o.token?`<button class="pickbtn pp" onclick="paperFromMover(${i})">📝 Paper</button>`:""}</div>`;};
   return `<div class="earlybox" style="border-color:#22d3ee;background:rgba(34,211,238,.06)"><b>🚀 TOP MOVERS (F&amp;O) — live ${esc(M.time||"")}</b>
-   <div class="hint">🚀 MOVING = |%| ≥ 2 · 🟠 EARLY = |%| ≥ 1.2 + கடைசி ~5 நிமிடத்தில் +0.5% வேகம் · volume ≥ 1.5× · day high / low அருகில் → <b>இந்த மாத expiry</b> stock option strike + Entry / SL / T1-T2-T3. Score ≥65 + spread ≤5% ஆனா call (9:45–2:00, max 4). ~30 sec update.</div>
+   <div class="hint">🚀 MOVING = |%| ≥ 2 · 🟠 EARLY = |%| ≥ 1.2 + கடைசி ~5 நிமிடத்தில் +0.5% வேகம் · volume ≥ 1.5× · day high / low அருகில் → <b>இந்த மாத expiry</b> stock option strike + Entry / SL / T1-T2-T3. Score ≥65 ஆனா call — <b>9:16 முதல் 3:15 வரை ஒவ்வொரு mover-க்கும்</b> (புதுசு மேலே, நாளைக்கு max 25). ~30 sec update.</div>
    <div class="cb-stats" style="margin-top:6px">${g(M.gainers,"up")}</div><div class="cb-stats" style="margin-top:4px">${g(M.losers,"dn")}</div>
    ${MOVROWS.length?`<div class="earlygrid">${MOVROWS.map(card).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ continuation mover இல்லை.</div>`}
-   ${MOVROWS.length?`<details class="tech" open><summary>📋 Movers strike list (இப்போ)</summary>${simpleTbl(MOVROWS.filter(r=>(r.option||{}).strike),[["⏱ முதல்",r=>esc(r.first||"")],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.option.strike)} ${r.side}</b>`],["Expiry",r=>esc(r.option.expiry||"")],["Score",r=>r.score],["Stage",r=>esc(r.stage||"")],["LTP",r=>n2(r.option.ltp)],["Entry",r=>r.rp?n2(r.rp.entry):"–"],["SL",r=>r.rp?`<b class="dn">${n2(r.rp.sl)}</b>`:"–"],["T1 / T2 / T3",r=>r.rp?r.rp.targets.map(n2).join(" / "):"–"],["",r=>`<button class="pickbtn pp" onclick="paperFromMover(${MOVROWS.indexOf(r)})">📝 Paper</button>`]])}</details>`:""}
+   ${(M.log||[]).length?`<details class="tech" open><summary>📋 இன்றைய Movers strike list — 9:15 முதல் (புதுசு மேலே · ${M.log.length})</summary>${simpleTbl(M.log,[["⏱ முதல்",r=>esc(r.first||"")],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.option.strike)} ${r.side}</b>`],["Expiry",r=>esc(r.option.expiry||"")],["Score",r=>r.score],["%",r=>`${r.pct>0?"+":""}${n2(r.pct)}%`],["LTP",r=>n2(r.option.ltp)],["Entry",r=>r.rp?n2(r.rp.entry):"–"],["SL",r=>r.rp?`<b class="dn">${n2(r.rp.sl)}</b>`:"–"],["T1 / T2 / T3",r=>r.rp?r.rp.targets.map(n2).join(" / "):"–"],["",r=>r.option.token?`<button class="pickbtn pp" onclick="paperFromMoverLog(${M.log.indexOf(r)})">📝 Paper</button>`:""]])}</details>`:""}
    <h3 class="sec">🚀 இன்றைய Movers calls (${MC.length})</h3>
    ${MC.length?simpleTbl(MC,[["Time",c=>esc(c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls):`<div class="hint">இன்னும் Movers call இல்லை (score ≥65 + spread ≤5% வேணும்).</div>`}</div>`;
 }
@@ -1536,6 +1538,17 @@ function moversHTML(f){
 let BOROWS=[];
 function paperFromBO(i){ const r=BOROWS[i]; if(!r||!(r.option||{}).token){ alert("Strike / token இல்லை"); return; } const o=r.option;
   paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:r.side==="CE"?"Breakout CE":"Breakdown PE",src_modules:["Breakout V2"]}); }
+function v2CardsHTML(rows,title,color){
+  if(!rows||!rows.length) return `<div class="earlybox" style="border-color:${color}"><b>${title}</b> <span class="hint">இப்போ V2 rules pass ஆன setup இல்லை (volume ≥1.5× · late இல்லை · option + SL ≤ ₹2,500).</span></div>`;
+  const base=BOROWS.length; BOROWS=BOROWS.concat(rows);
+  return `<div class="earlybox" style="border-color:${color}"><b>${title}</b> <span class="hint">volume ≥1.5× · late இல்லை · NIFTY பெரிய எதிர் இல்லை · ★ ≥3 (score ≥60) ஆனா call (9:20–2:30, max 4)</span>
+   <div class="earlygrid">${rows.map((r,k)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard" style="border-color:${color}">
+     <div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate">${"★".repeat(r.stars||0)} <b>${r.score??""}</b></span></div>
+     <div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · LTP ₹${n2(o.ltp)}</div></div>
+     ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk ₹${n2(p.risk)}</span></div><div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     <div class="hint">Volume ${n2(r.vol_ratio)}× · ${r.pct>0?"+":""}${n2(r.pct)}%</div>
+     <button class="pickbtn pp" onclick="paperFromBO(${base+k})">📝 Paper</button></div>`}).join("")}</div></div>`;
+}
 function boV2HTML(f,side){
   const B=(f.bo2||{})[side]||[]; const base=BOROWS.length; BOROWS=BOROWS.concat(B);
   const st=n=>"★".repeat(n)+"☆".repeat(5-n);

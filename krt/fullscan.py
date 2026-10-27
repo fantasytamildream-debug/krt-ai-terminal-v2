@@ -743,6 +743,11 @@ def run_full(ag, prog=lambda m: None) -> dict:
             "errors": errors, "seconds": round(time.time() - t_start)}
     _res["gu_snap"] = (C.get("_gu_snap") or {})
     try:
+        _res["orb2"] = run_v2_rows(orb_up[:5] + orb_dn[:5], "ORB", "5-min ORB", now, live, _res, need=lambda r: r.get("status") == "CONFIRMED")
+        _res["voi2"] = run_v2_rows(voi["CE"] + voi["PE"], "VOI", "Volume+OI", now, live, _res)
+    except Exception as e:
+        _res.setdefault("errors", []).append(f"ORB/VOI V2: {e}")
+    try:
         _res["bo2"] = run_breakouts(ag, inst, _res, universe, now, live)
     except Exception as e:
         _res.setdefault("errors", []).append(f"Breakout V2: {e}")
@@ -1034,7 +1039,41 @@ def run_power(ag, res):
     return res
 
 
-MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 4, "min_score": 65}
+MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 25, "min_score": 65, "max_spread": 12}
+
+
+def run_v2_rows(rows, kind, src, now, live, res, max_day=4, need=None):
+    """⚡ 5-min ORB / Volume+OI V2 — quality-gate block இல்லாம நேரடி call: volume ≥1.5× · late இல்லை · NIFTY பெரிய எதிர் இல்லை ·
+    option + ₹ plan (SL ≤ ₹2,500) · ★ rating · 9:20–2:30 · module-க்கு நாளைக்கு max 4."""
+    from .calls import rupee_plan, add_simple
+    mins = now.hour * 60 + now.minute
+    npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    out = []
+    for r in rows:
+        o = r.get("option") or {}
+        p = o.get("plan") or {}
+        if not (o.get("token") and p.get("entry") and o.get("lot")):
+            continue
+        if need and not need(r):
+            continue
+        if (r.get("vol_ratio") or 0) < 1.5 or (r.get("ext") or 0) > 1.2:
+            continue
+        if (r["side"] == "CE" and npct <= -0.5) or (r["side"] == "PE" and npct >= 0.5):
+            continue
+        sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+        if "SL_TIGHT" in rc_ or (o.get("spread_pct") or 0) > 8:
+            continue
+        sc = int(r.get("score") or 60)
+        r2 = dict(r, stars=5 if sc >= 85 else 4 if sc >= 75 else 3 if sc >= 65 else 2,
+                  rp={"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_]})
+        out.append(r2)
+    out.sort(key=lambda r: -(r.get("score") or 0))
+    if live and 9 * 60 + 20 <= mins <= 14 * 60 + 30:
+        try:
+            add_simple(kind, src, [r for r in out if (r.get("score") or 0) >= 60], now, max_day)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"{src} V2: {e}")
+    return out[:8]
 
 
 def run_breakouts(ag, inst, res, universe, now, live):
@@ -1139,7 +1178,8 @@ def run_movers(ag, inst, live_q, res, now, live):
         sc += 10 if broke else 0
         sc += 5 if ext <= 2.5 else -10
         sc += 5 if (side == "CE" and npct > -0.2) or (side == "PE" and npct < 0.2) else -5
-        sc += min(15, abs(vel) * 15) if (vel > 0) == (side == "CE") else -10     # இப்போ வேகமா நகருதா
+        if old and vel:
+            sc += min(15, abs(vel) * 15) if (vel > 0) == (side == "CE") else -10     # இப்போ வேகமா நகருதா (history இருந்தா மட்டும்)
         why = [f"{pct:+.2f}% · volume {vr}×", f"🏃 5-min {vel:+.2f}%", f"Day range-ல் {int(pos * 100)}% இடம்", f"OI: {k or 'தெரியல'}"] + ([f"{'+'.join(broke)} break"] if broke else [])
         fs = C.setdefault("mov_first", {})
         fk = f"{now.date()}|{n}|{side}"
@@ -1185,13 +1225,20 @@ def run_movers(ag, inst, live_q, res, now, live):
         if p.get("entry"):
             sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
             r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_], "codes": rc_}
-    if live and 9 * 60 + 45 <= mins <= 14 * 60:
+    if live and 9 * 60 + 16 <= mins <= 15 * 60 + 15:
         try:
-            add_movers([r for r in top if r["score"] >= MOVERS["min_score"] and r.get("rp") and not r["rp"]["codes"]
-                        and (r["option"].get("spread_pct") or 9) <= 5], now)
+            add_movers([r for r in top if r["score"] >= MOVERS["min_score"] and r.get("rp") and "SL_TIGHT" not in r["rp"]["codes"]
+                        and (r["option"].get("no_depth") or (r["option"].get("spread_pct") or 99) <= MOVERS["max_spread"])], now)
         except Exception as e:
             res.setdefault("errors", []).append(f"Movers calls: {e}")
+    LOG = C.setdefault("mov_log", {})
+    for r in top:
+        if (r.get("option") or {}).get("strike"):
+            LOG[f"{day}|{r['symbol']}|{r['side']}"] = {k_: r.get(k_) for k_ in ("symbol", "side", "score", "stage", "first", "pct", "vol_ratio", "option", "rp", "why")}
+    for k_ in [k_ for k_ in LOG if not k_.startswith(day)]:
+        LOG.pop(k_, None)
     return {"time": now.strftime("%H:%M:%S"), "rows": top,
+            "log": sorted(LOG.values(), key=lambda r: r.get("first") or "", reverse=True)[:60],
             "gainers": sorted([x for x in live_q.items() if (x[1].get("pct") or 0) > 0], key=lambda x: -x[1]["pct"])[:8],
             "losers": sorted([x for x in live_q.items() if (x[1].get("pct") or 0) < 0], key=lambda x: x[1]["pct"])[:8]}
 
@@ -1216,16 +1263,16 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
         if p.get("entry") and o.get("lot"):
             sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
             r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_]}
-            if rc_:
-                r["why_not"] += rc_
+            if "SL_TIGHT" in rc_:
+                r["why_not"].append("SL_TIGHT")
         else:
             r["why_not"].append((o.get("none") or "Option இல்லை")[:90])
-        if o.get("wide_spread") and (o.get("spread_pct") or 0) > 5:
+        if o.get("wide_spread") and not o.get("no_depth") and (o.get("spread_pct") or 0) > 10:
             r["why_not"].append(f"Spread {o.get('spread_pct')}% — limit order, paper மட்டும்")
-        if not r["full"]:
-            r["why_not"].append("Scanner 8/9 — ஒரு rule குறைவு")
-        if r["score"] < 70:
-            r["why_not"].append(f"Score {r['score']} < 70")
+        if not r["full"] and r["score"] < 65:
+            r["why_not"].append(f"Scanner 8/9 + score {r['score']} < 65")
+        if r["score"] < 55:
+            r["why_not"].append(f"Score {r['score']} < 55")
         if not (9 * 60 + 30 <= mins <= 14 * 60 + 30):
             r["why_not"].append("நேரம் 9:30–2:30 இல்லை")
         if not r["why_not"] and r.get("rp"):
@@ -1234,7 +1281,7 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
              "ce": sum(1 for r in rows if r["side"] == "CE" and r["full"]), "pe": sum(1 for r in rows if r["side"] == "PE" and r["full"])}
     if live:
         try:
-            add_goki([r for r in top[:3] if r["action"] == "ENTRY"], now)
+            add_goki([r for r in top[:5] if r["action"] == "ENTRY"], now)
         except Exception as e:
             res.setdefault("errors", []).append(f"Goki calls: {e}")
     GST["radar"] = radar
