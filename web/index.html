@@ -234,6 +234,17 @@ header{position:relative}
 .moodtag{margin-top:8px;font-size:14px}.moodtag b{display:block;font-size:16px}.moodtag span{color:var(--muted)}
 .mood-crash .moodtag b{color:#f87171}.mood-jackpot .moodtag b{color:var(--ce)}.mood-unclear .moodtag b{color:var(--watch)}
 .why{font-size:12px;color:var(--watch);max-width:280px;white-space:normal;text-align:left;display:inline-block}
+
+/* v5.8 */
+.lt{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:middle}
+.lt.green{background:#22c55e;box-shadow:0 0 10px #22c55e}.lt.yellow{background:#eab308;box-shadow:0 0 8px #eab308}.lt.red{background:#ef4444}
+.mvlight{margin:4px 0;font-size:12.5px;font-weight:700}.mvlight.green{color:#4ade80}.mvlight.yellow{color:#facc15}.mvlight.red{color:#f87171}
+.jpbanner{margin:10px 0;padding:10px 12px;border:2px solid #22c55e;border-radius:12px;background:rgba(34,197,94,.12);font-size:14px}
+@media (prefers-reduced-motion:no-preference){.jpbanner{animation:jgl 1.6s ease-in-out infinite}}
+.jpchip{display:inline-block;margin:4px 6px 0 0;padding:4px 9px;border:1px solid #22c55e;border-radius:99px;cursor:pointer;background:rgba(0,0,0,.2)}
+.toast{position:fixed;right:16px;bottom:16px;z-index:99;max-width:340px;padding:12px 14px;border:2px solid var(--watch);border-radius:12px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.5);font-size:14px;cursor:pointer;margin-top:8px}
+.toast+.toast{bottom:150px}.toast+.toast+.toast{bottom:284px}
+.trendcall{margin-top:8px;font-size:14px}.trendcall .pickbtn{margin:0 0 0 6px;padding:2px 8px}
 /* V4 */
 .v4strip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;margin-bottom:10px;border:1px solid #f97316;border-radius:12px;background:rgba(249,115,22,.08);cursor:pointer;font-size:13px}
 .v4strip small{color:var(--muted)}
@@ -312,6 +323,7 @@ header{position:relative}
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
+      <div class="trendcall" id="trendCall"></div>
     </div>
     <div class="meta num" id="meta"></div>
   </div>
@@ -872,7 +884,7 @@ function renderFull(s){
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
   try{ $("p-pt").innerHTML = paperHTML(f); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
-  $("p-lb").innerHTML = healthHTML(s,f) + healthModHTML(f) + picksHTML(f) + moversHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  $("p-lb").innerHTML = healthHTML(s,f) + healthModHTML(f) + jackpotMovers(f) + allCallsPL(f) + picksHTML(f) + moversHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -1322,7 +1334,7 @@ function renderBell(){
   $("bellN").className = unseen ? "bn new" : "bn";
   $("bellBtn").title = `${unseen} புது calls · இன்று மொத்தம் ${it.length}`;
   const box=$("bellBox"); if(box.hidden) return;
-  box.innerHTML = `<div class="bhead"><b>🔔 இன்றைய calls (${it.length})</b>${unseen?` · <span class="dn">${unseen} புதுசு</span>`:""}<button onclick="bellAll()">எல்லாம் படிச்சாச்சு</button></div>
+  box.innerHTML = `<div class="bhead"><b>🔔 இன்றைய calls (${it.length})</b>${unseen?` · <span class="dn">${unseen} புதுசு</span>`:""}<span><button onclick="voiceToggle()">${voiceOn()?"🔊 Voice ON":"🔇 Voice OFF"}</button> <button onclick="bellAll()">எல்லாம் படிச்சாச்சு</button></span></div>
    ${it.length?[...it].reverse().map(({n,c})=>`<div class="bitem ${S.has(c.id)?'':'unseen'}" onclick="bellOpen('${c.id}')">
      <b>Msg ${n}</b> · ${esc(c.time)} ${S.has(c.id)?"":'<span class="newtag">NEW</span>'}<br>
      <b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl0||c.sl)} · T1 ₹${n2((c.targets||[])[0])}
@@ -1520,6 +1532,7 @@ function moversHTML(f){
     return `<div class="earlycard mvcard" style="border-color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">
      <div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${r.score}</b>/100</span></div>
      <div style="font-size:12.5px;font-weight:700;color:${(r.stage||"").includes("EARLY")?"#fb923c":"#22d3ee"}">${esc(r.stage||"")} · ⏱ முதல் ${esc(r.first||"")}</div>
+     ${(()=>{const l=mvLight(r);return `<div class="mvlight ${l.c}"><span class="lt ${l.c}"></span> ${esc(l.t)}</div>`})()}
      ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · ${esc(o.moneyness||"")} · LTP ₹${n2(o.ltp)}${o.spread_pct&&o.spread_pct<99?` · spread ${o.spread_pct}%`:""}</div></div>`:`<div class="hint">${esc(o.none||"Option தேடுது…")}</div>`}
      ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>Risk <b>₹${n2(p.risk)}</b></span></div>
      <div class="ctg num">${p.targets.map((t,k)=>`<span>T${k+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[k])}</b></span>`).join("")}</div>`:""}
@@ -1563,6 +1576,58 @@ function boV2HTML(f,side){
      <div class="hint">${r.why.map(esc).join(" · ")}</div>
      ${o.token?`<button class="pickbtn pp" onclick="paperFromBO(${base+k})">📝 Paper</button>`:""}</div>`}).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ V2 rules pass ஆன ${side==="CE"?"breakout":"breakdown"} இல்லை.</div>`}</div>`;
 }
+/* ===== V5.8: mover lights · all-calls P/L · voice alerts · trend top call ===== */
+function mvLight(r){
+  const o=r.option||{}, sp=o.no_depth?99:(o.spread_pct??99), vel=r.vel||0, side=r.side;
+  const velOk=vel===0||(vel>0)===(side==="CE");
+  if(r.score>=85&&sp<=5&&velOk&&r.rp) return {c:"green",t:"🎯 JACKPOT — இப்போ எடுக்கலாம்"};
+  if(r.score>=70&&r.rp&&velOk) return {c:"yellow",t:"👀 WATCH — limit order / confirm பாருங்க"};
+  return {c:"red",t:"✋ வேண்டாம் — "+(!velOk?"திரும்புது (velocity எதிர்)":sp>12?"liquidity குறைவு":"score குறைவு")};
+}
+function jackpotMovers(f){
+  const M=(f.movers||{}).rows||[], G=M.map((r,i)=>({r,i,l:mvLight(r)})).filter(x=>x.l.c==="green");
+  if(!G.length) return "";
+  return `<div class="jpbanner">🎯 <b>MOVERS JACKPOT ALERT</b> — இப்போ எடுக்கக்கூடியவை: ${G.slice(0,3).map(({r,i})=>`<span class="jpchip" onclick="paperFromMover(${i})"><b>${esc(r.symbol)} ${n2((r.option||{}).strike)} ${r.side}</b> · Entry ₹${n2(r.rp.entry)} · SL ₹${n2(r.rp.sl)} · T1 ₹${n2(r.rp.targets[0])}</span>`).join("")}<span class="hint"> (click = 📝 Paper)</span></div>`;
+}
+function allCallsPL(f){
+  const T=(f.tracking||{}).today||[]; if(!T.length) return "";
+  const R=[...T].sort((a,b)=>(b.time||"").localeCompare(a.time||"")), net=R.reduce((a,c)=>a+(c.pnl_lot||0),0);
+  const cl=R.filter(c=>!OPEN_ST.includes(c.status)), w=cl.filter(c=>c.pnl_lot>0).length;
+  return `<details class="tech" open><summary>📊 இன்றைய எல்லா calls — Profit / Loss (${R.length}) · <b class="${net>=0?'up':'dn'}">${net>=0?"+":"−"}₹${n2(Math.abs(net))}</b> · Win ${w}/${cl.length}</summary>
+   ${simpleTbl(R,[["Time",c=>sDate(c.date,c.time)],["Module",c=>`<span class="srcs">${esc(c.source_label||c.source||c.kind)}</span>`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",c=>`${statusCell(c)}${c.exit_time?`<div class="hint">${esc(String(c.exit_time).slice(11,16))}</div>`:""}`],["",pbtn]],callCls)}</details>`;
+}
+/* 🔊 voice + toast */
+function voiceOn(){ try{ return localStorage.getItem("krt_voice")!=="0"; }catch(e){ return true; } }
+function voiceToggle(){ try{ localStorage.setItem("krt_voice",voiceOn()?"0":"1"); }catch(e){} renderBell(); if(voiceOn()) speak("Voice alerts on"); }
+function speak(t){ try{ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(t); u.lang="en-IN"; u.rate=1; speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){} }
+function toast(html){ const d=document.createElement("div"); d.className="toast"; d.innerHTML=html; d.onclick=()=>d.remove(); document.body.appendChild(d); setTimeout(()=>d.remove(),12000); }
+let ANN=null;
+function announceNew(f){
+  const T=((f||{}).tracking||{}).today||[];
+  const ids=new Set(T.map(c=>c.id));
+  if(ANN===null){ ANN=ids; return; }
+  const fresh=T.filter(c=>!ANN.has(c.id)&&OPEN_ST.includes(c.status));
+  ANN=ids;
+  if(!fresh.length) return;
+  fresh.slice(0,3).forEach(c=>toast(`<b>🔔 புது call</b> · ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}</div>`));
+  if(voiceOn()){ const c=fresh[0]; speak(`New call coming. Buy ${c.symbol} ${c.strike} ${c.side==="CE"?"call":"put"}. Entry ${c.entry}. Stop loss ${c.sl}.${fresh.length>1?` And ${fresh.length-1} more.`:""}`); }
+  try{ beep(); }catch(e){}
+}
+/* 👀 trend top call in hero */
+function trendTopCall(s){
+  const f=s.full||{}, tr=f.trend||"", side=tr.includes("DOWN")?"PE":tr.includes("UP")?"CE":null;
+  const box=$("trendCall"); if(!box) return;
+  if(!side){ box.innerHTML=""; return; }
+  const M=((f.movers||{}).rows||[]).map((r,i)=>({r,i})).filter(x=>x.r.side===side&&x.r.rp&&(x.r.option||{}).token).sort((a,b)=>b.r.score-a.r.score);
+  const C=((f.tracking||{}).today||[]).filter(c=>c.side===side&&OPEN_ST.includes(c.status)&&!c.hits?.length).sort((a,b)=>(b.grade==="A")-(a.grade==="A")||(b.time||"").localeCompare(a.time||""));
+  let h="";
+  if(M.length){ const {r,i}=M[0], l=mvLight(r);
+    h=`👀 <b>WATCH — top ${side} call:</b> <b class="${side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.option.strike)} ${side}</b> · Entry ₹${n2(r.rp.entry)} · SL ₹${n2(r.rp.sl)} · T1/T2/T3 ${r.rp.targets.map(n2).join("/")} · score ${r.score} <span class="lt ${l.c}"></span> <button class="pickbtn pp" onclick="paperFromMover(${i})">📝 Paper</button>`; }
+  else if(C.length){ const c=C[0];
+    h=`👀 <b>WATCH — top ${side} call:</b> <b class="${side==='CE'?'up':'dn'}">${esc(c.symbol)} ${esc(c.strike)} ${side}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2(c.targets[0])} · ${esc(c.source_label||c.source)} ${pbtn(c)}`; }
+  else h=`👀 <b>WATCH — ${side}:</b> <span class="hint">இப்போ ${side} side-ல் நல்ல live call இல்லை.</span>`;
+  box.innerHTML=h;
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
@@ -1582,7 +1647,7 @@ function render(s){
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   renderFull(s);
-  try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); }catch(e){ console.error(e); }
+  try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); announceNew(s.full); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }

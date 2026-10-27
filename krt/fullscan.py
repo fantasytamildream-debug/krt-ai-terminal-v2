@@ -1251,8 +1251,10 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
     rows = goki_scan(ag, inst, C, universe, bu_tag, npct, nret, now, session, live,
                      (el.get("intraday") or []) + (el.get("almost") or []))
     top = rows[:8]
-    pick_options(ag, inst, top)
     mins = now.hour * 60 + now.minute
+    for r in top:
+        r["min_days"] = 0 if mins < 13 * 60 else 1      # இந்த expiry (liquid) — தூர expiry-ல் trade இல்லாம LTP நின்னுடுது
+    pick_options(ag, inst, top)
     for r in top:
         if "none" in (r.get("option") or {}) and r.get("option_ref"):
             r["option"] = r["option_ref"]          # strike எப்போதும் காட்டு (wide spread warning-ஓட)
