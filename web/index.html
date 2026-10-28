@@ -235,6 +235,13 @@ header{position:relative}
 .mood-crash .moodtag b{color:#f87171}.mood-jackpot .moodtag b{color:var(--ce)}.mood-unclear .moodtag b{color:var(--watch)}
 .why{font-size:12px;color:var(--watch);max-width:280px;white-space:normal;text-align:left;display:inline-block}
 
+
+/* ai */
+.aibox{margin:10px 0 14px;padding:12px 14px;border:2px solid #a855f7;border-radius:14px;background:linear-gradient(180deg,rgba(168,85,247,.16),rgba(168,85,247,.03))}
+.aic{border-color:#a855f7}.aic.ok{border:2px solid #22c55e;box-shadow:0 0 18px rgba(34,197,94,.45)}
+.risktag{margin-top:6px;font-size:14px}.risktag.CRASH{padding:6px 9px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid #ef4444;color:#fecaca}
+.risktag.BIG{padding:6px 9px;border-radius:8px;background:rgba(234,179,8,.18);border:1px solid #eab308;color:#fde68a}
+@media (prefers-reduced-motion:no-preference){.risktag.CRASH{animation:danger 1s ease-in-out infinite}}
 /* v5.8 */
 .lt{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:middle}
 .lt.green{background:#22c55e;box-shadow:0 0 10px #22c55e}.lt.yellow{background:#eab308;box-shadow:0 0 8px #eab308}.lt.red{background:#ef4444}
@@ -323,6 +330,7 @@ header{position:relative}
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
+      <div class="risktag" id="riskTag"></div>
       <div class="trendcall" id="trendCall"></div>
     </div>
     <div class="meta num" id="meta"></div>
@@ -354,7 +362,7 @@ header{position:relative}
 
   </nav>
 
-  <section class="pane" id="p-cl"><div id="v4strip"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div></section>
+  <section class="pane" id="p-cl"><div id="aiTop"></div><div id="v4strip"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div></section>
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
@@ -884,7 +892,8 @@ function renderFull(s){
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
   try{ $("p-pt").innerHTML = paperHTML(f); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
-  $("p-lb").innerHTML = moversHTML(f) + jackpotMovers(f) + picksHTML(f) + allCallsPL(f) + healthHTML(s,f) + healthModHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  try{ $("aiTop").innerHTML = aiHTML(f); }catch(e){ console.error(e); }
+  $("p-lb").innerHTML = moversHTML(f) + jackpotMovers(f) + aiHTML(f) + picksHTML(f) + allCallsPL(f) + healthHTML(s,f) + healthModHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -1135,7 +1144,8 @@ function renderCalls(s){
     ${pw.length?`<div class="pwbox"><div class="pwhead">🟣 STRONG / JACKPOT / அதிக volume calls — முதலில் இதைப் பாருங்க</div><div class="cgrid">${pw.map(c=>bigCall(c,s)).join("")}</div></div>`:""}
     ${rest.length?`<div class="cgrid">${rest.map(c=>bigCall(c,s)).join("")}</div>`:(pw.length?"":`<div class="cempty">${CFILT==="yes"?"இப்போ “எடுக்கலாம்” call இல்லை — WAIT. நல்ல setup இல்லாதப்போ wait பண்றதும் ஒரு decision.":CFILT==="pw"?"இப்போ strong / jackpot call இல்லை.":"இப்போ active call இல்லை. புது call வந்ததும் இங்கே முதலில் வரும்."}</div>`)}
     ${closed.length?`<details class="cclosed"><summary>இன்று முடிந்த calls (${closed.length}) · லாபம் ${closed.filter(c=>c.pnl_lot>0).length} · நஷ்டம் ${closed.filter(c=>c.pnl_lot<0).length}</summary>${simpleTbl(closed,[["Time",c=>esc(c.time)],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Source",c=>esc(c.source_label||c.source||c.kind)],["Entry",c=>n2(c.entry)],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",statusCell]],callCls)}</details>`:""}
-    <div class="hint" style="margin-top:8px">📏 Rules: intraday SL ≤ ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · holding SL ≤ ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000 · SL hit → exit · T1 → SL entry–T1 நடு (min ₹1,000) · T2 → SL T1 · time stop இல்லை · 3:20 PM intraday exit.</div>
+    <div class="hint" style="margin-top:8px;color:#4ade80">🛡 Quality Mode V6: 9:45–2:30 மட்டும் · ஒரு stock-க்கு நாளைக்கு ஒரு call (duplicate இல்லை) · stock SL ≥15% / index ≥8% தூரம் · NIFTY ±0.4% எதிர் side stock call இல்லை · நாளைக்கு max 12 · ₹7,500 loss / தொடர் 3 SL ஆனா pause · Movers 🟢 (score 85+, spread ≤5%) மட்டும். ✋ உங்க picks-க்கு இந்த gate இல்லை.</div>
+    <div class="hint" style="margin-top:4px">📏 Rules: intraday SL ≤ ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · holding SL ≤ ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000 · SL hit → exit · T1 → SL entry–T1 நடு (min ₹1,000) · T2 → SL T1 · time stop இல்லை · 3:20 PM intraday exit.</div>
     <div class="hint" style="margin-top:4px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
 }
 function machineBox(f){
@@ -1610,6 +1620,8 @@ function announceNew(f){
   ANN=ids;
   if(!fresh.length) return;
   fresh.slice(0,3).forEach(c=>toast(`<b>🔔 புது call</b> · ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}</div>`));
+  const aiF=fresh.find(c=>c.kind==="AIPICK");
+  if(voiceOn()&&aiF){ speak(`AI pick. Buy ${aiF.symbol} ${aiF.strike} ${aiF.side==="CE"?"call":"put"}. Win chance ${aiF.ai_p?Math.round(aiF.ai_p*100)+" percent":"learning"}. Entry ${aiF.entry}. Stop loss ${aiF.sl}.`); try{beep();}catch(e){} return; }
   if(voiceOn()){ const c=fresh[0]; speak(`New call coming. Buy ${c.symbol} ${c.strike} ${c.side==="CE"?"call":"put"}. Entry ${c.entry}. Stop loss ${c.sl}.${fresh.length>1?` And ${fresh.length-1} more.`:""}`); }
   try{ beep(); }catch(e){}
 }
@@ -1627,6 +1639,41 @@ function trendTopCall(s){
     h=`👀 <b>WATCH — top ${side} call:</b> <b class="${side==='CE'?'up':'dn'}">${esc(c.symbol)} ${esc(c.strike)} ${side}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2(c.targets[0])} · ${esc(c.source_label||c.source)} ${pbtn(c)}`; }
   else h=`👀 <b>WATCH — ${side}:</b> <span class="hint">இப்போ ${side} side-ல் நல்ல live call இல்லை.</span>`;
   box.innerHTML=h;
+}
+/* ===== 🤖 AI PICKS + 🚨 risk voice ===== */
+let AICANDS=[];
+function paperFromAI(i){ const r=AICANDS[i]; if(!r) return; const o=r.option;
+  paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:r.rp.sl,from_src:"🤖 AI · "+r.src,src_modules:[r.src]}); }
+function aiHTML(f){
+  const A=f.ai; if(!A) return `<div class="aibox"><b>🤖 AI PICKS</b> <span class="hint">Market நேரத்தில் ~30 sec-க்கு ஒருமுறை.</span></div>`;
+  AICANDS=A.cands||[]; const M=A.model||{}, R=A.risk||{};
+  const T=(f.tracking||{}), m=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="AIPICK") m.set(c.id,c)});
+  const AP=[...m.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const cl=AP.filter(c=>!OPEN_ST.includes(c.status)), w=cl.filter(c=>c.pnl_lot>0).length, net=AP.reduce((a,c)=>a+(c.pnl_lot||0),0);
+  const pc=p=>p==null?"learning":Math.round(p*100)+"%";
+  return `<div class="aibox"><div class="ctop"><b style="font-size:20px">🤖 AI PICKS</b><span class="cb-stat ${cl.length&&w/cl.length>=.7?'up':''}">AI win ${cl.length?Math.round(w/cl.length*100)+"%":"–"} (${w}/${cl.length}) · ${net>=0?"+":"−"}₹${n2(Math.abs(net))}</span></div>
+   <div class="hint">உங்க ${M.n||0} முடிந்த calls-ல் இருந்து கத்துக்கிது (base win ${M.base?Math.round(M.base*100):"–"}% · உங்க picks ${(M.your_picks||{}).wr??"–"}% / ${(M.your_picks||{}).n||0}). Win வாய்ப்பு ≥${Math.round(((A.cfg||{}).min_p||.7)*100)}% ஆனா மட்டும் AI call (9:45–2:30, max ${(A.cfg||{}).max_day||5}) + 🔊 voice. ${M.n<((A.cfg||{}).min_samples||30)?"⚠ Data குறைவு — இப்போ score 88+ & trend-உடன் மட்டும் (learning mode).":""}</div>
+   ${AICANDS.length?`<div class="earlygrid">${AICANDS.map((r,i)=>`<div class="earlycard aic ${r.ok?'ok':''}"><div class="ctop"><b>${esc(r.symbol)} ${n2(r.option.strike)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${pc(r.p)}</b></span></div>
+     <div class="hint">${esc(r.src)} · score ${r.score??"–"}</div>
+     <div class="crow num"><span>Entry <b>₹${n2(r.rp.entry)}</b></span><span>SL <b class="dn">₹${n2(r.rp.sl)}</b></span><span>T1 <b class="up">${n2(r.rp.targets[0])}</b></span></div>
+     <div class="mcact ${r.ok?'ENTRY':'WAIT'}" style="font-size:13px">${r.ok?"✅ AI PICK":"⏳ AI: இன்னும் நம்பிக்கை போதல"}</div>
+     <div class="hint">${(r.why||[]).map(esc).join("<br>")}</div>
+     <button class="pickbtn pp" onclick="paperFromAI(${i})">📝 Paper</button></div>`).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ candidate இல்லை.</div>`}
+   ${(A.top_feats||[]).length?`<details class="tech"><summary>🧠 AI கத்துக்கிட்டது — எது win, எது SL</summary><div class="chk">${A.top_feats.map(([k,v,n,w])=>`<span class="up">▲ ${esc(k)}=${esc(v)} ${w}% (${n})</span>`).join("")}${(A.worst_feats||[]).map(([k,v,n,w])=>`<span class="dn">▼ ${esc(k)}=${esc(v)} ${w}% (${n})</span>`).join("")}</div></details>`:""}
+   ${AP.length?`<details class="tech" ${AP.some(c=>OPEN_ST.includes(c.status))?"open":""}><summary>📋 AI picks — result (${AP.length})</summary>${simpleTbl(AP,[["Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["AI %",c=>c.ai_p!=null?Math.round(c.ai_p*100)+"%":"learn"],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls)}</details>`:""}
+   <div class="hint" style="margin-top:6px">⚠ இது உங்க data-வில் இருந்து statistics — LLM / guarantee இல்லை. 80% target-ஐ நோக்கி: AI win % இங்கே நேர்மையா காட்டப்படும்; 70%-க்கு கீழ் போனா threshold-ஐ உயர்த்தலாம்.</div></div>`;
+}
+let RISKLAST=null;
+function riskVoice(f){
+  const R=((f||{}).ai||{}).risk; const box=$("riskTag"); if(!box) return;
+  if(!R||R.level==="OK"){ box.innerHTML=""; box.className="risktag"; }
+  else { box.className="risktag "+R.level; box.innerHTML=`${R.level==="CRASH"?"🚨":"⚡"} <b>${esc(R.text)}</b> <span class="hint">${esc(R.time||"")}</span>`; }
+  const key=R?R.level:"OK";
+  if(RISKLAST!==null&&key!==RISKLAST&&key!=="OK"&&voiceOn()){
+    speak(key==="CRASH"?"Warning. Market crash possible. Avoid call options. Reduce size.":"Alert. Big market move possible. Be careful.");
+    toast(`${key==="CRASH"?"🚨":"⚡"} <b>${esc(R.text)}</b>`);
+  }
+  RISKLAST=key;
 }
 function render(s){
   const f=s.full, r=s.result;
@@ -1647,7 +1694,7 @@ function render(s){
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   renderFull(s);
-  try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); announceNew(s.full); }catch(e){ console.error(e); }
+  try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); announceNew(s.full); riskVoice(s.full); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }

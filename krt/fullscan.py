@@ -884,6 +884,10 @@ def fast_tick(ag, res):
         res["movers"]["losers"] = [{"symbol": k_, **v_} for k_, v_ in res["movers"]["losers"]]
     except Exception as e:
         res.setdefault("errors", []).append(f"Movers: {e}")
+    try:
+        res["ai"] = run_ai(live_q, res, now, live)
+    except Exception as e:
+        res.setdefault("errors", []).append(f"AI: {e}")
     seen = set()
     for key in ("best", "ce", "pe", "orb_up", "orb_dn", "high_volume"):
         for r in res.get(key) or []:
@@ -1039,7 +1043,7 @@ def run_power(ag, res):
     return res
 
 
-MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 25, "min_score": 65, "max_spread": 12}
+MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 25, "min_score": 85, "max_spread": 5}   # V6: 🟢 green மட்டும் call
 
 
 def run_v2_rows(rows, kind, src, now, live, res, max_day=4, need=None):
@@ -1137,6 +1141,65 @@ def run_breakouts(ag, inst, res, universe, now, live):
     return {"time": now.strftime("%H:%M"), "CE": out["CE"], "PE": out["PE"]}
 
 
+def run_ai(live_q, res, now, live):
+    """🤖 AI Picks + 🚨 market risk — fast tick-ல் (≈30 sec)."""
+    from .ai import AI, STATE as AST, feats, predict, train, market_risk
+    from .calls import add_aipick
+    from .store import STORE
+    risk = market_risk(live_q, res, now)
+    if not AST.get("_t") or (now - AST["_t"]).total_seconds() > 300:
+        try:
+            train(list((STORE.load().get("calls") or {}).values()))
+        except Exception:
+            pass
+        AST["_t"] = now
+    M = AST.get("model") or {}
+    npct = risk["nifty"]
+    pool = []
+    for r in (res.get("movers") or {}).get("rows") or []:
+        pool.append(("Top Movers", r))
+    for r in (res.get("goki") or {}).get("top") or []:
+        pool.append(("Goki Mannan Jackpot", r))
+    for sd in ("CE", "PE"):
+        for r in (res.get("bo2") or {}).get(sd) or []:
+            pool.append(("Breakout CE" if sd == "CE" else "Breakdown PE", r))
+    for key, src in (("orb2", "5-min ORB"), ("voi2", "Volume+OI")):
+        for r in res.get(key) or []:
+            pool.append((src, r))
+    cands, seen = [], set()
+    for src, r in pool:
+        o, rp = r.get("option") or {}, r.get("rp")
+        if not (o.get("token") and rp) or o.get("no_depth") or (o.get("spread_pct") or 99) > 5:
+            continue
+        k = f"{r['symbol']}|{r['side']}"
+        if k in seen:
+            continue
+        seen.add(k)
+        f = feats(src, r["side"], now.strftime("%H:%M"), score=r.get("score"), vol=r.get("vol_ratio"), vel=r.get("vel"),
+                  pos=r.get("pos"), oi=r.get("oi"), nifty_pct=npct, symbol=r["symbol"])
+        p, why = predict(f)
+        cold = p is None
+        ok = (p is not None and p >= AI["min_p"]) or (cold and (r.get("score") or 0) >= AI["cold_score"] and f.get("trend") != "against")
+        if risk["level"] == "CRASH" and r["side"] == "CE":
+            ok, why = False, why + ["🚨 crash risk — CE வேண்டாம்"]
+        o2 = dict(o, plan=dict(o.get("plan") or {}, entry=rp["entry"], sl=rp["sl"], targets=rp["targets"], money=True))
+        cands.append({"symbol": r["symbol"], "side": r["side"], "src": src, "score": r.get("score"), "p": p, "why": why, "ok": ok,
+                      "feat": f, "option": o2, "rp": rp, "price": r.get("price"), "sl": r.get("sl"), "vol": r.get("vol_ratio")})
+    cands.sort(key=lambda c: (-(c["p"] or 0), -(c["score"] or 0)))
+    mins = now.hour * 60 + now.minute
+    if live and 9 * 60 + 45 <= mins <= 14 * 60 + 30:
+        try:
+            add_aipick([c for c in cands if c["ok"]], now, AI["max_day"])
+        except Exception as e:
+            res.setdefault("errors", []).append(f"AI picks: {e}")
+    return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"},
+            "top_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
+                                 for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: -x[3])[:6],
+            "worst_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
+                                   for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: x[3])[:6],
+            "cfg": AI}
+
+
 def run_movers(ag, inst, live_q, res, now, live):
     """🚀 TOP MOVERS (F&O) — moneycontrol gainers / losers மாதிரி: |%| ≥ 2 · volume ≥ 1.5× · day high / low அருகில் (continuation)
     → stock option strike + ₹ plan → score ≥65 ஆனா call (9:45–2:00, நாளைக்கு max 4)."""
@@ -1228,7 +1291,8 @@ def run_movers(ag, inst, live_q, res, now, live):
     if live and 9 * 60 + 16 <= mins <= 15 * 60 + 15:
         try:
             add_movers([r for r in top if r["score"] >= MOVERS["min_score"] and r.get("rp") and "SL_TIGHT" not in r["rp"]["codes"]
-                        and (r["option"].get("no_depth") or (r["option"].get("spread_pct") or 99) <= MOVERS["max_spread"])], now)
+                        and not r["option"].get("no_depth") and (r["option"].get("spread_pct") or 99) <= MOVERS["max_spread"]
+                        and (not r.get("vel") or (r["vel"] > 0) == (r["side"] == "CE"))], now)
         except Exception as e:
             res.setdefault("errors", []).append(f"Movers calls: {e}")
     LOG = C.setdefault("mov_log", {})

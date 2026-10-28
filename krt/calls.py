@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -36,7 +36,7 @@ MARKET = {"trend": None}
 # V5 ₹ rules (user): intraday SL max ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000
 #                   holding  SL max ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000
 # Exit rule எல்லா calls-க்கும் ஒன்றே: SL hit → exit · T1 → SL entry+₹1,000 · T2 → SL T1 · T3 → exit. Time stop / invalidation இல்லை.
-RUPEE = {"intra": {"max_sl": 2500, "t": (2000, 4000, 6000), "t1_alt": 1500, "max_t1_move": 35, "min_sl_pct": 6},
+RUPEE = {"intra": {"max_sl": 2500, "t": (2000, 4000, 6000), "t1_alt": 1500, "max_t1_move": 35, "min_sl_pct": 8},
          "hold": {"max_sl": 4000, "t": (5000, 8000, 12000), "t1_alt": None, "max_t1_move": 60, "min_sl_pct": 8}}
 SIMPLE_EXIT = True
 LOCK_RS = 1000          # V5.1: T1 hit ஆனா SL → entry + ₹1,000/lot (profit lock) — T1 ஆன call நஷ்டத்தில் முடியாது
@@ -109,7 +109,10 @@ def rupee_plan(entry, sl, lot, hold):
     return sl, tg_, round((entry - sl) * lot), codes
 TREND_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI", "All rounder"}
 PULLBACK_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI"}
-QCODE_TXT = {"RVOL_LT_15": "Volume 1.5×-க்கு கீழ் — trend இல்லை", "SL_TIGHT": "Lot பெரிசு — ₹ SL cap-க்கு SL மிக நெருக்கம் (noise-ல் அடிக்கும்)", "DAILY_TOTAL": "இன்றைய மொத்த intraday calls limit முடிந்தது",
+QCODE_TXT = {"Q_OPEN_NOISE": "9:45 முன் (opening noise)", "Q_LATE": "2:30 பிறகு", "Q_SL_TIGHT": "SL மிக நெருக்கம் (<15%)",
+             "Q_COUNTER": "NIFTY எதிர் side", "Q_DUP": "அதே stock இன்று ஏற்கனவே call", "Q_DAY_MAX": "இன்றைய max calls",
+             "Q_DAY_STOP": "இன்றைய loss limit", "Q_SL_STREAK": "தொடர் 3 SL — pause",
+             "RVOL_LT_15": "Volume 1.5×-க்கு கீழ் — trend இல்லை", "SL_TIGHT": "Lot பெரிசு — ₹ SL cap-க்கு SL மிக நெருக்கம் (noise-ல் அடிக்கும்)", "DAILY_TOTAL": "இன்றைய மொத்த intraday calls limit முடிந்தது",
              "TIME_OPEN_NOISE": "9:30-க்கு முன் (noise)", "TIME_LUNCH": "11:30–1:15 lunch chop", "AFTER_2PM": "2 PM-க்கு பிறகு",
              "RANGE_DAY": "Range நாள் — breakout off", "COUNTER_TREND": "Market direction எதிர்", "RVOL_LT_2": "Volume 2×-க்கு கீழ்",
              "SPREAD_GT_2": "Spread 2%-க்கு மேல்", "ONE_PER_STOCK": "இந்த stock-க்கு இன்று ஏற்கனவே call", "DAILY_MAX": "இன்று max calls முடிந்தது",
@@ -252,7 +255,63 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
         return None
     c["sl0"] = c["sl"]
     c["signal_time"] = now.strftime("%Y-%m-%d %H:%M")
+    try:
+        from .ai import feats as _feats
+        c["feat"] = r.get("feat") or _feats(src, c["side"], c["time"], score=r.get("score"), vol=r.get("vol_ratio"), vel=r.get("vel"),
+                                            pos=r.get("pos"), oi=r.get("oi"), nifty_pct=MARKET.get("nifty_pct"), symbol=c["symbol"])
+    except Exception:
+        pass
+    why = quality_v6(c, now)
+    if why:
+        try:
+            _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, why[0], now, why[1])
+        except Exception:
+            pass
+        return None
     return c
+
+
+# 🛡 QUALITY MODE V6 — எல்லா modules-க்கும் ஒரே gate (✋ My pick தவிர). நோக்கம்: குறைவான, சுத்தமான calls → win rate உயர்வு.
+QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, "max_day": 12, "day_stop": -7500,
+       "sl_streak": 3, "counter_pct": 0.4}
+
+
+def quality_v6(c, now):
+    """→ None (pass) அல்லது (code, காரணம்)."""
+    if not QV6["on"] or c.get("kind") == "PICK" or c.get("hold_until"):
+        return None
+    mins = now.hour * 60 + now.minute
+    if mins < QV6["start"]:
+        return ("Q_OPEN_NOISE", "9:45 முன் — opening noise (இன்றைய data-ல் அதிக SL இங்கே தான்)")
+    if mins > QV6["end"]:
+        return ("Q_LATE", "2:30 பிறகு புது intraday call இல்லை")
+    e, sl = float(c["entry"]), float(c["sl"])
+    is_idx = c["symbol"] in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
+    need = 8 if is_idx else QV6["min_sl_pct"]          # stock options 15% · index 8%
+    if (e - sl) / e * 100 < need:
+        return ("Q_SL_TIGHT", f"SL entry-ல் இருந்து {(e - sl) / e * 100:.0f}% மட்டும் — noise-லேயே அடிக்கும் ({need}% வேணும்)")
+    np_ = MARKET.get("nifty_pct") or 0
+    if (c["side"] == "CE" and np_ <= -QV6["counter_pct"]) or (c["side"] == "PE" and np_ >= QV6["counter_pct"]):
+        if c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+            return ("Q_COUNTER", f"NIFTY {np_:+.2f}% — எதிர் side stock call இல்லை")
+    try:
+        d = STORE.load()
+    except Exception:
+        return None
+    day = c["date"]
+    mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until")
+            and not x.get("shadow") and ((x["kind"] == "AIPICK") == (c["kind"] == "AIPICK"))]
+    if any(x["symbol"] == c["symbol"] for x in mine):
+        return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
+    if len(mine) >= QV6["max_day"]:
+        return ("Q_DAY_MAX", f"இன்றைய max {QV6['max_day']} calls முடிந்தது")
+    closed = sorted([x for x in mine if x["status"] not in OPEN], key=lambda x: str(x.get("exit_time") or ""))
+    if sum(x.get("pnl_lot") or 0 for x in closed) <= QV6["day_stop"]:
+        return ("Q_DAY_STOP", f"இன்றைய நஷ்டம் ₹{-QV6['day_stop']:,} தாண்டியது — இன்று போதும்")
+    last = closed[-QV6["sl_streak"]:]
+    if len(last) == QV6["sl_streak"] and all((x.get("pnl_lot") or 0) < 0 for x in last):
+        return ("Q_SL_STREAK", f"தொடர்ந்து {QV6['sl_streak']} SL — market எதிரா இருக்கு, pause")
+    return None
 
 
 IMPORTANT_KINDS = ("V4", "ELITE", "ELITE HOLD", "JACKPOT", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "SWING 5D", "SWING 10D")
@@ -744,7 +803,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT", "ORB", "VOI")}
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK")}
     summary["ALL"] = stats(allc)
     # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
     health = {}
@@ -1129,6 +1188,37 @@ def add_simple(kind, src, rows, now, max_day=4):
             mine.append(c)
             n += 1
             tg(f"⚡ {src} {r.get('stars', 3)}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"v2|{c['id']}")
+        if n:
+            STORE.dirty = True
+            STORE.save(force=True)
+    return n
+
+
+def add_aipick(rows, now, max_day=5):
+    """🤖 AI Pick → call (feat + p_win save). நாளைக்கு max 5 · symbol-க்கு ஒன்று."""
+    n = 0
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "AIPICK"]
+        for r in rows:
+            if len(mine) >= max_day:
+                break
+            if any(x["symbol"] == r["symbol"] for x in mine):
+                continue
+            o = r["option"]
+            rr = {"symbol": r["symbol"], "price": r.get("price"), "sl": r.get("sl"), "targets": r.get("targets") or [], "stars": 5,
+                  "vol_ratio": r.get("vol"), "score": r.get("score"), "feat": r["feat"],
+                  "confidence": f"AI {round((r.get('p') or 0) * 100)}%" if r.get("p") else f"AI (learning) score {r.get('score')}",
+                  "reasons": [f"🤖 AI pick · from {r['src']}"] + list(r.get("why") or [])}
+            c = _new("AIPICK", "🤖 AI Pick", rr, o, now, day)
+            if not c or c["id"] in d["calls"]:
+                continue
+            c.update(grade="A", qcodes=[], qtext=[], ai_p=r.get("p"), ai_from=r["src"])
+            d["calls"][c["id"]] = c
+            mine.append(c)
+            n += 1
+            tg(f"🤖 AI PICK · {r['symbol']} {o.get('strike'):g} {r['side']} · win வாய்ப்பு {round((r.get('p') or 0) * 100)}%\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"ai|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
