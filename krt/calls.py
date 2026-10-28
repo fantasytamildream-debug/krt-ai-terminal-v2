@@ -109,7 +109,7 @@ def rupee_plan(entry, sl, lot, hold):
     return sl, tg_, round((entry - sl) * lot), codes
 TREND_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI", "All rounder"}
 PULLBACK_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI"}
-QCODE_TXT = {"Q_OPEN_NOISE": "9:45 முன் (opening noise)", "Q_LATE": "2:30 பிறகு", "Q_SL_TIGHT": "SL மிக நெருக்கம் (<15%)",
+QCODE_TXT = {"Q_MODULE_PAUSED": "Module auto-pause (charges சேர்த்து நஷ்டம்)", "Q_LEARNED": "Learned filter (இந்த condition-ல் நஷ்டம்)", "Q_OPEN_NOISE": "9:45 முன் (opening noise)", "Q_LATE": "2:30 பிறகு", "Q_SL_TIGHT": "SL மிக நெருக்கம் (<15%)",
              "Q_COUNTER": "NIFTY எதிர் side", "Q_DUP": "அதே stock இன்று ஏற்கனவே call", "Q_DAY_MAX": "இன்றைய max calls",
              "Q_DAY_STOP": "இன்றைய loss limit", "Q_SL_STREAK": "தொடர் 3 SL — pause",
              "RVOL_LT_15": "Volume 1.5×-க்கு கீழ் — trend இல்லை", "SL_TIGHT": "Lot பெரிசு — ₹ SL cap-க்கு SL மிக நெருக்கம் (noise-ல் அடிக்கும்)", "DAILY_TOTAL": "இன்றைய மொத்த intraday calls limit முடிந்தது",
@@ -262,6 +262,9 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     except Exception:
         pass
     why = quality_v6(c, now)
+    if why and why[0] in ("Q_MODULE_PAUSED", "Q_LEARNED"):
+        c.update(shadow=True, shadow_why=why[1])     # main list-ல் வராது · paper-ல் track ஆகும் → optimizer recover பார்க்கும்
+        return c
     if why:
         try:
             _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, why[0], now, why[1])
@@ -290,6 +293,14 @@ def quality_v6(c, now):
     need = 8 if is_idx else QV6["min_sl_pct"]          # stock options 15% · index 8%
     if (e - sl) / e * 100 < need:
         return ("Q_SL_TIGHT", f"SL entry-ல் இருந்து {(e - sl) / e * 100:.0f}% மட்டும் — noise-லேயே அடிக்கும் ({need}% வேணும்)")
+    if c.get("kind") != "AIPICK":
+        try:
+            from .ai import blocked as _blk
+            b_ = _blk(c)
+            if b_:
+                return b_
+        except Exception:
+            pass
     np_ = MARKET.get("nifty_pct") or 0
     if (c["side"] == "CE" and np_ <= -QV6["counter_pct"]) or (c["side"] == "PE" and np_ >= QV6["counter_pct"]):
         if c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
@@ -813,6 +824,16 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "net": sum(c["pnl_lot"] for c in rows)}
     summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK")}
     summary["ALL"] = stats(allc)
+    try:
+        from .ai import net_of as _net, charges as _chg
+        for x in allc:
+            if x["status"] not in OPEN:
+                x["charges"] = _chg(x)
+                x["net_lot"] = (x.get("pnl_lot") or 0) - x["charges"]
+        summary["ALL"]["net_after"] = round(sum(_net(x) for x in allc if x["status"] not in OPEN))
+        summary["ALL"]["charges"] = round(sum(_chg(x) for x in allc if x["status"] not in OPEN))
+    except Exception:
+        pass
     # 🩺 Module health: இன்று calls · மொத்தம் · இன்றைய rejected காரணங்கள்
     health = {}
     for k_ in ("POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "SWING 5D", "SWING 10D", "PATTERN 5D", "GU-INTRADAY", "GU-HOLDING",

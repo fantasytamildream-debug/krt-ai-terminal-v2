@@ -123,3 +123,80 @@ def market_risk(live_q, res, now):
         lvl, txt = "BIG", f"Big move possible ({side}) — NIFTY {npct:+.2f}% · 5 நிமிட வேகம் {vel:+.2f}% · breadth ↑{up:.0f}% ↓{dn:.0f}%{' · negative gamma zone' if neg else ''}."
     STATE["risk"] = {"level": lvl, "text": txt, "nifty": npct, "vel": vel, "up": round(up), "dn": round(dn), "time": now.strftime("%H:%M")}
     return STATE["risk"]
+
+
+# ───────────── 💸 charges + 🧠 module optimizer ─────────────
+def charges(c):
+    """1 lot round-trip charges (₹): brokerage ₹20×2 · STT 0.15% sell · exchange 0.0355% · SEBI · stamp 0.003% buy · GST 18%."""
+    try:
+        lot = float(c.get("lot") or 0)
+        buy = float(c.get("entry") or 0) * lot
+        sell = float(c.get("exit") if c.get("exit") is not None else c.get("ltp") or 0) * lot
+    except Exception:
+        return 0
+    brk = 40.0
+    exch = (buy + sell) * 0.000355299
+    sebi = (buy + sell) * 1e-6
+    gst = 0.18 * (brk + exch + sebi)
+    return round(brk + sell * 0.0015 + exch + sebi + buy * 0.00003 + gst)
+
+
+def net_of(c):
+    return (c.get("pnl_lot") or 0) - charges(c)
+
+
+def optimize(calls, min_n=12):
+    """ஒவ்வொரு module-க்கும்: எந்த feature-bucket (நேரம் / score / volume / trend / velocity / range / OI) நஷ்டம்
+    (charges சேர்த்து expectancy < 0, win% module-ஐ விட 8% கம்மி, ≥12 calls) → அதை block. Module மொத்தமா நஷ்டம் (≥25 calls) → pause."""
+    OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
+    rows = [c for c in calls if c.get("status") not in OPEN and c.get("status") not in ("VOID", "CANCELLED") and c.get("entry")
+            and c.get("kind") not in ("PICK", "AIPICK")]
+    by = {}
+    for c in rows:
+        by.setdefault(c.get("source") or c.get("kind"), []).append(c)
+    mods, blocks = {}, []
+    for m, L in by.items():
+        n = len(L)
+        nets = [net_of(c) for c in L]
+        wr = sum(1 for x in nets if x > 0) / n
+        exp = sum(nets) / n
+        mods[m] = {"n": n, "win": round(wr * 100), "exp": round(exp), "net": round(sum(nets)), "gross": sum(c.get("pnl_lot") or 0 for c in L),
+                   "paused": False}
+        buckets = {}
+        for c, x in zip(L, nets):
+            for k, v in feat_of_call(c).items():
+                if k in ("module", "type"):
+                    continue
+                buckets.setdefault((k, v), []).append(x)
+        for (k, v), xs in buckets.items():
+            if len(xs) < min_n:
+                continue
+            bw = sum(1 for x in xs if x > 0) / len(xs)
+            be = sum(xs) / len(xs)
+            if be < 0 and bw <= wr - 0.08:
+                blocks.append({"module": m, "k": k, "v": v, "n": len(xs), "win": round(bw * 100), "exp": round(be)})
+    blocks.sort(key=lambda b: b["exp"])
+    # learned filters போட்ட பிறகும் மீதி calls நஷ்டம்னா தான் module pause (நல்ல நேரம் / condition-ஐ காப்பாத்தும்)
+    for m, L in by.items():
+        bl = [b for b in blocks if b["module"] == m]
+        keep = [c for c in L if not any(feat_of_call(c).get(b["k"]) == b["v"] for b in bl)]
+        kn = [net_of(c) for c in keep[-60:]]                 # சமீபத்திய 60 — recover ஆனா தானா resume
+        mods[m]["after_filters"] = {"n": len(keep), "exp": round(sum(kn) / len(kn)) if kn else None,
+                                    "win": round(sum(1 for x in kn if x > 0) / len(kn) * 100) if kn else None}
+        mods[m]["paused"] = len(L) >= 25 and (len(kn) < 10 or sum(kn) / len(kn) < 0)
+    STATE["opt"] = {"mods": mods, "blocks": blocks}
+    return STATE["opt"]
+
+
+def blocked(c):
+    """Call-க்கு learned block / module pause பொருந்துதா → (code, காரணம்) அல்லது None."""
+    O = STATE.get("opt") or {}
+    m = c.get("source") or c.get("kind")
+    md = (O.get("mods") or {}).get(m)
+    if md and md["paused"]:
+        return ("Q_MODULE_PAUSED", f"{m}: {md['n']} calls-ல் charges சேர்த்து சராசரி ₹{md['exp']} — auto pause (shadow paper-ல் track — லாபம் திரும்பினா resume)")
+    f = c.get("feat") or {}
+    for b in O.get("blocks") or []:
+        if b["module"] == m and f.get(b["k"]) == b["v"]:
+            return ("Q_LEARNED", f"{m}: {b['k']}={b['v']} — {b['n']} calls-ல் win {b['win']}%, சராசரி ₹{b['exp']} (learned filter)")
+    return None

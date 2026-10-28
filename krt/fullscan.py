@@ -1149,7 +1149,10 @@ def run_ai(live_q, res, now, live):
     risk = market_risk(live_q, res, now)
     if not AST.get("_t") or (now - AST["_t"]).total_seconds() > 300:
         try:
-            train(list((STORE.load().get("calls") or {}).values()))
+            _all = list((STORE.load().get("calls") or {}).values())
+            train(_all)
+            from .ai import optimize
+            optimize(_all)
         except Exception:
             pass
         AST["_t"] = now
@@ -1192,7 +1195,7 @@ def run_ai(live_q, res, now, live):
             add_aipick([c for c in cands if c["ok"]], now, AI["max_day"])
         except Exception as e:
             res.setdefault("errors", []).append(f"AI picks: {e}")
-    return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"},
+    return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"}, "opt": AST.get("opt"),
             "top_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
                                  for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: -x[3])[:6],
             "worst_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
