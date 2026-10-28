@@ -880,7 +880,7 @@ function renderFull(s){
       <div>② <b>Gamma unwind V3</b> — stock option OI திடீர்னு குறைஞ்சு (writers exit) + volume + consolidation → ENTRY (அரிது).</div>
       <div>③ <b>Expiry gamma blast</b> — expiry நாள் 1 PM பிறகு மட்டும் (மிக அதிக risk).</div>
       <div class="hint" style="margin-top:6px">Next expiry: ${((f.gamma||{}).calendar||[]).map(c=>`<b>${esc(c.name)}</b> ${esc(c.expiry)}${c.today?' <b class="up">(இன்று)</b>':''}`).join(" · ")||"–"}</div></div>
-    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + gexHTML(f) + guSection(s) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
+    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + guClassicHTML(s) + gexHTML(f) + guSection(s) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
     <div class="hint">Rules: expiry இன்று + 1:00 PM பிறகு + spot day high (CE) / low (PE) அருகில் + OI wall உடைப்பு அல்லது ATM writers unwinding. Strike: ATM / 1 OTM மட்டும் (index premium ₹5–90). 30 sec-க்கு ஒருமுறை live check.</div>
     <h2 class="sec">📅 Expiry calendar</h2>${simpleTbl(gm.calendar,[["Index",c=>esc(c.name)],["Next expiry",c=>esc(c.expiry)],["இன்று?",c=>c.today?'<b class="up">✓ GAMMA DAY</b>':"–"]])}
     <h2 class="sec">💥 Index gamma</h2>${gm.index.length?gm.index.map(gammaCard).join(""):`<div class="empty">இன்று index expiry இல்லை. மேலே calendar பாருங்க.</div>`}
@@ -1674,6 +1674,25 @@ function riskVoice(f){
     toast(`${key==="CRASH"?"🚨":"⚡"} <b>${esc(R.text)}</b>`);
   }
   RISKLAST=key;
+}
+/* ===== 🎯 GU CLASSIC ===== */
+function guClassicHTML(s){
+  const g=(s.gu||{}).data, K=(g||{}).classic_cfg||{}, TR=((s.full||{}).tracking)||{};
+  const cons=((g||{}).contracts||[]).filter(c=>(c.eval||{}).classic&&Object.keys(c.eval.classic.checks||{}).length)
+    .sort((a,b)=>Object.values(b.eval.classic.checks).filter(Boolean).length-Object.values(a.eval.classic.checks).filter(Boolean).length);
+  const tick=v=>v?'<span class="up">✓</span>':'<span class="dn">✗</span>';
+  return `<div class="gkhead" style="border-color:#f97316;background:linear-gradient(180deg,rgba(249,115,22,.14),rgba(249,115,22,.02))"><h2 style="color:#fb923c">🎯 GAMMA-UNWIND CLASSIC</h2>
+   <div class="hint">Daily support / resistance zones (10-bar pivot · ATR50) அருகில் உள்ள stocks → zone-க்கு ±2.5% OTM strikes (அதிக OI top 2, OI ≥${K.min_oi_lots||50} lots, expiry ≥${K.min_dte||4} நாள்) → <b>ஒவ்வொரு 5-min candle-லும் ஒரே நேரத்தில்:</b>
+   A · OI peak-ல் இருந்து ≥${K.oi_drop||8}% குறைவு + தொடர்ந்து falling · B · volume (கடைசி 3-ல் 2 SMA20-க்கு மேல், option + stock) · C · 4–12 bars அமைதியான base (≤1 ATR) · H · premium jump · Stock 5-min close zone-ஐ தாண்டணும் · NIFTY 20-day trend · 9:30–2:30 → <b>TRADE ALERT</b>.</div>
+   <div class="hint">Exit: T1/T2/T3/T4 = premium <b>+25% / +50% / +75% / +100%</b> · SL = stock எதிர் zone-ஐ தாண்டினா (அல்லது premium −${Math.round((K.sl_cap||.4)*100)}% cap) · swing max ${K.hold_days||5} நாள் · expiry-க்கு முந்தைய நாள் exit · T1 → SL entry–T1 நடு. NIFTY-D20: <b>${esc((g||{}).nifty_d20||"–")}</b> · Classic ✓ இப்போ: <b>${((g||{}).why||{}).classic??0}</b></div></div>
+   ${segBlock(TR,["Gamma Unwind Classic"],"GU CLASSIC")}
+   ${cons.length?`<h3 class="sec">👀 Watch list — எந்த check pass / fail (${cons.length})</h3>`+simpleTbl(cons.slice(0,15),[["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><div class="hint">${esc(c.expiry)} · edge ${n2(c.edge)}</div>`],
+     ["OI drop",c=>`${c.eval.classic.drop}%${c.eval.classic.strong?" 💪":""}`],
+     ...Object.keys(cons[0].eval.classic.checks).map(k=>[k.split(" · ")[0].split(" ")[0],c=>tick((c.eval.classic.checks||{})[k])]),
+     ["Entry",c=>n2(c.eval.classic.entry)],["SL",c=>n2(c.eval.classic.sl)],["T1–T4",c=>(c.eval.classic.targets||[]).map(n2).join(" / ")],
+     ["Status",c=>c.eval.classic.ok?'<b class="up">✅ ALERT</b>':`<span class="hint">${Object.values(c.eval.classic.checks).filter(Boolean).length}/${Object.keys(c.eval.classic.checks).length}</span>`]])
+     :`<div class="empty">Watch list 9:20-க்கு பிறகு வரும் (13:15-க்கு refresh).</div>`}
+   <div class="hint" style="margin-top:6px">⚠ இது “GAMMA-UNWIND 0.8.9” client strategy-ன் rules-ஐ வைத்து நாமே எழுதியது (அவங்க code இல்லை) — எண்கள் சின்னதா வேறுபடலாம். OTM option swing buying = மிக அதிக risk · alert / paper மட்டும்.</div>`;
 }
 function render(s){
   const f=s.full, r=s.result;

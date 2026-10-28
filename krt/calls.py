@@ -214,7 +214,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     if p.get("risk_ok") is False:      # V3.2: skip இல்லை — Grade C-ஆ வரும் (risk காட்டும்)
         force_.append("RISK_CAP")
     cid = f"{day}|{kind}|{r['symbol']}|{opt['contract']}"
-    if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA", "MACHINE"):
+    if not p.get("calibrated") and (STORE.data or {}).get("calib", {}).get(src) and kind not in ("GAMMA", "MACHINE", "GU-CLASSIC"):
         p = calibrate_plan(src, dict(p))
     if not p.get("money") and r.get("price"):   # safety net — எல்லா calls-க்கும் ₹ targets
         try:
@@ -740,6 +740,14 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 _close(c, "TIME STOP", ltp, str(now))      # 30 நிமிடத்தில் +10% வரல → exit
                 changed = True
                 continue
+            if c["kind"] == "GU-CLASSIC" and c.get("ul_token") and c.get("ul_sl"):
+                uq = qs.get(c["ul_token"])
+                u = _f(uq.get("ltp")) if uq else 0
+                if u and ((u < c["ul_sl"]) if c["side"] == "CE" else (u > c["ul_sl"])):
+                    _close(c, "STOCK SL", ltp, str(now))
+                    tg(f"🛑 GU CLASSIC stock SL: {c['symbol']} {c['strike']:g} {c['side']} — stock ₹{u} zone ₹{c['ul_sl']} தாண்டியது · P/L/lot ₹{c['pnl_lot']}")
+                    changed = True
+                    continue
             if c["kind"].startswith("POWER") and not SIMPLE_EXIT:
                 uq = qs.get(c.get("ul_token")) if c.get("ul_token") else None
                 u = _f(uq.get("ltp")) if uq else 0
@@ -1223,3 +1231,33 @@ def add_aipick(rows, now, max_day=5):
             STORE.dirty = True
             STORE.save(force=True)
     return n
+
+
+def add_gu_classic(c0, ev, now, K):
+    """🎯 GU CLASSIC → swing call: targets +25/50/75/100% premium · option SL 40% cap + stock zone SL ·
+    max 5 நாள் · expiry-க்கு முந்தைய நாள் exit. நாளைக்கு max 5 · symbol-க்கு ஒன்று."""
+    day = str(now.date())
+    with CALLS_LOCK:
+        d = STORE.load()
+        mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "GU-CLASSIC"]
+        if len(mine) >= K["max_day"] or any(x["symbol"] == c0["symbol"] for x in mine):
+            return 0
+        opt = {"token": c0["token"], "exch": c0["exch"], "contract": c0["contract"], "strike": c0["strike"], "type": c0["side"],
+               "expiry": c0["expiry"], "lot": c0["lot"],
+               "plan": {"entry": ev["entry"], "sl": ev["sl"], "targets": ev["targets"], "risk": round((ev["entry"] - ev["sl"]) * c0["lot"]),
+                        "risk_ok": True, "money": True, "reward_ok": True, "v4": True}}
+        r = {"symbol": c0["symbol"], "price": None, "sl": ev.get("ul_sl"), "targets": [], "stars": 5,
+             "confidence": f"GU CLASSIC · OI −{ev['drop']}%{' (strong)' if ev.get('strong') else ''}",
+             "reasons": ["🎯 GU CLASSIC — 5 checks ஒரே 5-min candle-ல் ✓"] + [f"✓ {k}" for k in ev["checks"]]}
+        c = _new("GU-CLASSIC", "Gamma Unwind Classic", r, opt, now, day, hold=K["hold_days"], session=pd.Timestamp(day))
+        if not c or c["id"] in d["calls"]:
+            return 0
+        exp_prev = str((pd.Timestamp(c0["expiry"]) - pd.tseries.offsets.BDay(1)).date())
+        c["hold_until"] = min(c.get("hold_until") or exp_prev, exp_prev)
+        c.update(grade="A", qcodes=[], qtext=[], ul_token=c0.get("ul_token"), ul_sl=ev.get("ul_sl"), trail_after_t1=True, trail_after_t2=True)
+        d["calls"][c["id"]] = c
+        STORE.dirty = True
+        STORE.save(force=True)
+        tg(f"🎯 GU CLASSIC TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
+           + " / ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + f"\nOI −{ev['drop']}% · hold ≤5 நாள் · {c['hold_until']} exit\n(alert only · not advice)", f"guc|{c['id']}")
+    return 1

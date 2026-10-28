@@ -32,6 +32,11 @@ ENG = {
     "HOLDING": {"targets": [0.20, 0.40, 0.60], "min_dte": 8, "kind": "GU-HOLDING",
                 "delta": (0.25, 0.45), "theta": 6, "window": (10 * 60, 15 * 60 + 10)},
 }
+# 🎯 GU CLASSIC — client "GAMMA-UNWIND 0.8.9" strategy-ன் rules (naame ezhudhiyadhu, code copy இல்லை)
+CLASSIC = {"oi_drop": 8.0, "oi_strong": 12.0, "oi_falling_bars": 2, "vol_sma": 20, "vol_min_of_last3": 2,
+           "consol_min": 4, "consol_max": 12, "consol_atr": 1.0, "min_range_ticks": 2, "max_zero_vol": 1,
+           "window": (9 * 60 + 30, 14 * 60 + 30), "min_dte": 4, "targets": [0.25, 0.50, 0.75, 1.00],
+           "sl_cap": 0.40, "hold_days": 5, "max_day": 5, "min_oi_lots": 50}
 ST = {"day": None, "sel": {}, "zones": [], "contracts": [], "signals": {}, "armed": {}, "last": None,
       "health": {}, "regime": {}, "entries": 0, "cool": {}}
 
@@ -154,6 +159,8 @@ def select(ag, inst, C, ltp_of, now, regime):
     want = []
     for w in cands:
         for r in inst["opts"].get(w["symbol"], []):
+            if r[6] != "NFO":
+                continue          # BSE stock options-ல் trade இல்லை
             if r[4] != w["side"]:
                 continue
             k = r[3]
@@ -265,7 +272,71 @@ def stock_ctx(ag, c, now):
     vwap = float((tp * df["volume"]).sum() / max(df["volume"].sum(), 1))
     cl = df["close"].values
     tr = "UP" if len(cl) >= 3 and cl[-1] > cl[-2] > cl[-3] else "DOWN" if len(cl) >= 3 and cl[-1] < cl[-2] < cl[-3] else "FLAT"
-    return {"close15": float(cl[-1]), "vwap": round(vwap, 2), "trend15": tr}
+    out = {"close15": float(cl[-1]), "vwap": round(vwap, 2), "trend15": tr}
+    try:
+        d5 = ag.candles("NSE", c["ul_token"], "FIVE_MINUTE", t0, now)
+        d5 = d5[d5.index + pd.Timedelta(minutes=5) <= now] if not d5.empty else d5
+        if len(d5):
+            out["close5"] = float(d5["close"].iloc[-1])
+            v5 = d5["volume"].values
+            sma = v5[-21:-1].mean() if len(v5) > 5 else 0
+            out["stock_vol_ok"] = bool(sma and v5[-1] > sma and int((v5[-3:] > sma).sum()) >= 2)
+    except Exception:
+        pass
+    return out
+
+
+def nifty_d20(ag, now):
+    """NIFTY முந்தைய நாள் close vs 20-நாள் SMA (client: NIFTY-D20, D-1 daily)."""
+    key = str(now.date())
+    if ST.get("_nd20", (None,))[0] == key:
+        return ST["_nd20"][1]
+    try:
+        df = ag.candles("NSE", "99926000", "ONE_DAY", now - pd.Timedelta(days=60), now.normalize() - pd.Timedelta(minutes=1))
+        cl = df["close"].values
+        val = "UP" if cl[-1] > cl[-20:].mean() else "DOWN" if len(cl) >= 20 else None
+    except Exception:
+        val = None
+    ST["_nd20"] = (key, val)
+    return val
+
+
+def classic_eval(c, df, oi_raw, ul, q, now, nd20):
+    """GU CLASSIC 5 checks (ஒரே completed 5-min candle-ல் எல்லாம்)."""
+    o, h, l, cl, v = (df[k].values for k in ("open", "high", "low", "close", "volume"))
+    K = CLASSIC
+    ce = c["side"] == "CE"
+    out = {}
+    peak = max(oi_raw) if oi_raw else 0
+    drop = (peak - oi_raw[-1]) / peak * 100 if peak else 0
+    n = K["oi_falling_bars"]
+    falling = len(oi_raw) > n and all(oi_raw[-k] < oi_raw[-k - 1] for k in range(1, n + 1))
+    out["A · OI unwind ≥8% + falling"] = bool(drop >= K["oi_drop"] and falling)
+    sma = v[-K["vol_sma"]:].mean() if len(v) >= K["vol_sma"] else v.mean()
+    out["B · Volume (2 of 3 > SMA20)"] = bool(sma and v[-1] > sma and int((v[-3:] > sma).sum()) >= K["vol_min_of_last3"]
+                                             and ul.get("stock_vol_ok", True))
+    atr14 = _atr(h[:-1], l[:-1], cl[:-1], 14)
+    cons = False
+    for m in range(min(K["consol_max"], len(h) - 1), K["consol_min"] - 1, -1):
+        if atr14 and (h[-m - 1:-1].max() - l[-m - 1:-1].min()) <= K["consol_atr"] * atr14:
+            cons = True
+            break
+    out["C · Quiet base (4–12 bars ≤1 ATR)"] = cons
+    out["H · Premium jump (range ≥2 ticks, volume)"] = bool((h[-1] - l[-1]) >= 0.05 * K["min_range_ticks"] - 1e-9
+                                                          and int((v[-6:] == 0).sum()) <= K["max_zero_vol"] and cl[-1] > o[-1])
+    c5 = ul.get("close5")
+    out["Stock · 5m close zone-ஐ தாண்டியது"] = bool(c5 and ((c5 > c["edge"]) if ce else (c5 < c["edge"])))
+    out["NIFTY-D20 trend"] = (nd20 == ("UP" if ce else "DOWN")) if nd20 else True
+    mins = now.hour * 60 + now.minute
+    out["Time 9:30–14:30"] = K["window"][0] <= mins <= K["window"][1]
+    out["Expiry ≥4 days · OI ≥50 lots"] = bool(c.get("dte", 0) >= K["min_dte"] and c.get("oi", 0) >= K["min_oi_lots"] * c["lot"])
+    d = (q or {}).get("depth") or {}
+    ask = _f(((d.get("sell") or [{}])[0] or {}).get("price"))
+    entry = r05(ask or float(cl[-1]))
+    ok = all(out.values())
+    return {"checks": out, "ok": ok, "drop": round(drop, 1), "strong": drop >= K["oi_strong"], "entry": entry,
+            "sl": r05(entry * (1 - K["sl_cap"])), "targets": [r05(entry * (1 + x)) for x in K["targets"]],
+            "ul_sl": (c["zone"][0] if ce else c["zone"][1]) if c.get("zone") else None}
 
 
 # ---------------- 6/8/9 evaluate one contract
@@ -279,8 +350,13 @@ def evaluate(ag, c, now, ul, q, regime):
         ev["note"] = "Trade இல்லை / போதுமான 5-min bars இல்லை"
         return ev
     o, h, l, cl, v = (df[k].values for k in ("open", "high", "low", "close", "volume"))
-    oi = oi_metrics(_oi(ag, c, t0, now), cl)
+    oi_raw = _oi(ag, c, t0, now)
+    oi = oi_metrics(oi_raw, cl)
     ev["oi"] = oi
+    try:
+        ev["classic"] = classic_eval(c, df, oi_raw, ul, q, now, ST.get("_nd20_val"))
+    except Exception as e:
+        ev["classic"] = {"ok": False, "checks": {}, "err": str(e)}
     ev["A"] = bool(oi.get("ok") and oi["drop"] >= CFG["oi_drop"])
     base_v = v[3:-1] if len(v) > 8 else v[:-1]           # காலை முதல் 3 bars (opening spike) baseline-ல் சேர்க்க வேண்டாம்
     avg20 = base_v[-20:].mean() if len(base_v) else 0
@@ -376,6 +452,7 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
         for x in cons:
             keep[x["contract"]] = {**keep.get(x["contract"], {}), **x}
         ST["contracts"] = sorted(keep.values(), key=lambda x: -(x["zone_rank"] + x["strike_rank"]))[:CFG["max_contracts"]]
+    ST["_nd20_val"] = nifty_d20(ag, now)
     toks = {}
     for c in ST["contracts"]:
         toks.setdefault(c["exch"], []).append(c["token"])
@@ -399,6 +476,13 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
         health["checked"] += 1
         ev = c["eval"]
         key = f"{day}|{c['contract']}"
+        cl_ = ev.get("classic") or {}
+        if cl_.get("ok"):
+            try:
+                from .calls import add_gu_classic
+                add_gu_classic(c, cl_, now, CLASSIC)
+            except Exception as e:
+                health.setdefault("classic_err", str(e))
         if ev.get("armed"):
             ST["armed"].setdefault(key, now.strftime("%H:%M"))
         a_at = ST["armed"].get(key)
@@ -477,6 +561,8 @@ def snapshot():
         why["trigger"] += bool(e.get("trigger"))
         why["stock"] += bool(e.get("ul_break"))
     why["total"] = len(cons)
+    why["classic"] = sum(1 for c in cons if ((c.get("eval") or {}).get("classic") or {}).get("ok"))
     return {"why": why, "day": ST["day"], "selected": ST["sel"], "last": ST["last"], "zones": ST["zones"], "contracts": cons,
             "signals": sigs, "armed": [c for c in cons if (c.get("eval") or {}).get("armed")],
-            "oi_leaders": lead, "health": ST["health"], "regime": ST["regime"], "entries": ST["entries"], "cfg": CFG}
+            "oi_leaders": lead, "health": ST["health"], "regime": ST["regime"], "entries": ST["entries"], "cfg": CFG,
+            "classic_cfg": CLASSIC, "nifty_d20": ST.get("_nd20_val")}
