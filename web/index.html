@@ -240,6 +240,9 @@ header{position:relative}
 .strongbox{margin:10px 0 14px;padding:12px 14px;border:2px solid #fb923c;border-radius:14px;background:linear-gradient(180deg,rgba(251,146,60,.16),rgba(251,146,60,.03))}
 .earlycard.stg{border:2px solid #fb923c;box-shadow:0 0 18px rgba(251,146,60,.55)}
 @media (prefers-reduced-motion:no-preference){.earlycard.stg{animation:org 1.6s ease-in-out infinite}}
+
+.gkcard.orange{border-color:#fb923c;box-shadow:0 0 26px rgba(251,146,60,.65)}
+.orgtag{margin:-2px 0 6px;padding:5px 8px;border-radius:8px;background:rgba(251,146,60,.2);color:#fdba74;font-weight:800;font-size:13px}
 /* ai */
 .aibox{margin:10px 0 14px;padding:12px 14px;border:2px solid #a855f7;border-radius:14px;background:linear-gradient(180deg,rgba(168,85,247,.16),rgba(168,85,247,.03))}
 .aic{border-color:#a855f7}.aic.ok{border:2px solid #22c55e;box-shadow:0 0 18px rgba(34,197,94,.45)}
@@ -879,12 +882,12 @@ function renderFull(s){
     <div class="news">${newsHTML(nw.items, setupSyms)}</div>`;
   const ck=s.result;
   const gm=f.gamma||{index:[],stocks:[],calendar:[]}, gtrig=[...gm.index,...gm.stocks].filter(g=>g.status==="TRIGGERED");
-  $("p-gm").innerHTML = `<div class="v4strip" onclick="goTab('v4m')">🔥 <b>Gamma Blast → KRT AI V4 upgrade:</b> 4 index × 5 strategies (CQSMC · Order Flow · Gamma Squeeze · Silver Bullet · VWAP) — AI Master Scanner / Strategy Engine / Best Setups tabs பாருங்க →</div><div class="suggest" style="font-size:14px"><b>⚡ Gamma tab என்ன?</b> Option writers (sellers) பெரிய OI வைத்திருக்கும் strike = <b>wall</b>. விலை wall-ஐ உடைச்சா writers cover பண்ணுவாங்க → வேகமான move (gamma). இந்த tab 3 வழியில் call தரும்:
+  $("p-gm").innerHTML = SX("guClassicHTML",()=>guClassicHTML(s)) + `<div class="v4strip" onclick="goTab('v4m')">🔥 <b>Gamma Blast → KRT AI V4 upgrade:</b> 4 index × 5 strategies (CQSMC · Order Flow · Gamma Squeeze · Silver Bullet · VWAP) — AI Master Scanner / Strategy Engine / Best Setups tabs பாருங்க →</div><div class="suggest" style="font-size:14px"><b>⚡ Gamma tab என்ன?</b> Option writers (sellers) பெரிய OI வைத்திருக்கும் strike = <b>wall</b>. விலை wall-ஐ உடைச்சா writers cover பண்ணுவாங்க → வேகமான move (gamma). இந்த tab 3 வழியில் call தரும்:
       <div style="margin-top:6px">① <b>Gamma V3 (GEX)</b> — தினமும் 9:45–2:30: NIFTY / BANKNIFTY / FINNIFTY / SENSEX 5-min close call wall-ஐ உடைச்சா → CE, put wall-ஐ உடைச்சா → PE, wall-ல் reject ஆனா எதிர் side. Index-க்கு ஒரு side-க்கு ஒரு நாளைக்கு 1 call.</div>
       <div>② <b>Gamma unwind V3</b> — stock option OI திடீர்னு குறைஞ்சு (writers exit) + volume + consolidation → ENTRY (அரிது).</div>
       <div>③ <b>Expiry gamma blast</b> — expiry நாள் 1 PM பிறகு மட்டும் (மிக அதிக risk).</div>
       <div class="hint" style="margin-top:6px">Next expiry: ${((f.gamma||{}).calendar||[]).map(c=>`<b>${esc(c.name)}</b> ${esc(c.expiry)}${c.today?' <b class="up">(இன்று)</b>':''}`).join(" · ")||"–"}</div></div>
-    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + SX("guClassicHTML",()=>guClassicHTML(s)) + SX("gexHTML",()=>gexHTML(f)) + SX("guSection",()=>guSection(s)) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
+    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + SX("gexHTML",()=>gexHTML(f)) + SX("guSection",()=>guSection(s)) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
     <div class="hint">Rules: expiry இன்று + 1:00 PM பிறகு + spot day high (CE) / low (PE) அருகில் + OI wall உடைப்பு அல்லது ATM writers unwinding. Strike: ATM / 1 OTM மட்டும் (index premium ₹5–90). 30 sec-க்கு ஒருமுறை live check.</div>
     <h2 class="sec">📅 Expiry calendar</h2>${simpleTbl(gm.calendar,[["Index",c=>esc(c.name)],["Next expiry",c=>esc(c.expiry)],["இன்று?",c=>c.today?'<b class="up">✓ GAMMA DAY</b>':"–"]])}
     <h2 class="sec">💥 Index gamma</h2>${gm.index.length?gm.index.map(gammaCard).join(""):`<div class="empty">இன்று index expiry இல்லை. மேலே calendar பாருங்க.</div>`}
@@ -1448,7 +1451,8 @@ function v4PlanLine(b){
 function gokiCard(r,i){
   const o=r.option||{}, p=r.rp||{};
   const act=r.action==="ENTRY"?`<div class="mcact ENTRY">✅ ENTRY — call கொடுத்தாச்சு (Calls tab)</div>`:`<div class="mcact WAIT">⏳ WATCH — ${esc((r.why_not||[]).slice(0,2).join(" · ")||"confirm ஆகல")}</div>`;
-  return `<div class="gkcard ${r.action==="ENTRY"?"go":""}">
+  return `<div class="gkcard ${r.action==="ENTRY"?"go":""} ${r.orange?"orange":""}">
+   ${r.orange?`<div class="orgtag">🟠 AI: இது நல்ல setup — எடுக்கலாம் (${r.hold?"holding "+r.hold+" நாள்":"intraday"})</div>`:""}
    <div class="ctop"><div class="cbuy">#${i+1} ${esc(r.symbol)} ${o.strike?n2(o.strike):""} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></div><span class="crate"><b>${r.score}</b>/100</span></div>
    <div class="cmeta">👑 ${esc(r.scanner)} ${r.full?"9/9 ✓":"8/9"} · ⏱ ${esc(r.found||"")} · ${o.expiry?"expiry "+esc(o.expiry)+" · lot "+o.lot:""}</div>
    <div class="crow num"><span>Stock <b>${n2(r.price)}</b></span><span>Stock SL <b class="dn">${n2(r.sl)}</b></span><span>Opt LTP <b>${n2(o.ltp)}</b></span></div>
@@ -1471,7 +1475,7 @@ function gokiHTML(f){
     ["Scanner",c=>esc((c.goki||{}).scanner||"")+`<div class="hint">score ${(c.goki||{}).score??"–"}</div>`],["Entry",c=>n2(c.entry)],["SL",c=>`${n2(c.sl0||c.sl)}${c.sl0&&c.sl!==c.sl0?`<div class="hint">→ ${n2(c.sl)}</div>`:""}`],
     ["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Result",c=>`${statusCell(c)}${c.exit_time?`<div class="hint">${esc(String(c.exit_time).slice(5,16))}</div>`:""}`],["",pbtn]];
   return `<div class="gkhead"><h2>👑 GOKI MANNAN JACKPOT RADAR</h2>
-    <div class="hint">CE = உங்கள் Chartink <b>FINAL SCANER MASTER VERSION</b> (9 rules) · PE = <b>DOW EARANGUM</b> (15-min PDL fresh breakdown, red candle, volume 3×, VWAP கீழ், RSI&lt;40, price&gt;50, vol&gt;5L, mcap&gt;1000). ஒவ்வொரு 15-min candle முடிந்ததும் scan → analysis score (scanner match · 15m volume / institution proxy · futures OI build-up · NIFTY direction · RS · VWAP தூரம் · candle · room) → <b>top 3</b>.</div>
+    <div class="hint">Scanners: <b>FINAL SCANER MASTER</b> · <b>MASTER BLASTER</b> (+ day ≥3%) · <b>DOW EARANGUM</b> (PE) · <b>CHAT HPY</b> (20-day high breakout, daily) · <b>GROK BEST ONE HOLDING</b> (weekly, 1 வாரம்–1 மாதம்) · <b>MONSTER HOLDING</b> (weekly +8%). Daily / weekly scanners entry 2:00–3:20, next-month strike, holding ₹ rules (SL ≤₹4,000 · T ₹5K/8K/12K). 🟠 = 9/9 + score ≥70 + plan OK → AI voice “எடுக்கலாம்”.</div><div class="hint">CE = உங்கள் Chartink <b>FINAL SCANER MASTER VERSION</b> (9 rules) · PE = <b>DOW EARANGUM</b> (15-min PDL fresh breakdown, red candle, volume 3×, VWAP கீழ், RSI&lt;40, price&gt;50, vol&gt;5L, mcap&gt;1000). ஒவ்வொரு 15-min candle முடிந்ததும் scan → analysis score (scanner match · 15m volume / institution proxy · futures OI build-up · NIFTY direction · RS · VWAP தூரம் · candle · room) → <b>top 3</b>.</div>
     <div class="cb-stats" style="margin-top:8px"><span class="cb-stat">Scan ${esc((G||{}).time||"–")}</span><span class="cb-stat up">CE 9/9: ${(G||{}).ce??0}</span><span class="cb-stat dn">PE 9/9: ${(G||{}).pe??0}</span>
      <span class="cb-stat">Calls ${all.length} · Win ${wins}/${done.length}</span><span class="cb-stat ${tnet>=0?'up':'dn'}">இன்று ${tnet>=0?"+":"−"}₹${n2(Math.abs(tnet))}</span><span class="cb-stat ${net>=0?'up':'dn'}">மொத்தம் ${net>=0?"+":"−"}₹${n2(Math.abs(net))}</span></div></div>
    <h2 class="sec">🎯 Radar — Top 3 setups</h2>
@@ -1624,6 +1628,8 @@ function announceNew(f){
   ANN=ids;
   if(!fresh.length) return;
   fresh.slice(0,3).forEach(c=>toast(`<b>🔔 புது call</b> · ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}</div>`));
+  const gkF=fresh.find(c=>c.kind==="GOKI");
+  if(voiceOn()&&gkF){ speak(`Goki Mannan jackpot. Orange alert. Good setup. Buy ${gkF.symbol} ${gkF.strike} ${gkF.side==="CE"?"call":"put"}. Entry ${gkF.entry}. Stop loss ${gkF.sl}. You can take this.`); try{beep();}catch(e){} return; }
   const stF=fresh.find(c=>c.kind==="STRONG");
   if(voiceOn()&&stF){ speak(`Orange alert. Strong breakout. Buy ${stF.symbol} ${stF.strike} ${stF.side==="CE"?"call":"put"}. Entry ${stF.entry}. Stop loss ${stF.sl}.`); try{beep();}catch(e){} return; }
   const aiF=fresh.find(c=>c.kind==="AIPICK");
@@ -1691,14 +1697,14 @@ function guClassicHTML(s){
   return `<div class="gkhead" style="border-color:#f97316;background:linear-gradient(180deg,rgba(249,115,22,.14),rgba(249,115,22,.02))"><h2 style="color:#fb923c">🎯 GAMMA-UNWIND CLASSIC</h2>
    <div class="hint">Daily support / resistance zones (10-bar pivot · ATR50) அருகில் உள்ள stocks → zone-க்கு ±2.5% OTM strikes (அதிக OI top 2, OI ≥${K.min_oi_lots||50} lots, expiry ≥${K.min_dte||4} நாள்) → <b>ஒவ்வொரு 5-min candle-லும் ஒரே நேரத்தில்:</b>
    A · OI peak-ல் இருந்து ≥${K.oi_drop||8}% குறைவு + தொடர்ந்து falling · B · volume (கடைசி 3-ல் 2 SMA20-க்கு மேல், option + stock) · C · 4–12 bars அமைதியான base (≤1 ATR) · H · premium jump · Stock 5-min close zone-ஐ தாண்டணும் · NIFTY 20-day trend · 9:30–2:30 → <b>TRADE ALERT</b>.</div>
-   <div class="hint">Exit: T1/T2/T3/T4 = premium <b>+25% / +50% / +75% / +100%</b> · SL = stock எதிர் zone-ஐ தாண்டினா (அல்லது premium −${Math.round((K.sl_cap||.4)*100)}% cap) · swing max ${K.hold_days||5} நாள் · expiry-க்கு முந்தைய நாள் exit · T1 → SL entry–T1 நடு. NIFTY-D20: <b>${esc((g||{}).nifty_d20||"–")}</b> · Classic ✓ இப்போ: <b>${((g||{}).why||{}).classic??0}</b></div>
+   <div class="hint">Exit: T1/T2/T3/T4 = premium <b>+25% / +50% / +75% / +100%</b> · SL = stock எதிர் zone-ஐ தாண்டினா (அல்லது premium −${Math.round((K.sl_cap||.4)*100)}% cap) · swing max ${K.hold_days||5} நாள் · expiry-க்கு முந்தைய நாள் exit · T1 → SL entry–T1 நடு. NIFTY-D20: <b>${esc((g||{}).nifty_d20||"–")}</b> · Classic ✓ இப்போ: <b>${((g||{}).why||{}).classic??0}</b> · <b style="color:#fb923c">🟠 LITE</b> = stock zone break + NIFTY + OI ≥4% + core (A/B/C/H) 2/4 → daily calls (max 3, grade B)</div>
    <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Last run ${esc((g||{}).last_run||"–")}</span><span class="cb-stat">Watch strikes ${(g||{}).n_contracts??0}</span><span class="cb-stat">Selection ${esc(Object.values((g||{}).sel_times||{}).join(", ")||"–")}</span>${(s.gu||{}).err?`<span class="cb-stat dn">${esc(s.gu.err)}</span>`:""}</div></div>
    ${segBlock(TR,["Gamma Unwind Classic"],"GU CLASSIC")}
    ${cons.length?`<h3 class="sec">👀 Watch list — எந்த check pass / fail (${cons.length})</h3>`+simpleTbl(cons.slice(0,15),[["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><div class="hint">${esc(c.expiry)} · edge ${n2(c.edge)}</div>`],
      ["OI drop",c=>`${c.eval.classic.drop}%${c.eval.classic.strong?" 💪":""}`],
      ...Object.keys(cons[0].eval.classic.checks).map(k=>[k.split(" · ")[0].split(" ")[0],c=>tick((c.eval.classic.checks||{})[k])]),
      ["Entry",c=>n2(c.eval.classic.entry)],["SL",c=>n2(c.eval.classic.sl)],["T1–T4",c=>(c.eval.classic.targets||[]).map(n2).join(" / ")],
-     ["Status",c=>c.eval.classic.ok?'<b class="up">✅ ALERT</b>':`<span class="hint">${Object.values(c.eval.classic.checks).filter(Boolean).length}/${Object.keys(c.eval.classic.checks).length}</span>`]])
+     ["Status",c=>c.eval.classic.ok?'<b class="up">✅ ALERT</b>':c.eval.classic.lite?'<b style="color:#fb923c">🟠 LITE call</b>':`<span class="hint">${Object.values(c.eval.classic.checks).filter(Boolean).length}/${Object.keys(c.eval.classic.checks).length}</span>`]])
      :allc.length?`<div class="empty">${allc.length} strikes watch-ல் இருக்கு — 5-min data / OI இன்னும் போதல (ஒவ்வொரு 5 நிமிடமும் :02, :07… check).</div>`
      :`<div class="empty">Watch list இன்னும் வரல — ${g?"zone அருகில் stock / liquid strike கிடைக்கல அல்லது Angel data fail; அடுத்த 5 நிமிடத்தில் மறுபடி try":"GU scanner 9:22 முதல் 5 நிமிடத்துக்கு ஒருமுறை ஓடும்"}.</div>`}
    <div class="hint" style="margin-top:6px">⚠ இது “GAMMA-UNWIND 0.8.9” client strategy-ன் rules-ஐ வைத்து நாமே எழுதியது (அவங்க code இல்லை) — எண்கள் சின்னதா வேறுபடலாம். OTM option swing buying = மிக அதிக risk · alert / paper மட்டும்.</div>`;

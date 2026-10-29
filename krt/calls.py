@@ -1083,8 +1083,9 @@ def cancel_pick(cid, now):
 
 def add_goki(rows, now):
     """👑 Goki Mannan Jackpot → paper call (top 3, score ≥70, scanner 9/9). நாளைக்கு max 5 · symbol+side-க்கு ஒன்று."""
-    if now.weekday() >= 5 or not (9 * 60 + 30 <= now.hour * 60 + now.minute <= 14 * 60 + 30):
+    if now.weekday() >= 5 or not (9 * 60 + 30 <= now.hour * 60 + now.minute <= 15 * 60 + 20):
         return 0
+    rows = [r for r in rows if r.get("hold") or now.hour * 60 + now.minute <= 14 * 60 + 30]
     n = 0
     day = str(now.date())
     with CALLS_LOCK:
@@ -1101,7 +1102,7 @@ def add_goki(rows, now):
             rr = {"symbol": r["symbol"], "price": r["price"], "sl": r["sl"], "targets": r.get("targets") or [], "stars": 5,
                   "vol_ratio": r.get("vol_ratio"), "confidence": f"Goki score {r['score']}",
                   "reasons": [f"👑 {r['scanner']} {'9/9' if r['full'] else '8/9'}"] + [f"{'✓' if v else '✗'} {k}" for k, v in r["chk"].items()]}
-            c = _new("GOKI", "Goki Mannan Jackpot", rr, o, now, day)
+            c = _new("GOKI", "Goki Mannan Jackpot", rr, o, now, day, hold=r.get("hold") or 0, session=pd.Timestamp(day) if r.get("hold") else None)
             if not c or c["id"] in d["calls"]:
                 continue
             c.update(grade="A", qcodes=[], qtext=[], goki={"scanner": r["scanner"], "score": r["score"], "found": r.get("found")})
@@ -1254,7 +1255,7 @@ def add_aipick(rows, now, max_day=5):
     return n
 
 
-def add_gu_classic(c0, ev, now, K):
+def add_gu_classic(c0, ev, now, K, lite=False):
     """🎯 GU CLASSIC → swing call: targets +25/50/75/100% premium · option SL 40% cap + stock zone SL ·
     max 5 நாள் · expiry-க்கு முந்தைய நாள் exit. நாளைக்கு max 5 · symbol-க்கு ஒன்று."""
     day = str(now.date())
@@ -1263,22 +1264,26 @@ def add_gu_classic(c0, ev, now, K):
         mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "GU-CLASSIC"]
         if len(mine) >= K["max_day"] or any(x["symbol"] == c0["symbol"] for x in mine):
             return 0
+        if lite and sum(1 for x in mine if (x.get("gu") or {}).get("lite")) >= K.get("lite_max", 3):
+            return 0
         opt = {"token": c0["token"], "exch": c0["exch"], "contract": c0["contract"], "strike": c0["strike"], "type": c0["side"],
                "expiry": c0["expiry"], "lot": c0["lot"],
                "plan": {"entry": ev["entry"], "sl": ev["sl"], "targets": ev["targets"], "risk": round((ev["entry"] - ev["sl"]) * c0["lot"]),
                         "risk_ok": True, "money": True, "reward_ok": True, "v4": True}}
         r = {"symbol": c0["symbol"], "price": None, "sl": ev.get("ul_sl"), "targets": [], "stars": 5,
              "confidence": f"GU CLASSIC · OI −{ev['drop']}%{' (strong)' if ev.get('strong') else ''}",
-             "reasons": ["🎯 GU CLASSIC — 5 checks ஒரே 5-min candle-ல் ✓"] + [f"✓ {k}" for k in ev["checks"]]}
+             "reasons": [("🎯 GU CLASSIC LITE — stock zone break + OI unwind + " + str(ev.get("core_n")) + "/4 core checks") if lite
+                         else "🎯 GU CLASSIC — 5 checks ஒரே 5-min candle-ல் ✓"] + [f"{'✓' if v else '✗'} {k}" for k, v in ev["checks"].items()]}
         c = _new("GU-CLASSIC", "Gamma Unwind Classic", r, opt, now, day, hold=K["hold_days"], session=pd.Timestamp(day))
         if not c or c["id"] in d["calls"]:
             return 0
         exp_prev = str((pd.Timestamp(c0["expiry"]) - pd.tseries.offsets.BDay(1)).date())
         c["hold_until"] = min(c.get("hold_until") or exp_prev, exp_prev)
-        c.update(grade="A", qcodes=[], qtext=[], ul_token=c0.get("ul_token"), ul_sl=ev.get("ul_sl"), trail_after_t1=True, trail_after_t2=True)
+        c.update(grade="A" if not lite else "B", qcodes=[], qtext=[], ul_token=c0.get("ul_token"), ul_sl=ev.get("ul_sl"),
+                 trail_after_t1=True, trail_after_t2=True, gu={"lite": lite, "drop": ev.get("drop")}, source_label="GU Classic LITE" if lite else "GU Classic")
         d["calls"][c["id"]] = c
         STORE.dirty = True
         STORE.save(force=True)
-        tg(f"🎯 GU CLASSIC TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
+        tg(f"🎯 GU CLASSIC{' LITE' if lite else ''} TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
            + " / ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + f"\nOI −{ev['drop']}% · hold ≤5 நாள் · {c['hold_until']} exit\n(alert only · not advice)", f"guc|{c['id']}")
     return 1

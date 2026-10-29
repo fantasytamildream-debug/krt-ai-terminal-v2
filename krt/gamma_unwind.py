@@ -36,7 +36,8 @@ ENG = {
 CLASSIC = {"oi_drop": 8.0, "oi_strong": 12.0, "oi_falling_bars": 2, "vol_sma": 20, "vol_min_of_last3": 2,
            "consol_min": 4, "consol_max": 12, "consol_atr": 1.0, "min_range_ticks": 2, "max_zero_vol": 1,
            "window": (9 * 60 + 30, 14 * 60 + 30), "min_dte": 4, "targets": [0.25, 0.50, 0.75, 1.00],
-           "sl_cap": 0.40, "hold_days": 5, "max_day": 5, "min_oi_lots": 50}
+           "sl_cap": 0.40, "hold_days": 5, "max_day": 5, "min_oi_lots": 50,
+           "lite_drop": 4.0, "lite_core": 2, "lite_max": 3}     # LITE: daily calls வர — stock break + OI ≥4% + core 2/4
 ST = {"day": None, "sel": {}, "zones": [], "contracts": [], "signals": {}, "armed": {}, "last": None,
       "health": {}, "regime": {}, "entries": 0, "cool": {}}
 
@@ -336,7 +337,11 @@ def classic_eval(c, df, oi_raw, ul, q, now, nd20):
     ask = _f(((d.get("sell") or [{}])[0] or {}).get("price"))
     entry = r05(ask or float(cl[-1]))
     ok = all(out.values())
-    return {"checks": out, "ok": ok, "drop": round(drop, 1), "strong": drop >= K["oi_strong"], "entry": entry,
+    core = [out[k] for k in out if k[:1] in ("A", "B", "C", "H")]
+    must = [v for k, v in out.items() if k[:1] not in ("A", "B", "C", "H")]
+    core_n = sum(core)
+    lite = (not ok) and all(must) and drop >= K["lite_drop"] and core_n >= K["lite_core"]
+    return {"checks": out, "ok": ok, "lite": lite, "core_n": core_n, "drop": round(drop, 1), "strong": drop >= K["oi_strong"], "entry": entry,
             "sl": r05(entry * (1 - K["sl_cap"])), "targets": [r05(entry * (1 + x)) for x in K["targets"]],
             "ul_sl": (c["zone"][0] if ce else c["zone"][1]) if c.get("zone") else None}
 
@@ -358,7 +363,8 @@ def evaluate(ag, c, now, ul, q, regime):
     try:
         ev["classic"] = classic_eval(c, df, oi_raw, ul, q, now, ST.get("_nd20_val"))
         ck = ev["classic"]["checks"]
-        if all(v for k_, v in ck.items() if k_[:1] in ("A", "B", "C", "H")) and "close5" not in ul:
+        core_ok = sum(1 for k_, v in ck.items() if k_[:1] in ("A", "B", "C", "H") and v)
+        if (core_ok >= CLASSIC["lite_core"] and ev["classic"].get("drop", 0) >= CLASSIC["lite_drop"]) and "close5" not in ul:
             c["_need5"] = True
             ul2 = stock_ctx(ag, c, now) or ul
             c["_need5"] = False
@@ -494,10 +500,10 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
         ev = c["eval"]
         key = f"{day}|{c['contract']}"
         cl_ = ev.get("classic") or {}
-        if cl_.get("ok"):
+        if cl_.get("ok") or cl_.get("lite"):
             try:
                 from .calls import add_gu_classic
-                add_gu_classic(c, cl_, now, CLASSIC)
+                add_gu_classic(c, cl_, now, CLASSIC, lite=not cl_.get("ok"))
             except Exception as e:
                 health.setdefault("classic_err", str(e))
         if ev.get("armed"):

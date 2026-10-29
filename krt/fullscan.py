@@ -1433,10 +1433,16 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
     npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
     rows = goki_scan(ag, inst, C, universe, bu_tag, npct, nret, now, session, live,
                      (el.get("intraday") or []) + (el.get("almost") or []))
+    try:
+        from .goki import scan_daily
+        rows += scan_daily(C, universe, bu_tag, npct, nret, now)     # CHAT HPY · GROK BEST ONE · MONSTER HOLDING
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Goki daily: {e}")
+    rows.sort(key=lambda r: (-int(r["full"]), -r["score"]))
     top = rows[:8]
     mins = now.hour * 60 + now.minute
     for r in top:
-        r["min_days"] = 1      # NSE monthly · expiry நாள் → அடுத்த மாதம்
+        r["min_days"] = 10 if r.get("hold") else 1      # holding scanners → போதுமான நாள் உள்ள expiry
     pick_options(ag, inst, top)
     for r in top:
         if "none" in (r.get("option") or {}) and r.get("option_ref"):
@@ -1446,8 +1452,9 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
         p = o.get("plan") or {}
         r["action"], r["why_not"] = "WATCH", []
         if p.get("entry") and o.get("lot"):
-            sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+            sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], bool(r.get("hold")))
             r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_]}
+            r["orange"] = bool(r["full"] and r["score"] >= 70 and not rc_)       # 🟠 எடுக்கலாம்
             if "SL_TIGHT" in rc_:
                 r["why_not"].append("SL_TIGHT")
         else:
@@ -1458,11 +1465,16 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
             r["why_not"].append(f"Scanner 8/9 + score {r['score']} < 65")
         if r["score"] < 55:
             r["why_not"].append(f"Score {r['score']} < 55")
-        if not (9 * 60 + 30 <= mins <= 14 * 60 + 30):
+        if r.get("hold"):
+            if not (14 * 60 <= mins <= 15 * 60 + 20):
+                r["why_not"].append("Daily / weekly scanner — 2:00–3:20 (candle close அருகில்) தான் entry")
+        elif not (9 * 60 + 30 <= mins <= 14 * 60 + 30):
             r["why_not"].append("நேரம் 9:30–2:30 இல்லை")
         if not r["why_not"] and r.get("rp"):
             r["action"] = "ENTRY"
-    radar = {"time": now.strftime("%H:%M"), "date": str(now.date()), "top": top[:3], "rows": rows[:20],
+    top.sort(key=lambda r: (-int(r.get("action") == "ENTRY"), -int(bool(r.get("orange"))), -r["score"]))
+    radar = {"time": now.strftime("%H:%M"), "date": str(now.date()), "top": top[:3], "rows": rows[:25],
+             "scanners": sorted({r["scanner"] for r in rows}),
              "ce": sum(1 for r in rows if r["side"] == "CE" and r["full"]), "pe": sum(1 for r in rows if r["side"] == "PE" and r["full"])}
     if live:
         try:

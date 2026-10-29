@@ -104,7 +104,8 @@ def scan(ag, inst, C, universe, bu_tag, nifty_pct, nret, now, session, live, eli
         if sum(e["s2"].values()) < 8:
             continue
         f = feat_.get(e["symbol"]) or {}
-        r = {"symbol": e["symbol"], "side": "CE", "scanner": "FINAL SCANER MASTER", "price": e["price"], "pct": e.get("pct"),
+        nm = "MASTER BLASTER" if (e.get("pct") or 0) >= 3 else "FINAL SCANER MASTER"     # Close/Open ≥ 1.03 → MASTER BLASTER
+        r = {"symbol": e["symbol"], "side": "CE", "scanner": nm, "price": e["price"], "pct": e.get("pct"),
              "vol_ratio": e.get("vol_ratio"), "rules": dict(e["s2"]), "info": dict(e.get("s2_info") or {})}
         r["info"]["body"] = r["info"].get("body", 0.6)
         out.append(analyse(r, "CE", bu_tag, nifty_pct, nret, f, lev_.get(e["symbol"]) or {}))
@@ -147,4 +148,85 @@ def scan(ag, inst, C, universe, bu_tag, nifty_pct, nret, now, session, live, eli
         r["full"] = all(r["rules"].values())
         r["found"] = now.strftime("%H:%M")
     out.sort(key=lambda r: (-int(r["full"]), -r["score"]))
+    return out
+
+
+# ───────────── V7: உங்கள் Chartink daily / weekly scanners ─────────────
+def _daily_df(bars, u):
+    """Completed daily bars + இன்றைய live candle (Chartink மாதிரி)."""
+    if not bars or not bars.get("c"):
+        return None
+    df = pd.DataFrame({"open": bars["o"], "high": bars["h"], "low": bars["l"], "close": bars["c"], "volume": bars.get("v") or [0] * len(bars["c"])},
+                      index=pd.to_datetime(bars["t"]))
+    if u and u.get("ltp"):
+        t = pd.Timestamp.now().normalize()
+        if t not in df.index:
+            df.loc[t] = [u.get("open") or u["ltp"], u.get("high") or u["ltp"], u.get("low") or u["ltp"], u["ltp"], u.get("volume") or 0]
+    return df
+
+
+def _weekly(df):
+    return df.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
+
+
+def daily_scanners(df):
+    """→ {scanner: (rules, info)} — CHAT HPY · GROK BEST ONE HOLDING 1 MONTH · MONSTER HOLDING (CE side)."""
+    if df is None or len(df) < 60:
+        return {}
+    c, o, h, v = df["close"].values, df["open"].values, df["high"].values, df["volume"].values
+    w = _weekly(df)
+    if len(w) < 22:
+        return {}
+    wc, wo, wv = w["close"].values, w["open"].values, w["volume"].values
+    s20, s50 = sma(c, 20)[-1], sma(c, 50)[-1]
+    vs20 = sma(v.astype(float), 20)[-1]
+    r = rsi(c)[-1]
+    wr = rsi(wc)[-1]
+    ws20 = sma(wc, 20)[-1]
+    wvs20 = sma(wv.astype(float), 20)[-1]
+    wchg = (wc[-1] - wc[-2]) / wc[-2] if wc[-2] else 0
+    hi20_prev = h[-21:-1].max()
+    info = {"vol_x": round(float(v[-1] / vs20), 2) if vs20 else 0, "body": round(abs(c[-1] - o[-1]) / max(h[-1] - df["low"].values[-1], 1e-9), 2),
+            "vwap": float(c[-1]), "rsi_d": round(float(r), 1), "rsi_w": round(float(wr), 1), "wchg": round(wchg * 100, 2)}
+    out = {}
+    out["CHAT HPY"] = ({
+        "Close > SMA20": c[-1] > s20, "SMA20 > SMA50": s20 > s50, "Close > Open": c[-1] > o[-1], "RSI(14) > 60": r > 60,
+        "Volume > 1.5× SMA20": bool(vs20) and v[-1] > 1.5 * vs20, "Close > 20-day high": c[-1] > hi20_prev,
+        "W close > W SMA20": wc[-1] > ws20, "W RSI > 55": wr > 55, "W close > last week": wc[-1] > wc[-2],
+        "Close > 50": c[-1] > 50, "Avg volume > 2 lakh": vs20 > 200000}, info)
+    out["GROK BEST ONE HOLDING"] = ({
+        "W close > W SMA20": wc[-1] > ws20, "Week change > 4%": wchg > 0.04, "W volume > 1.5× SMA20": bool(wvs20) and wv[-1] > 1.5 * wvs20,
+        "W RSI > 60": wr > 60, "W close > last week": wc[-1] > wc[-2], "1w > 2w close": wc[-2] > wc[-3], "2w > 3w close": wc[-3] > wc[-4],
+        "W open ≤ last W close": wo[-1] <= wc[-2], "W close ≥ last W open": wc[-1] >= wo[-2]}, info)
+    out["MONSTER HOLDING"] = ({
+        "W close > W SMA20": wc[-1] > ws20, "Week change > 8%": wchg > 0.08, "W volume > 1.3× SMA20": bool(wvs20) and wv[-1] > 1.3 * wvs20,
+        "W RSI > 60": wr > 60, "Close > SMA20": c[-1] > s20, "Close > SMA50": c[-1] > s50, "Volume > 2× SMA20": bool(vs20) and v[-1] > 2 * vs20,
+        "W close ≥ W open": wc[-1] >= wo[-1], "Price 80–2500": 80 <= c[-1] <= 2500}, info)
+    return {k: ({a: bool(b) for a, b in rr.items()}, inf) for k, (rr, inf) in out.items()}
+
+
+def scan_daily(C, universe, bu_tag, nifty_pct, nret, now):
+    """Daily / weekly scanners (local data — Angel call இல்லை) → holding candidates."""
+    out = []
+    bars_, feat_, lev_ = C.get("bars") or {}, C.get("feat") or {}, C.get("levels") or {}
+    for u in universe:
+        n = u["symbol"]
+        try:
+            res = daily_scanners(_daily_df(bars_.get(n), u))
+        except Exception:
+            continue
+        for name, (rules, info) in res.items():
+            ok = sum(rules.values())
+            if ok < len(rules) - 1:
+                continue
+            f = feat_.get(n) or {}
+            r = {"symbol": n, "side": "CE", "scanner": name, "price": u["ltp"], "pct": u["pct"], "vol_ratio": u["vol_ratio"],
+                 "rules": rules, "info": info, "hold": 10 if "HOLDING" in name else 5}
+            out.append(analyse(r, "CE", bu_tag, nifty_pct, nret, f, lev_.get(n) or {}))
+    for r in out:
+        atr = r["atr"]
+        r["sl"] = round(r["price"] - 1.5 * atr, 2)
+        r["targets"] = []
+        r["full"] = all(r["rules"].values())
+        r["found"] = now.strftime("%H:%M")
     return out
