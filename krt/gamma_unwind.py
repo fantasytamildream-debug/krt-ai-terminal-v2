@@ -452,8 +452,16 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
     slot = "13:15" if mins >= 13 * 60 + 15 else "09:20" if mins >= 9 * 60 + 20 else None
     health = {"api_fail": 0, "stale": 0, "checked": 0}
     t_start = pd.Timestamp.now()
+    # V6.8: selection 0 contracts ஆனா (Angel rate-limit / data இல்லை) அடுத்த run-ல் மறுபடி — 13:15 வரை காத்திருக்காது
+    if slot and slot in ST["sel"] and not ST["contracts"] and ST.get("sel_try", 0) < 12:
+        ST["sel"].pop(slot, None)
     if slot and slot not in ST["sel"]:
-        zl, cons = select(ag, inst, C, ltp_of, now, regime)
+        try:
+            zl, cons = select(ag, inst, C, ltp_of, now, regime)
+        except Exception as e:
+            zl, cons = [], []
+            health["sel_err"] = str(e)[:120]
+        ST["sel_try"] = ST.get("sel_try", 0) + (0 if cons else 1)
         ST["sel"][slot] = now.strftime("%H:%M")
         ST["zones"] = zl
         keep = {x["contract"]: x for x in ST["contracts"]}
@@ -461,6 +469,7 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
             keep[x["contract"]] = {**keep.get(x["contract"], {}), **x}
         ST["contracts"] = sorted(keep.values(), key=lambda x: -(x["zone_rank"] + x["strike_rank"]))[:CFG["max_contracts"]]
     ST["_nd20_val"] = nifty_d20(ag, now)
+    ST["last_run"] = now.strftime("%H:%M")
     toks = {}
     for c in ST["contracts"]:
         toks.setdefault(c["exch"], []).append(c["token"])
@@ -573,4 +582,5 @@ def snapshot():
     return {"why": why, "day": ST["day"], "selected": ST["sel"], "last": ST["last"], "zones": ST["zones"], "contracts": cons,
             "signals": sigs, "armed": [c for c in cons if (c.get("eval") or {}).get("armed")],
             "oi_leaders": lead, "health": ST["health"], "regime": ST["regime"], "entries": ST["entries"], "cfg": CFG,
-            "classic_cfg": CLASSIC, "nifty_d20": ST.get("_nd20_val")}
+            "classic_cfg": CLASSIC, "nifty_d20": ST.get("_nd20_val"), "last_run": ST.get("last_run"), "n_contracts": len(ST["contracts"]),
+            "sel_times": ST.get("sel")}
