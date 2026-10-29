@@ -885,6 +885,10 @@ def fast_tick(ag, res):
     except Exception as e:
         res.setdefault("errors", []).append(f"Movers: {e}")
     try:
+        res["strong"] = run_strong(ag, inst, live_q, res, now, live)
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Strong: {e}")
+    try:
         res["ai"] = run_ai(live_q, res, now, live)
     except Exception as e:
         res.setdefault("errors", []).append(f"AI: {e}")
@@ -1141,6 +1145,113 @@ def run_breakouts(ag, inst, res, universe, now, live):
     return {"time": now.strftime("%H:%M"), "CE": out["CE"], "PE": out["PE"]}
 
 
+STRONG = {"start": 9 * 60 + 30, "end": 14 * 60 + 30, "max_dist": 1.2, "vol_x": 2.0, "day_vr": 1.5, "fresh_bars": 3,
+          "max_check": 12, "max_day": 6}
+
+
+def run_strong(ag, inst, live_q, res, now, live):
+    """🟠 STRONG BREAK — ஒரே completed 5-min candle-ல்: 1st 5-min candle (ORB) break + PDH/PDL break + (PWH/PWL bonus) +
+    volume ≥2× + fresh break (கடைசி 3 bars-க்குள்) + வலுவான candle + NIFTY எதிர் இல்லை → orange alert + call."""
+    from .calls import rupee_plan, add_simple
+    mins = now.hour * 60 + now.minute
+    if mins < 9 * 60 + 21:
+        return {"time": now.strftime("%H:%M"), "rows": [], "note": "முதல் 5-min candle (9:15–9:20) முடியட்டும்"}
+    npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    bu_tag = {}
+    for kind, rows in (res.get("oi_buildup") or {}).items():
+        for x in rows:
+            bu_tag[x["symbol"]] = kind
+    cands = []
+    for n, q in live_q.items():
+        lv = (C.get("levels") or {}).get(n) or {}
+        ltp, vr = q.get("ltp") or 0, q.get("vol_ratio") or 0
+        if not ltp or vr < STRONG["day_vr"] or ltp <= 50:
+            continue
+        for side, key in (("CE", "PDH"), ("PE", "PDL")):
+            lvl = lv.get(key)
+            if not lvl:
+                continue
+            beyond = ltp > lvl if side == "CE" else ltp < lvl
+            dist = abs(ltp - lvl) / lvl * 100
+            if beyond and dist <= STRONG["max_dist"]:
+                cands.append((vr, n, side, lv))
+    cands.sort(key=lambda x: -x[0])
+    cache = C.setdefault("strong_cache", {})
+    slot = now.floor("5min") if hasattr(now, "floor") else now
+    t0 = pd.Timestamp(now.date()) + pd.Timedelta(hours=9, minutes=15)
+    out = []
+    for vr, n, side, lv in cands[:STRONG["max_check"]]:
+        ck = f"{slot}|{n}|{side}"
+        if ck in cache:
+            if cache[ck]:
+                out.append(cache[ck])
+            continue
+        r = None
+        try:
+            tok = inst["eq"].get(n)
+            df = ag.candles("NSE", tok, "FIVE_MINUTE", t0, now)
+            df = df[df.index + pd.Timedelta(minutes=5) <= now] if df is not None and not df.empty else df
+        except Exception:
+            df = None
+        if df is not None and len(df) >= 2:
+            ce = side == "CE"
+            o1h, o1l = float(df["high"].iloc[0]), float(df["low"].iloc[0])
+            last = df.iloc[-1]
+            cl = df["close"].values
+            pd_, pw = lv.get("PDH" if ce else "PDL"), lv.get("PWH" if ce else "PWL")
+            vols = df["volume"].values
+            base = vols[1:-1].mean() if len(vols) > 2 else vols[0]
+            rng = float(last["high"] - last["low"]) or 1e-9
+            body = abs(float(last["close"] - last["open"])) / rng
+            near = (float(last["close"] - last["low"]) / rng) if ce else (float(last["high"] - last["close"]) / rng)
+            fresh = any(((cl[i - 1] <= pd_) if ce else (cl[i - 1] >= pd_)) for i in range(max(1, len(cl) - STRONG["fresh_bars"]), len(cl))) \
+                if len(cl) > 1 else True
+            chk = {"1st 5-min candle break": bool(cl[-1] > o1h if ce else cl[-1] < o1l),
+                   f"{'PDH' if ce else 'PDL'} break (5m close)": bool(cl[-1] > pd_ if ce else cl[-1] < pd_),
+                   f"{'PWH' if ce else 'PWL'} break": bool(pw and (cl[-1] > pw if ce else cl[-1] < pw)),
+                   f"Volume ≥{STRONG['vol_x']:g}× (5m)": bool(base and vols[-1] >= STRONG["vol_x"] * base),
+                   "Fresh break (late இல்லை)": bool(fresh),
+                   "வலுவான candle": bool(body >= 0.5 and near >= 0.7 and ((last["close"] > last["open"]) == ce)),
+                   "NIFTY எதிர் இல்லை": not ((ce and npct <= -0.3) or (not ce and npct >= 0.3))}
+            k = bu_tag.get(n, "")
+            oi_ok = (ce and k in ("Long Built Up", "Short Covering")) or (not ce and k in ("Short Built Up", "Long Unwinding"))
+            w = [25, 25, 15, 20, 10, 5, 0]
+            sc = sum(wi for wi, v in zip(w, chk.values()) if v) + (5 if oi_ok else 0) + min(10, int(vr * 2))
+            must = ["1st 5-min candle break", f"{'PDH' if ce else 'PDL'} break (5m close)", f"Volume ≥{STRONG['vol_x']:g}× (5m)",
+                    "Fresh break (late இல்லை)", "வலுவான candle", "NIFTY எதிர் இல்லை"]
+            strong = all(chk[m] for m in must)
+            q = live_q[n]
+            r = {"symbol": n, "side": side, "price": q.get("ltp"), "pct": q.get("pct"), "vol_ratio": vr, "score": int(min(100, sc)),
+                 "checks": chk, "strong": strong, "oi": k, "bar": str(df.index[-1])[11:16], "level": pd_, "pwl": pw,
+                 "sl": round(min(o1l, float(last["low"])) if ce else max(o1h, float(last["high"])), 2), "targets": [],
+                 "min_days": 1, "found": now.strftime("%H:%M"),
+                 "reasons": [f"🟠 {'1st 5m high' if ce else '1st 5m low'} + {'PDH' if ce else 'PDL'} break" + (" + PW break" if chk[f"{'PWH' if ce else 'PWL'} break"] else ""),
+                             f"5m volume {vols[-1] / base:.1f}× · day {vr}×" if base else f"day volume {vr}×", f"OI: {k or 'தெரியல'}"]}
+        cache[ck] = r
+        if r:
+            out.append(r)
+    for k_ in [k_ for k_ in cache if not k_.startswith(str(slot))]:
+        cache.pop(k_, None)
+    out.sort(key=lambda r: (-int(r["strong"]), -r["score"]))
+    S = [r for r in out if r["strong"]][:6]
+    if S:
+        pick_options(ag, inst, S)
+        for r in S:
+            attach_plan(r, r.get("option"), now, "Strong Break")
+            o = r.get("option") or {}
+            p = o.get("plan") or {}
+            if p.get("entry") and o.get("lot"):
+                sl_, tg_, rk_, rc_ = rupee_plan(p["entry"], p.get("sl"), o["lot"], False)
+                r["rp"] = {"entry": p["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - p["entry"]) * o["lot"]) for t in tg_]}
+        if live and STRONG["start"] <= mins <= STRONG["end"]:
+            try:
+                add_simple("STRONG", "🟠 Strong Break", [r for r in S if r.get("rp") and (r.get("option") or {}).get("spread_pct", 99) <= 5],
+                           now, STRONG["max_day"])
+            except Exception as e:
+                res.setdefault("errors", []).append(f"Strong calls: {e}")
+    return {"time": now.strftime("%H:%M"), "rows": out[:10], "cfg": STRONG}
+
+
 def run_ai(live_q, res, now, live):
     """🤖 AI Picks + 🚨 market risk — fast tick-ல் (≈30 sec)."""
     from .ai import AI, STATE as AST, feats, predict, train, market_risk
@@ -1149,7 +1260,10 @@ def run_ai(live_q, res, now, live):
     risk = market_risk(live_q, res, now)
     if not AST.get("_t") or (now - AST["_t"]).total_seconds() > 300:
         try:
-            train(list((STORE.load().get("calls") or {}).values()))
+            _all = list((STORE.load().get("calls") or {}).values())
+            train(_all)
+            from .ai import optimize
+            optimize(_all)
         except Exception:
             pass
         AST["_t"] = now
@@ -1163,6 +1277,9 @@ def run_ai(live_q, res, now, live):
     for sd in ("CE", "PE"):
         for r in (res.get("bo2") or {}).get(sd) or []:
             pool.append(("Breakout CE" if sd == "CE" else "Breakdown PE", r))
+    for r in (res.get("strong") or {}).get("rows") or []:
+        if r.get("strong"):
+            pool.append(("🟠 Strong Break", r))
     for key, src in (("orb2", "5-min ORB"), ("voi2", "Volume+OI")):
         for r in res.get(key) or []:
             pool.append((src, r))
@@ -1192,7 +1309,7 @@ def run_ai(live_q, res, now, live):
             add_aipick([c for c in cands if c["ok"]], now, AI["max_day"])
         except Exception as e:
             res.setdefault("errors", []).append(f"AI picks: {e}")
-    return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"},
+    return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"}, "opt": AST.get("opt"),
             "top_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
                                  for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: -x[3])[:6],
             "worst_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()

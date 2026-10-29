@@ -20,8 +20,22 @@ LOCK = threading.Lock()
 API_LOCK = threading.Lock()  # Chartink scan + full scan ஒரே நேரத்தில் Angel API-ஐ அடிக்கக்கூடாது (rate limit)
 
 
+def _nan_safe(o):
+    if isinstance(o, float) and (o != o or o in (float("inf"), float("-inf"))):
+        return None
+    if isinstance(o, dict):
+        return {k: _nan_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_nan_safe(v) for v in o]
+    return o
+
+
 def _json(o):
-    return json.dumps(o, default=str, ensure_ascii=False)
+    """NaN / Infinity browser JSON-ஐ உடைக்கும் → None (இதனால் 'Server-ஐ அடைய முடியவில்லை' வந்தது)."""
+    try:
+        return json.dumps(o, default=str, ensure_ascii=False, allow_nan=False)
+    except ValueError:
+        return json.dumps(_nan_safe(o), default=str, ensure_ascii=False)
 
 
 def do_scan(at=None):
