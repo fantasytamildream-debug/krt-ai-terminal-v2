@@ -884,7 +884,7 @@ function renderFull(s){
       <div>② <b>Gamma unwind V3</b> — stock option OI திடீர்னு குறைஞ்சு (writers exit) + volume + consolidation → ENTRY (அரிது).</div>
       <div>③ <b>Expiry gamma blast</b> — expiry நாள் 1 PM பிறகு மட்டும் (மிக அதிக risk).</div>
       <div class="hint" style="margin-top:6px">Next expiry: ${((f.gamma||{}).calendar||[]).map(c=>`<b>${esc(c.name)}</b> ${esc(c.expiry)}${c.today?' <b class="up">(இன்று)</b>':''}`).join(" · ")||"–"}</div></div>
-    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + guClassicHTML(s) + gexHTML(f) + guSection(s) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
+    ${segBlock(f.tracking||{},["Gamma V3 (GEX)","Gamma unwind V3","Gamma blast"],"Gamma (எல்லா வகை)")}` + SX("guClassicHTML",()=>guClassicHTML(s)) + SX("gexHTML",()=>gexHTML(f)) + SX("guSection",()=>guSection(s)) + `<h2 class="sec">💥 Expiry gamma blast</h2><div class="risk"><b>⚠ மிக அதிக RISK — zero-to-hero.</b> Expiry நாள் options பெரும்பாலும் zero ஆகும். ஒரு நாளுக்கு 1–2 trade, 1 lot, இழக்கக் கூடிய பணம் மட்டும். SL 50% கண்டிப்பாக. 3:15-க்கு முன் exit.</div>
     <div class="hint">Rules: expiry இன்று + 1:00 PM பிறகு + spot day high (CE) / low (PE) அருகில் + OI wall உடைப்பு அல்லது ATM writers unwinding. Strike: ATM / 1 OTM மட்டும் (index premium ₹5–90). 30 sec-க்கு ஒருமுறை live check.</div>
     <h2 class="sec">📅 Expiry calendar</h2>${simpleTbl(gm.calendar,[["Index",c=>esc(c.name)],["Next expiry",c=>esc(c.expiry)],["இன்று?",c=>c.today?'<b class="up">✓ GAMMA DAY</b>':"–"]])}
     <h2 class="sec">💥 Index gamma</h2>${gm.index.length?gm.index.map(gammaCard).join(""):`<div class="empty">இன்று index expiry இல்லை. மேலே calendar பாருங்க.</div>`}
@@ -894,10 +894,10 @@ function renderFull(s){
   const bs=((f.tracking||{}).best_setup)||[];
   const bsHTML=bs.length?`<div class="suggest">🏆 <b>இப்போது வரை best setup:</b> ${bs.map((b,i)=>`${i+1}. <b>${esc(b.source)}</b> (avg ₹${n2(b.avg)}/call · win ${b.win_rate??"–"}% · ${b.closed} closed)`).join(" &nbsp; ")}<div class="hint">குறைந்தது 10 closed calls உள்ள setups மட்டும், சராசரி லாபம் வைத்து.</div></div>`:"";
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
-  try{ $("p-pt").innerHTML = paperHTML(f); }catch(e){ console.error(e); }
+  try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
-  try{ $("aiTop").innerHTML = strongHTML(f) + aiHTML(f); }catch(e){ console.error(e); }
-  $("p-lb").innerHTML = strongHTML(f) + moversHTML(f) + jackpotMovers(f) + aiHTML(f) + picksHTML(f) + allCallsPL(f) + healthHTML(s,f) + healthModHTML(f) + v4FastHTML() + earlyHTML(f) + bsHTML + smartHTML(f) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
+  try{ $("aiTop").innerHTML = SX("strongHTML",()=>strongHTML(f)) + SX("aiHTML",()=>aiHTML(f)); }catch(e){ console.error(e); }
+  $("p-lb").innerHTML = SX("strongHTML",()=>strongHTML(f)) + SX("moversHTML",()=>moversHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("aiHTML",()=>aiHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + SX("v4FastHTML",()=>v4FastHTML()) + SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("smartHTML",()=>smartHTML(f)) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">📰 Latest news</h2><div class="news">${newsHTML(nw.items, setupSyms, 12)}</div>
     <h2 class="sec">🔎 Chartink <button onclick="runCk()" style="margin-left:10px;font-size:13px;padding:6px 10px">Run Chartink scan</button></h2>${ck?`<div class="sides"><div class="side ce"><h2><i></i>CE</h2>${(ck.ce||[]).length?ck.ce.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div><div class="side pe"><h2><i></i>PE</h2>${(ck.pe||[]).length?ck.pe.map(rowHTML).join(""):'<div class="empty">இல்லை</div>'}</div></div>${(ck.msgs||[]).map(m=>`<div class="hint">${esc(m)}</div>`).join("")}`:`<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை — Chartink tab-ல் Run பண்ணுங்க / Settings-ல் formula save பண்ணுங்க."}</div>`}`;
@@ -935,7 +935,7 @@ function renderFull(s){
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};
   const AR=f.all_rounder||[], AR3=AR.filter(a=>a.count>=3), AR2=AR.filter(a=>a.count===2);
-  $("p-jp").innerHTML = machineBox(f) + `<h2 class="sec up">🏅 ALL ROUNDER — பல scanner-களிலும் ஒரே நேரம் வந்த stocks</h2>
+  $("p-jp").innerHTML = SX("machineBox",()=>machineBox(f)) + `<h2 class="sec up">🏅 ALL ROUNDER — பல scanner-களிலும் ஒரே நேரம் வந்த stocks</h2>
     <div class="hint">Live Board · POWER OI · Elite · Overview best · Gamma unwind · Swing · OI Footprint · Breakout CE · Breakdown PE · 5-min ORB · Volume+OI · Index OI · Chart pattern — இவற்றில் ஒரே stock + ஒரே side (CE/PE) வந்தால் இங்கே. Strike = அதிக தரமான module-ல் இருந்து (POWER OI → Elite → Gamma → Best → …). Confidence = எத்தனை module + அவற்றின் வலிமை (win probability இல்லை).</div>
     <div class="hint">🟢 = Volume ≥1.5× + Risk ≤₹2,500 + T1 realistic · 🟡 = Volume 1–1.5× (அல்லது index) · 🔴 = Volume &lt;1× / Risk skip / SL touch. <b>Green glow row</b> = 🟢 + T1 அருகில் (≥60%) அல்லது T1 ✅. Tick ✅ = option LTP அந்த target-ஐ தொட்டுச்சு (sticky). <span class="purple">🟣 ENTRY NOW</span> = 🟢 + LTP இன்னும் entry zone-க்குள் + premium மேலே நகருது + volume ≥2× (rule-based timing — guarantee இல்லை).</div>
     ${simpleTbl(AR,[["#",a=>AR.indexOf(a)+1],["Stock",a=>`<b>${esc(a.symbol)}</b>`],["Side",a=>`<b class="${a.side==='CE'?'up':'dn'}">${a.side}</b>`],["இப்போ என்ன?",a=>a.mc?`<span class="mcact ${a.mc.action}" style="font-size:12.5px;white-space:normal;display:inline-block;max-width:210px;text-align:left;margin:0">${esc(a.mc.text)}</span>`:"–"],["Modules",a=>a.count],["Conf",a=>a.confidence+"%"],
@@ -964,7 +964,7 @@ function renderFull(s){
     <h2 class="sec">10 days holding</h2>${(swp["10"]||[]).length?swp["10"].map(swingRow).join(""):`<div class="empty">Rules-க்கு பொருந்தும் 10-day pick இல்லை.</div>`}
     <h2 class="sec">5 days holding</h2>${(swp["5"]||[]).length?swp["5"].map(swingRow).join(""):`<div class="empty">Rules-க்கு பொருந்தும் 5-day pick இல்லை.</div>`}
     <div class="hint">5D / 10D swing calls 3:00 PM-க்கு publish ஆன நாள் தான் "Entry date". Entry price = அன்றைய option premium (paper).</div>`;
-  $("p-hi").innerHTML = optHTML(f) + `
+  $("p-hi").innerHTML = SX("optHTML",()=>optHTML(f)) + `
     <h2 class="sec">📒 மொத்தம் — எல்லா calls</h2>${kpis(sm.ALL)}
     <div class="kpis">${["ALL ROUNDER","POWER-A","POWER-B","ELITE","ELITE HOLD","JACKPOT","INTRADAY","SWING 5D","SWING 10D","PATTERN 5D","GAMMA","GU-INTRADAY","GU-HOLDING"].map(k=>{const x=sm[k]||{};return `<div class="kpi"><span>${k}</span><b class="${(x.net||0)>=0?'up':'dn'}">₹${n2(x.net||0)}</b><span>${x.calls||0} calls · win ${x.win_rate==null?"–":x.win_rate+"%"}</span></div>`}).join("")}</div>
     ${simpleTbl(tr.history,[["Date",c=>sDate(c.date,c.time)],["Type",c=>esc(sType(c.kind))],["Call",c=>`<b>${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["Targets",c=>c.targets.map(n2).join(" / ")],["LTP/Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell]], callCls)}
@@ -1735,6 +1735,7 @@ function strongHTML(f){
    ${STROWS.length?`<div class="earlygrid">${STROWS.map(card).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ PDH / PDL அருகில் break candidate இல்லை.</div>`}
    ${SC.length?`<details class="tech"><summary>📋 Strong calls — result (${SC.length})</summary>${simpleTbl(SC,[["Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls)}</details>`:""}</div>`;
 }
+function SX(name,fn){ try{ return fn(); }catch(e){ console.error(name,e); return `<div class="cwarn">⚠ ${esc(name)} பகுதியில் பிழை: ${esc(e&&e.message||e)} — மற்ற பகுதிகள் வேலை செய்யும் (இந்த screenshot அனுப்புங்க)</div>`; } }
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
@@ -1753,7 +1754,7 @@ function render(s){
   $("subline").textContent = sub;
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
-  renderFull(s);
+  try{ renderFull(s); }catch(e){ console.error("renderFull",e); $("notes").innerHTML=`<li class="cwarn">⚠ Page பகுதி பிழை: ${esc(e.message)} — Calls tab தொடர்ந்து வேலை செய்யும்</li>`; }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); announceNew(s.full); riskVoice(s.full); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
@@ -1768,8 +1769,11 @@ function render(s){
   clearTimeout(pollT); pollT = setTimeout(load, s.market_open ? 10000 : 30000);
 }
 async function load(){
-  try { const r = await fetch("/api/status",{cache:"no-store"}); render(await r.json()); loadV4(); }
-  catch(e){ $("subline").textContent=(String(e&&e.name)==="SyntaxError"?"Data பிழை (server JSON) — "+e.message:"Server-ஐ அடைய முடியவில்லை (Render restart / sleep ஆகலாம்) — 10 sec-ல் மறுபடி try")+""; clearTimeout(pollT); pollT=setTimeout(load,10000); }
+  let data=null;
+  try { const r = await fetch("/api/status",{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status); data = await r.json(); }
+  catch(e){ $("subline").textContent=(String(e&&e.name)==="SyntaxError"?"Data பிழை (server JSON) — ":"Server-ஐ அடைய முடியவில்லை (Render restart / sleep) — ")+(e.message||"")+" · 10 sec-ல் மறுபடி"; clearTimeout(pollT); pollT=setTimeout(load,10000); return; }
+  try { render(data); } catch(e){ console.error("render",e); $("subline").textContent="⚠ Page பிழை: "+(e.message||e)+" — screenshot அனுப்புங்க (server சரியா ஓடுது)"; clearTimeout(pollT); pollT=setTimeout(load,15000); }
+  try { loadV4(); } catch(e){}
 }
 async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); return r.json(); }
 $("scanBtn").onclick = async () => { $("scanBtn").disabled=true; await post("/api/full"); setTimeout(load,800); };
