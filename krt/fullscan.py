@@ -1146,7 +1146,7 @@ def run_breakouts(ag, inst, res, universe, now, live):
 
 
 STRONG = {"start": 9 * 60 + 30, "end": 14 * 60 + 30, "max_dist": 1.2, "vol_x": 2.0, "day_vr": 1.5, "fresh_bars": 3,
-          "max_check": 12, "max_day": 6}
+          "max_check": 8, "max_day": 6}
 
 
 def run_strong(ag, inst, live_q, res, now, live):

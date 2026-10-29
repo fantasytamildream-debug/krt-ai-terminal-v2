@@ -150,9 +150,13 @@ def load_frames(ag, inst, idx, now):
         if td is not None and not td.empty:
             parts.append(td)
         if ft:
-            tf = ag.candles(ft[0], ft[1], "FIVE_MINUTE", t0, now_)
-            if tf is not None and not tf.empty:
-                fparts.append(tf)
+            fk = now_.floor("5min")
+            if ch.get("f5k") != fk:
+                tf = ag.candles(ft[0], ft[1], "FIVE_MINUTE", t0, now_)
+                if tf is not None and not tf.empty:
+                    ch["f5t"], ch["f5k"] = tf, fk
+            if ch.get("f5t") is not None:
+                fparts.append(ch["f5t"])
     m1 = pd.concat(parts)
     m1 = m1[~m1.index.duplicated(keep="last")].sort_index()
     m1 = _completed(m1, now_, 1).between_time("09:15", "15:29")

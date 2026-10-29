@@ -274,6 +274,8 @@ def stock_ctx(ag, c, now):
     tr = "UP" if len(cl) >= 3 and cl[-1] > cl[-2] > cl[-3] else "DOWN" if len(cl) >= 3 and cl[-1] < cl[-2] < cl[-3] else "FLAT"
     out = {"close15": float(cl[-1]), "vwap": round(vwap, 2), "trend15": tr}
     try:
+        if not c.get("_need5"):
+            raise RuntimeError("lazy")         # Angel load குறைக்க — A/B/C/H pass ஆனா மட்டும் fetch
         d5 = ag.candles("NSE", c["ul_token"], "FIVE_MINUTE", t0, now)
         d5 = d5[d5.index + pd.Timedelta(minutes=5) <= now] if not d5.empty else d5
         if len(d5):
@@ -355,6 +357,12 @@ def evaluate(ag, c, now, ul, q, regime):
     ev["oi"] = oi
     try:
         ev["classic"] = classic_eval(c, df, oi_raw, ul, q, now, ST.get("_nd20_val"))
+        ck = ev["classic"]["checks"]
+        if all(v for k_, v in ck.items() if k_[:1] in ("A", "B", "C", "H")) and "close5" not in ul:
+            c["_need5"] = True
+            ul2 = stock_ctx(ag, c, now) or ul
+            c["_need5"] = False
+            ev["classic"] = classic_eval(c, df, oi_raw, ul2, q, now, ST.get("_nd20_val"))
     except Exception as e:
         ev["classic"] = {"ok": False, "checks": {}, "err": str(e)}
     ev["A"] = bool(oi.get("ok") and oi["drop"] >= CFG["oi_drop"])

@@ -845,12 +845,12 @@ function renderFull(s){
     ${(f.errors||[]).map(e=>`<div class="hint">⚠ ${esc(e)}</div>`).join("")}`;
   const TR=f.tracking||{};
   BOROWS=[];
-  $("p-bo").innerHTML = `${boV2HTML(f,"CE")}${segBlock(TR,["Breakout CE","Breakout/Breakdown"],"Breakout CE","CE")}<h2 class="sec">Breakout stocks (setups)</h2><div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`;
-  $("p-bd").innerHTML = `${boV2HTML(f,"PE")}${segBlock(TR,["Breakdown PE","Breakout/Breakdown"],"Breakdown PE","PE")}<h2 class="sec">Breakdown stocks (setups)</h2><div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`;
+  try{ $("p-bo").innerHTML = `${boV2HTML(f,"CE")}${segBlock(TR,["Breakout CE","Breakout/Breakdown"],"Breakout CE","CE")}<h2 class="sec">Breakout stocks (setups)</h2><div class="sub hint">PDH / PWH / PMH மேல் — எல்லா F&O stocks</div>${list(f.ce,"Breakout stocks இல்லை.")}`; }catch(e){ console.error("p-bo",e); $("p-bo").innerHTML=`<div class="cwarn">⚠ இந்த tab பிழை: ${esc(e.message)}</div>`; }
+  try{ $("p-bd").innerHTML = `${boV2HTML(f,"PE")}${segBlock(TR,["Breakdown PE","Breakout/Breakdown"],"Breakdown PE","PE")}<h2 class="sec">Breakdown stocks (setups)</h2><div class="sub hint">PDL / PWL / PML கீழ் — எல்லா F&O stocks</div>${list(f.pe,"Breakdown stocks இல்லை.")}`; }catch(e){ console.error("p-bd",e); $("p-bd").innerHTML=`<div class="cwarn">⚠ இந்த tab பிழை: ${esc(e.message)}</div>`; }
   $("p-orb").innerHTML = f.orb_ready ? `<div class="hint">Entry = 5-min high/low break · SL = range மறுபக்கம் · Targets = range-ன் 1×/2×/3×. Top 5-க்கு option plan.</div>
     <h2 class="sec up">முதல் 5-min candle HIGH break (CE)</h2>${list(f.orb_up,"இப்போ எதுவும் இல்லை.")}
     <h2 class="sec dn">முதல் 5-min candle LOW break (PE)</h2>${list(f.orb_dn,"இப்போ எதுவும் இல்லை.")}` : `<div class="empty">9:20-க்கு பிறகு first 5-min candle ready ஆகும்.</div>`;
-  $("p-orb").innerHTML = v2CardsHTML(f.orb2,"⚡ 5-min ORB V2 — இப்போ setups","#a78bfa") + segBlock(TR,["5-min ORB"],"5-min ORB") + $("p-orb").innerHTML;
+  try{ $("p-orb").innerHTML = v2CardsHTML(f.orb2,"⚡ 5-min ORB V2 — இப்போ setups","#a78bfa") + segBlock(TR,["5-min ORB"],"5-min ORB") + $("p-orb").innerHTML; }catch(e){ console.error("p-orb",e); $("p-orb").innerHTML=`<div class="cwarn">⚠ இந்த tab பிழை: ${esc(e.message)}</div>`; }
   const bu=f.oi_buildup||{};
   const buCols=[["Stock",r=>esc(r.symbol)],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Fut OI",r=>big(r.oi)],["OI chg",r=>pc(r.oi_chg)]];
   const vp=f.volume_oi_picks||{};
@@ -931,7 +931,7 @@ function renderFull(s){
     <h2 class="sec">📅 ELITE HOLDING (S1 pass · 1 வாரம்–1 மாதம்)</h2>${el.holding.length?el.holding.map(r=>eliteCard(r,"Holding · next-month expiry")).join(""):'<div class="empty">இல்லை.</div>'}
     <h2 class="sec">👀 Almost — CE / PE (1–2 rule மட்டும் குறைவு)</h2>${(el.almost||[]).length?el.almost.map(r=>eliteCard(r,"Watch only — entry இல்லை")).join(""):'<div class="empty">இல்லை.</div>'}
     <div class="risk">⚠ 80%+ accuracy எந்த scanner-க்கும் guarantee இல்லை. ELITE calls History-ல் தனியா track ஆகும் — 30+ closed calls-க்கு பிறகு win rate-ஐ பாருங்க.</div>`;
-  $("p-pw").innerHTML = powerPane(f);
+  try{ $("p-pw").innerHTML = powerPane(f); }catch(e){ console.error("p-pw",e); $("p-pw").innerHTML=`<div class="cwarn">⚠ இந்த tab பிழை: ${esc(e.message)}</div>`; }
   const tr=f.tracking||{rows:[],history:[],summary:{}};
   const sm=tr.summary||{};
   const AR=f.all_rounder||[], AR3=AR.filter(a=>a.count>=3), AR2=AR.filter(a=>a.count===2);
@@ -1651,7 +1651,7 @@ let AICANDS=[];
 function paperFromAI(i){ const r=AICANDS[i]; if(!r) return; const o=r.option;
   paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:r.rp.sl,from_src:"🤖 AI · "+r.src,src_modules:[r.src]}); }
 function aiHTML(f){
-  const A=f.ai; if(!A) return `<div class="aibox"><b>🤖 AI PICKS</b> <span class="hint">Market நேரத்தில் ~30 sec-க்கு ஒருமுறை.</span></div>`;
+  const A=(f||{}).ai; if(!A) return `<div class="aibox"><b>🤖 AI PICKS</b> <span class="hint">Market நேரத்தில் ~30 sec-க்கு ஒருமுறை.</span></div>`;
   AICANDS=A.cands||[]; const M=A.model||{}, R=A.risk||{};
   const T=(f.tracking||{}), m=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="AIPICK") m.set(c.id,c)});
   const AP=[...m.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
@@ -1702,7 +1702,7 @@ function guClassicHTML(s){
 }
 /* ===== 🧠 Strategy Optimizer ===== */
 function optHTML(f){
-  const O=((f.ai||{}).opt)||null, S=((f.tracking||{}).summary||{}).ALL||{};
+  f=f||{}; const O=((f.ai||{}).opt)||null, S=((f.tracking||{}).summary||{}).ALL||{};
   const top=`<div class="gkhead" style="border-color:#22c55e;background:linear-gradient(180deg,rgba(34,197,94,.12),rgba(34,197,94,.02))"><h2 style="color:#4ade80">🧠 STRATEGY OPTIMIZER — ratings உயர்த்தும் engine</h2>
    <div class="hint">ஒவ்வொரு 5 நிமிடமும் எல்லா முடிந்த calls-ஐயும் charges சேர்த்து பார்க்கும் → (1) charges சேர்த்து நஷ்டம் தரும் module (≥25 calls) = <b>auto PAUSE</b> (paper-ல் மட்டும், லாபம் திரும்பினா தானா resume) · (2) ஒவ்வொரு module-லும் நஷ்டம் தரும் condition (நேரம் / score / volume / trend / velocity / range / OI, ≥12 calls) = <b>learned filter</b> → அந்த condition-ல் call வராது. நீங்க rules மாத்தாமலே system தானா மேம்படும்.</div>
    ${S.net_after!=null?`<div class="cb-stats" style="margin-top:8px"><span class="cb-stat ${S.net>=0?'up':'dn'}">Gross ₹${n2(S.net)}</span><span class="cb-stat dn">Charges −₹${n2(S.charges)}</span><span class="cb-stat ${S.net_after>=0?'up':'dn'}"><b>Net (charges சேர்த்து) ₹${n2(S.net_after)}</b></span></div>`:""}</div>`;

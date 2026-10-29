@@ -136,6 +136,8 @@ def v4_loop():
             slot = t
             if done == slot or real.second < 5 or not angel_configured():
                 continue
+            if real.minute % 2:            # Angel rate-limit: V4 2 நிமிடத்துக்கு ஒருமுறை
+                continue
             mo = market_open(t)
             if not mo and not (V4E["t"] is None or t.minute % 15 == 0):
                 continue

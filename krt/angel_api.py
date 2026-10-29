@@ -24,15 +24,22 @@ class Angel:
                 time.sleep(gap - d)
             self._last = time.time()
 
-    def _call(self, fn, *a, gap=0.35, tries=2):
+    def _call(self, fn, *a, gap=0.4, tries=3):
         self.ensure()
         err = None
         for i in range(tries):
+            cd = getattr(self, "_cool", 0) - time.time()
+            if cd > 0:
+                time.sleep(min(cd, 5))               # rate-limit cool-down — எல்லா threads-ம் காத்திருக்கும்
             self._wait(gap)
             try:
                 res = fn(*a)
             except Exception as e:
                 res, err = None, str(e)
+                if "access rate" in err.lower() or "rate limit" in err.lower() or "too many" in err.lower():
+                    self._cool = time.time() + 2.5 * (i + 1)   # Angel "exceeding access rate" → backoff
+                    self.rate_hits = getattr(self, "rate_hits", 0) + 1
+                    continue
             if isinstance(res, dict) and res.get("status"):
                 return res
             if isinstance(res, dict):
