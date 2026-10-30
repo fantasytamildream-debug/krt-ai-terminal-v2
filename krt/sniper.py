@@ -465,7 +465,8 @@ def run(ag, inst, C, universe, now, session, contracts_fn, calls_today):
                 soft_ = ("Regime allows", "Extension ≤0.8 ATR", f"Same-slot RVOL ≥{CFG['rvol_min']}")
                 core_ok = all(v for k, v in gates.items() if k not in soft_)
                 # V5.5: range day-லும் call — 3-step ENTRY CONFIRMED + option / SL / T1 gates ✓ + ext ≤1.2 ATR + RVOL ≥1.2 + score ≥60 (★ rating காட்டும்)
-                row["executable"] = model == "A" and core_ok and ext <= 1.2 and rvol >= 1.2 and score >= 60
+                # V7: 1 call 1 loss → கொஞ்சம் tight: RVOL ≥1.5 · ext ≤1.0 ATR · score ≥68 · range day-ல் stock தனி trend கட்டாயம்
+                row["executable"] = model == "A" and core_ok and ext <= 1.0 and rvol >= 1.5 and score >= 68 and (rg["state"] == "TRENDING" or range_mode)
                 if row["executable"] and not all(gates.values()):
                     row["soft_warn"] = [k for k in soft_ if k in gates and not gates[k]]
                 row["research"] = model == "B"

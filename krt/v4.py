@@ -674,6 +674,31 @@ def scan(ag, inst, full, now, live=True):
                 res["SILVER"] = s_silver(cx, t, S)
             if S["strategies"].get("VWAPMR"):
                 res["VWAPMR"] = s_vwapmr(cx, reg)
+            # V7 "Silver-grade" filter: Silver Bullet 3/3 win — மற்ற strategies CONFIRMED ஆக Silver மாதிரி confirmations வேணும்
+            try:
+                sw_ = sweep(cx["m3"], cx["levels"], look=20)
+                st_ = cx["st3"]
+                dp_ = displacement(cx["m3"], float(atr(cx["m3"]).iloc[-1] or 0))
+                fv_all = fvgs(cx["m3"], 20)
+                last_ = cx["m3"].iloc[-1]
+            except Exception:
+                sw_, st_, dp_, fv_all, last_ = None, {}, None, [], None
+            for k_, r_ in res.items():
+                if not r_ or k_ == "SILVER" or r_.get("stage") != "CONFIRMED" or not r_.get("side"):
+                    continue
+                ce_ = r_["side"] == "CE"
+                fv_ = [f for f in fv_all if f["side"] == r_["side"]]
+                sg = {"Liquidity sweep": bool(sw_ and sw_["side"] == r_["side"]),
+                      "Structure shift (BOS/CHOCH)": bool((st_.get("choch_up") or st_.get("bos_up")) if ce_ else (st_.get("choch_dn") or st_.get("bos_dn"))),
+                      "Displacement candle": bool(dp_ and dp_["side"] == r_["side"]),
+                      "FVG retest": bool(fv_ and last_ is not None and ((last_["low"] <= fv_[-1]["hi"] and last_["close"] > fv_[-1]["hi"]) if ce_
+                                                                         else (last_["high"] >= fv_[-1]["lo"] and last_["close"] < fv_[-1]["lo"])))}
+                n_ = sum(sg.values())
+                r_.setdefault("chk", {}).update({f"Silver-grade: {a}": b for a, b in sg.items()})
+                bad_reg = reg == "SIDEWAYS" and k_ != "VWAPMR"
+                if n_ < 2 or bad_reg:
+                    r_["stage"] = "READY"
+                    r_.setdefault("notes", []).insert(0, "🥈 Silver-grade confirmation " + str(n_) + "/4 (2 வேணும்)" + (" · SIDEWAYS regime-ல் trend strategy வேண்டாம்" if bad_reg else ""))
             pref = list(PREFERRED.get(reg, []))
             # V4.1 confluence: regime UNCLEAR / எதுவும் preferred இல்லைன்னா — CONFIRMED strategy + அதே side-ல் வேறு ஒரு strategy READY/CONFIRMED இருந்தா அது preferred
             conf_side = {}

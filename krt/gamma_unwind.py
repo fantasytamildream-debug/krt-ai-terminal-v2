@@ -567,6 +567,31 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
     ST["last"] = now.strftime("%H:%M")
     if health["checked"] and health["stale"] > max(3, health["checked"] // 2):
         tg(f"⚠ GAMMA-UNWIND data quality warning: {health['stale']}/{health['checked']} quotes stale", f"dq|{day}|{now:%H}")
+    # V7 GU DAILY: 10:30 வரை ALERT / LITE இல்லைன்னா — watch list-ல் best (stock zone break + NIFTY + time + expiry ✓, மொத்தம் ≥5/8) → 1 daily pick
+    try:
+        from .calls import STORE as _S
+        today_gu = [x for x in _S.load()["calls"].values() if x["date"] == day and x["kind"] == "GU-CLASSIC"]
+        if mins >= 10 * 60 + 30 and len(today_gu) < 2 and not any((x.get("gu") or {}).get("daily") for x in today_gu):
+            best = None
+            for c in ST["contracts"]:
+                cl_ = (c.get("eval") or {}).get("classic") or {}
+                ck = cl_.get("checks") or {}
+                if not ck or not all(v for k_, v in ck.items() if k_[:1] not in ("A", "B", "C", "H")):
+                    continue
+                n_ = sum(ck.values())
+                if n_ >= 5 and (best is None or (n_, cl_.get("drop", 0)) > best[0]):
+                    best = ((n_, cl_.get("drop", 0)), c, cl_)
+            if best:
+                from .calls import add_gu_classic
+                best[2]["core_n"] = sum(1 for k_, v in best[2]["checks"].items() if k_[:1] in ("A", "B", "C", "H") and v)
+                if add_gu_classic(best[1], best[2], now, dict(CLASSIC, lite_max=9), lite=True):
+                    for x in _S.load()["calls"].values():
+                        if x["date"] == day and x["kind"] == "GU-CLASSIC" and x["symbol"] == best[1]["symbol"]:
+                            x.setdefault("gu", {})["daily"] = True
+                            x["source_label"] = "GU Daily pick"
+                            _S.dirty = True
+    except Exception as e:
+        health["daily_err"] = str(e)[:100]
     return snapshot()
 
 

@@ -1222,7 +1222,7 @@ def run_strong(ag, inst, live_q, res, now, live):
             strong = all(chk[m] for m in must)
             q = live_q[n]
             r = {"symbol": n, "side": side, "price": q.get("ltp"), "pct": q.get("pct"), "vol_ratio": vr, "score": int(min(100, sc)),
-                 "checks": chk, "strong": strong, "oi": k, "bar": str(df.index[-1])[11:16], "level": pd_, "pwl": pw,
+                 "checks": chk, "strong": strong, "oi": k, "bar": (df.index[-1] + pd.Timedelta(minutes=5)).strftime("%H:%M"), "level": pd_, "pwl": pw,
                  "sl": round(min(o1l, float(last["low"])) if ce else max(o1h, float(last["high"])), 2), "targets": [],
                  "min_days": 1, "found": now.strftime("%H:%M"),
                  "reasons": [f"🟠 {'1st 5m high' if ce else '1st 5m low'} + {'PDH' if ce else 'PDL'} break" + (" + PW break" if chk[f"{'PWH' if ce else 'PWL'} break"] else ""),
@@ -1234,6 +1234,12 @@ def run_strong(ag, inst, live_q, res, now, live):
         cache.pop(k_, None)
     out.sort(key=lambda r: (-int(r["strong"]), -r["score"]))
     S = [r for r in out if r["strong"]][:6]
+    LOG = C.setdefault("strong_log", {})
+    for r in S:
+        LOG.setdefault(f"{now.date()}|{r['symbol']}|{r['side']}", {"date": str(now.date()), "time": r["bar"], "symbol": r["symbol"], "side": r["side"],
+                                                                   "price": r["price"], "score": r["score"]})
+    for k_ in [k_ for k_ in LOG if not k_.startswith(str(now.date()))]:
+        LOG.pop(k_, None)
     if S:
         pick_options(ag, inst, S)
         for r in S:
@@ -1249,7 +1255,7 @@ def run_strong(ag, inst, live_q, res, now, live):
                            now, STRONG["max_day"])
             except Exception as e:
                 res.setdefault("errors", []).append(f"Strong calls: {e}")
-    return {"time": now.strftime("%H:%M"), "rows": out[:10], "cfg": STRONG}
+    return {"time": now.strftime("%H:%M:%S"), "rows": out[:10], "cfg": STRONG, "log": sorted(LOG.values(), key=lambda x: x["time"], reverse=True)}
 
 
 def run_ai(live_q, res, now, live):

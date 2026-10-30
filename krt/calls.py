@@ -311,7 +311,7 @@ def quality_v6(c, now):
         return None
     day = c["date"]
     mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until")
-            and not x.get("shadow") and ((x["kind"] == "AIPICK") == (c["kind"] == "AIPICK"))]
+            and not x.get("shadow") and (x["kind"] == c["kind"] if c["kind"] in ("AIPICK", "MACHINE") else x["kind"] not in ("AIPICK", "MACHINE"))]
     if any(x["symbol"] == c["symbol"] for x in mine):
         return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
     if len(mine) >= QV6["max_day"]:
