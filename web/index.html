@@ -243,6 +243,13 @@ header{position:relative}
 
 .gkcard.orange{border-color:#fb923c;box-shadow:0 0 26px rgba(251,146,60,.65)}
 .orgtag{margin:-2px 0 6px;padding:5px 8px;border-radius:8px;background:rgba(251,146,60,.2);color:#fdba74;font-weight:800;font-size:13px}
+
+.mmgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mmgrid3{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+@media(max-width:800px){.mmgrid{grid-template-columns:1fr}}
+.mmcard{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--panel)}
+.mmsec{display:grid;gap:4px}.mmbar{display:grid;grid-template-columns:200px 1fr 70px;gap:8px;align-items:center;font-size:14px}
+.mmbar .bar{height:10px;background:rgba(255,255,255,.06);border-radius:6px;overflow:hidden;position:relative}.mmbar i{display:block;height:100%}
+.mmbar i.pos{background:#22c55e}.mmbar i.neg{background:#ef4444}
 /* ai */
 .aibox{margin:10px 0 14px;padding:12px 14px;border:2px solid #a855f7;border-radius:14px;background:linear-gradient(180deg,rgba(168,85,247,.16),rgba(168,85,247,.03))}
 .aic{border-color:#a855f7}.aic.ok{border:2px solid #22c55e;box-shadow:0 0 18px rgba(34,197,94,.45)}
@@ -348,6 +355,7 @@ header{position:relative}
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
+    <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="pw">🎯 POWER OI</button>
@@ -371,6 +379,7 @@ header{position:relative}
 
   <section class="pane" id="p-cl"><div id="aiTop"></div><div id="v4strip"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div></section>
   <section class="pane" id="p-lb" hidden></section>
+  <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
@@ -899,6 +908,7 @@ function renderFull(s){
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
   try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
+  try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
   try{ $("aiTop").innerHTML = SX("strongHTML",()=>strongHTML(f)) + SX("aiHTML",()=>aiHTML(f)); }catch(e){ console.error(e); }
   $("p-lb").innerHTML = SX("strongHTML",()=>strongHTML(f)) + SX("moversHTML",()=>moversHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("aiHTML",()=>aiHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + SX("v4FastHTML",()=>v4FastHTML()) + SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("smartHTML",()=>smartHTML(f)) + momHTML(f) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -1748,6 +1758,43 @@ function strongHTML(f){
    ${(S.log||[]).length?`<details class="tech"><summary>🟠 இன்றைய Strong alerts log (${S.log.length}) — call ஆகாதவையும்</summary>${simpleTbl(S.log,[["Time",x=>esc(x.time)],["Stock",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${x.side}</b>`],["Price",x=>n2(x.price)],["Score",x=>x.score]])}</details>`:""}</div>`;
 }
 function SX(name,fn){ try{ return fn(); }catch(e){ console.error(name,e); return `<div class="cwarn">⚠ ${esc(name)} பகுதியில் பிழை: ${esc(e&&e.message||e)} — மற்ற பகுதிகள் வேலை செய்யும் (இந்த screenshot அனுப்புங்க)</div>`; } }
+/* ===== 👑 MONEY MACHINE ===== */
+let MMP=[];
+function paperFromMM(i){ const r=MMP[i]; if(!r||!(r.option||{}).token){ alert("Strike இன்னும் வரல"); return; } const o=r.option;
+  paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"👑 Money Machine",src_modules:["Money Machine"]}); }
+function mmList(L,cols){ return (L&&L.length)?simpleTbl(L,cols):`<div class="hint">இப்போ இல்லை.</div>`; }
+function mmHTML(f){
+  const M=f.money; if(!M) return `<div class="cempty">👑 Money Machine market நேரத்தில் ~30 sec-க்கு ஒருமுறை update ஆகும்.</div>`;
+  MMP=M.picks||[]; const J=M.jackpot, pc=v=>`<b class="${v>=0?'up':'dn'}">${v>0?"+":""}${n2(v)}%</b>`;
+  const T=f.tracking||{}, mv=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="MONEYM") mv.set(c.id,c)});
+  const MC=[...mv.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)), cl=MC.filter(c=>!OPEN_ST.includes(c.status)), w=cl.filter(c=>c.pnl_lot>0).length;
+  const pick=(r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard ${r.score>=75?'stg':''}"><div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate"><b>${r.score}</b>/100</span></div>
+     <div class="hint">${esc(r.sector||"")} · ${r.pct>0?"+":""}${n2(r.pct)}%</div>
+     ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · LTP ₹${n2(o.ltp)}</div></div>`:`<div class="hint">Strike தேடுது…</div>`}
+     ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span></div><div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     <div class="chk">${(r.why||[]).map(t=>`<span class="up">✓ ${esc(t)}</span>`).join("")}</div>
+     ${o.token?`<button class="pickbtn pp" onclick="paperFromMM(${i})">📝 Paper</button>`:""}</div>`;};
+  const sideTbl=(L,s)=>mmList(L,[["Stock",r=>`<b class="${s==='CE'?'up':'dn'}">${esc(r.symbol)}</b><div class="hint">${esc(r.sector)}</div>`],["%",r=>pc(r.pct)],["Score",r=>`<b>${r["sc_"+s]}</b>`],["ஏன்",r=>`<span class="hint">${(r["why_"+s]||[]).map(esc).join(" · ")}</span>`]]);
+  const mini=(t,L,extra)=>`<div class="mmcard"><b>${t}</b>${mmList(L,[["Stock",r=>`<b>${esc(r.symbol)}</b>`],["LTP",r=>n2(r.ltp)],["%",r=>pc(r.pct)]].concat(extra||[]))}</div>`;
+  const C=M.chain||{};
+  return `<div class="gkhead" style="border-color:#facc15;background:linear-gradient(180deg,rgba(250,204,21,.16),rgba(250,204,21,.02))"><h2 style="color:#facc15">👑 MONEY MACHINE</h2>
+    <div class="hint">moneycontrol மாதிரி எல்லா market view-ம் (Angel live data) ஒரே இடத்தில் → ஒவ்வொரு stock-க்கும் CE / PE score: Gainer/Loser 15 · Volume shocker 15 · Only buyers/sellers 15 · 52-week high/low 15 · Futures OI 15 · Technical trend 10 · 3-நாள் shocker 5 · Sector 5 · NIFTY 5. Score ≥75 = 👑 Jackpot → call (9:45–2:30, max 5) · ${esc(M.time||"")}</div>
+    <div class="cb-stats" style="margin-top:6px"><span class="cb-stat up">↑ ${M.breadth.up}</span><span class="cb-stat dn">↓ ${M.breadth.down}</span>${M.oi.bull_pct!=null?`<span class="cb-stat up">OI Bullish ${M.oi.bull_pct}%</span><span class="cb-stat dn">OI Bearish ${M.oi.bear_pct}%</span>`:""}<span class="cb-stat">Money calls ${MC.length} · win ${cl.length?Math.round(w/cl.length*100)+"%":"–"}</span></div></div>
+   ${J?`<div class="jpbanner" style="border-color:#facc15;background:rgba(250,204,21,.14)">👑 <b>JACKPOT:</b> <b class="${J.side==='CE'?'up':'dn'}">${esc(J.symbol)} ${n2((J.option||{}).strike)} ${J.side}</b> · Entry ₹${n2(J.rp.entry)} · SL ₹${n2(J.rp.sl)} · T1/T2/T3 ${J.rp.targets.map(n2).join(" / ")} · score <b>${J.score}</b> — ${(J.why||[]).slice(0,4).map(esc).join(" · ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(J)})">📝 Paper</button></div>`:`<div class="hint" style="margin:8px 0">👑 Jackpot (score ≥75) இப்போ இல்லை.</div>`}
+   ${MMP.length?`<h2 class="sec">🎯 Top picks (strike + plan)</h2><div class="earlygrid">${MMP.map(pick).join("")}</div>`:""}
+   <div class="mmgrid"><div><h2 class="sec up">📈 Strong CE list</h2>${sideTbl(M.ce,"CE")}</div><div><h2 class="sec dn">📉 Strong PE list</h2>${sideTbl(M.pe,"PE")}</div></div>
+   <h2 class="sec">🏭 Sector performance</h2><div class="mmsec">${(M.sectors||[]).map(s=>`<div class="mmbar"><span>${esc(s.sector)} <small class="hint">${s.up}/${s.n}</small></span><span class="bar"><i class="${s.pct>=0?'pos':'neg'}" style="width:${Math.min(100,Math.abs(s.pct)*30)}%"></i></span>${pc(s.pct)}</div>`).join("")}</div>
+   <h2 class="sec">📊 Market movers (F&amp;O)</h2><div class="mmgrid3">
+    ${mini("🟢 Top gainers",M.gainers)}${mini("🔴 Top losers",M.losers)}${mini("💰 Active by value",M.value,[["₹ Cr",r=>n2(r.value_cr)]])}
+    ${mini("📦 Active by volume",M.volume,[["Vol",r=>n2(r.volume)]])}${mini("🚀 52-week high",M.hi52)}${mini("🕳 52-week low",M.lo52)}
+    ${mini("🛒 Only buyers",M.only_buy)}${mini("🧯 Only sellers",M.only_sell)}${mini("⚡ Price shockers (3 நாள்)",M.price_shock,[["3D",r=>pc(r.shock3)]])}
+    ${mini("🔊 Volume shockers",M.vol_shock,[["× 5D",r=>n2(r.volx5)+"×"]])}</div>
+   <h2 class="sec">📐 Technical trends (SMA20 / SMA50)</h2><div class="mmgrid3">${Object.entries(M.tech||{}).map(([t,L])=>`<div class="mmcard"><b>${esc(t)}</b>${mmList(L,[["Stock",r=>`<b>${esc(r.symbol)}</b>`],["Trend change",r=>`<span class="hint">${esc(r.trend_date||"")}</span>`],["Perf",r=>r.trend_perf!=null?pc(r.trend_perf):"–"]])}</div>`).join("")}</div>
+   <h2 class="sec">🧮 OI trends (futures)</h2><div class="mmgrid3">${Object.entries((M.oi||{}).lists||{}).map(([k,L])=>`<div class="mmcard"><b class="${/Long Built|Short Cov/.test(k)?'up':'dn'}">${esc(k)} (${L.length})</b><div class="hint">${L.map(esc).join(", ")||"–"}</div></div>`).join("")}</div>
+   ${C.rows&&C.rows.length?`<h2 class="sec">⛓ NIFTY option chain · spot ${n2(C.spot)} · exp ${esc(C.expiry||"")} · PCR ${C.pcr??"–"} · S ${n2(C.support)} / R ${n2(C.resistance)}</h2>`+simpleTbl(C.rows,[["CE LTP",x=>n2(x.ce.ltp)],["CE OI",x=>n2(x.ce.oi)],["Strike",x=>`<b>${n2(x.strike)}</b>`],["PE OI",x=>n2(x.pe.oi)],["PE LTP",x=>n2(x.pe.ltp)]]):""}
+   <h2 class="sec">📋 Money Machine calls — result (${MC.length})</h2>${MC.length?simpleTbl(MC,[["Date / Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls):`<div class="hint">இன்னும் call இல்லை.</div>`}
+   <div class="hint" style="margin-top:8px">⚠ moneycontrol-ஐ நேரடியா படிக்கல — அதே மாதிரி கணக்கு Angel One data-வில். 52-week = ~250 நாள் daily data. Sector map முக்கிய F&amp;O stocks மட்டும். Score = rule-based ranking, guarantee இல்லை.</div>`;
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;

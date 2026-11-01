@@ -72,6 +72,8 @@ def ensure_daily(ag, inst, names, session, prog):
         df.index = df.index.normalize()
         C["levels"][n] = completed_levels(df, session)
         past = df[df.index < session]
+        if len(past):
+            C.setdefault("hl52", {})[n] = (float(past["high"].tail(250).max()), float(past["low"].tail(250).min()))
         C["avgvol"][n] = float(past["volume"].tail(20).mean()) if len(past) else 0.0
         C["swings"][n] = swing_levels(df, session)
         tail = past.tail(130)
@@ -885,6 +887,10 @@ def fast_tick(ag, res):
     except Exception as e:
         res.setdefault("errors", []).append(f"Movers: {e}")
     try:
+        res["money"] = run_money(ag, inst, live_q, res, now, live)
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Money Machine: {e}")
+    try:
         res["strong"] = run_strong(ag, inst, live_q, res, now, live)
     except Exception as e:
         res.setdefault("errors", []).append(f"Strong: {e}")
@@ -1321,6 +1327,62 @@ def run_ai(live_q, res, now, live):
             "worst_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
                                    for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: x[3])[:6],
             "cfg": AI}
+
+
+def run_money(ag, inst, live_q, res, now, live):
+    """👑 MONEY MACHINE — sections + CE/PE list + Jackpot (top 3 each side-க்கு option plan) + calls (score ≥75)."""
+    from .money import build
+    from .calls import rupee_plan, add_simple
+    M = build(live_q, C, res, now)
+    mins = now.hour * 60 + now.minute
+    cache = C.setdefault("mm_opt", {})
+    day = str(now.date())
+    picks = []
+    for side, L in (("CE", M["ce"]), ("PE", M["pe"])):
+        for r in L[:3]:
+            f = (C.get("feat") or {}).get(r["symbol"]) or {}
+            atr = f.get("atr") or r["ltp"] * 0.02
+            picks.append({"symbol": r["symbol"], "side": side, "price": r["ltp"], "pct": r["pct"], "vol_ratio": r["vol_ratio"],
+                          "score": r[f"sc_{side}"], "why": r[f"why_{side}"], "sector": r["sector"], "min_days": 1,
+                          "sl": round(r["ltp"] - atr if side == "CE" else r["ltp"] + atr, 2), "targets": [],
+                          "reasons": ["👑 Money Machine"] + r[f"why_{side}"][:4]})
+    need = [p for p in picks if not (cache.get(f"{day}|{p['symbol']}|{p['side']}") or {}).get("token")][:3]
+    if need:
+        pick_options(ag, inst, need)
+        for p in need:
+            o_ = p.get("option") if "none" not in (p.get("option") or {}) else p.get("option_ref")
+            if (o_ or {}).get("token"):
+                cache[f"{day}|{p['symbol']}|{p['side']}"] = o_
+    toks = {}
+    for p in picks:
+        o_ = cache.get(f"{day}|{p['symbol']}|{p['side']}")
+        if o_:
+            toks.setdefault(o_["exch"], []).append(o_["token"])
+    oq = ag.quotes(toks) if (live and toks) else {}
+    for p in picks:
+        o_ = cache.get(f"{day}|{p['symbol']}|{p['side']}")
+        if not o_:
+            continue
+        o_ = dict(o_)
+        q_ = oq.get(o_["token"]) or {}
+        if q_.get("ltp"):
+            o_["ltp"] = o_["ask"] = float(q_["ltp"])
+        p["option"] = o_
+        attach_plan(p, o_, now, "Money Machine")
+        pl = o_.get("plan") or {}
+        if pl.get("entry"):
+            sl_, tg_, rk_, rc_ = rupee_plan(pl["entry"], pl.get("sl"), o_["lot"], False)
+            p["rp"] = {"entry": pl["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - pl["entry"]) * o_["lot"]) for t in tg_], "codes": rc_}
+    picks.sort(key=lambda p: -p["score"])
+    M["picks"] = picks
+    M["jackpot"] = next((p for p in picks if p.get("rp") and p["score"] >= 75), None)
+    if live and 9 * 60 + 45 <= mins <= 14 * 60 + 30:
+        try:
+            add_simple("MONEYM", "👑 Money Machine", [p for p in picks if p.get("rp") and p["score"] >= 75 and not p["rp"]["codes"]
+                                                     and (p["option"].get("spread_pct") or 99) <= 5], now, 5)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"Money calls: {e}")
+    return M
 
 
 def run_movers(ag, inst, live_q, res, now, live):
