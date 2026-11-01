@@ -281,7 +281,7 @@ QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, 
 
 def quality_v6(c, now):
     """→ None (pass) அல்லது (code, காரணம்)."""
-    if not QV6["on"] or c.get("kind") == "PICK" or c.get("hold_until"):
+    if not QV6["on"] or c.get("kind") in ("PICK", "MCX") or c.get("hold_until"):
         return None
     mins = now.hour * 60 + now.minute
     if mins < QV6["start"] and not (c.get("kind") == "STRONG" and mins >= 9 * 60 + 30):

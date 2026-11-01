@@ -27,6 +27,8 @@ def _build(cache_dir: Path) -> dict:
                 f.write(chunk)
     today = ist_today()
     eq, opts, fno, fut = {}, {}, set(), {}
+    mfut, mopt = {}, {}                  # 🛢 MCX futures (FUTCOM) + options on futures (OPTFUT)
+    MCXN = {"CRUDEOIL", "CRUDEOILM", "NATURALGAS", "NATGASMINI", "GOLD", "GOLDM", "SILVER", "SILVERM", "COPPER", "ZINC"}
     with open(raw, "rb") as f:
         for row in ijson.items(f, "item"):
             seg, sym = row.get("exch_seg"), row.get("symbol", "")
@@ -34,6 +36,23 @@ def _build(cache_dir: Path) -> dict:
                 eq[sym[:-3]] = row["token"]
                 continue
             it = row.get("instrumenttype")
+            if seg == "MCX" and it in ("FUTCOM", "OPTFUT"):
+                nm = (row.get("name") or "").upper()
+                if nm not in MCXN:
+                    continue
+                try:
+                    fx = dt.datetime.strptime(row["expiry"], "%d%b%Y").date()
+                except Exception:
+                    continue
+                if fx < today or (fx - today).days > 70:
+                    continue
+                if it == "FUTCOM":
+                    if (fx - today).days >= 3 and (nm not in mfut or fx.isoformat() < mfut[nm][2]):
+                        mfut[nm] = [row["token"], sym, fx.isoformat(), "MCX"]
+                elif sym[-2:] in ("CE", "PE"):
+                    mopt.setdefault(nm, []).append([row["token"], sym, fx.isoformat(), float(row.get("strike") or 0) / 100, sym[-2:],
+                                                    int(float(row.get("lotsize") or 0)), "MCX"])
+                continue
             if seg in ("NFO", "BFO") and it == "FUTIDX":      # V4: index futures volume (spot index-க்கு volume இல்லை)
                 nm = (row.get("name") or "").upper()
                 try:
@@ -63,7 +82,10 @@ def _build(cache_dir: Path) -> dict:
     for name, rows in opts.items():  # அருகிலுள்ள 2 expiry மட்டும்
         exps = sorted({r[2] for r in rows})[:2]
         opts[name] = [r for r in rows if r[2] in exps]
-    return {"eq": eq, "fno": sorted(fno), "opts": opts, "fut": fut}
+    for name, rows in mopt.items():
+        exps = sorted({r[2] for r in rows})[:2]
+        mopt[name] = [r for r in rows if r[2] in exps]
+    return {"eq": eq, "fno": sorted(fno), "opts": opts, "fut": fut, "mcx_fut": mfut, "mcx_opt": mopt}
 
 
 def load(cache_dir: str | Path) -> dict:
@@ -77,7 +99,7 @@ def _load(cache_dir: str | Path) -> dict:
     day = ist_today().isoformat()
     if _MEM["day"] == day:
         return _MEM["data"]
-    f = cache_dir / f"instruments_{day}.json"
+    f = cache_dir / f"instruments_v2_{day}.json"       # v2: MCX contracts சேர்த்தது
     if f.exists():
         data = json.loads(f.read_text(encoding="utf-8"))
     else:
