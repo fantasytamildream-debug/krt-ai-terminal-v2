@@ -152,6 +152,37 @@ V4_LK = threading.Lock()
 MCXE = {"err": None, "beat": None}
 
 
+def chart_once(t):
+    global ANGEL
+    from krt import chartroom as CR
+    from krt.angel_api import Angel
+    from krt.instruments import load as load_inst
+    from krt.store import STORE as _ST
+    ANGEL = ANGEL or Angel()
+    CR.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), _ST, t)
+
+
+def chart_loop():
+    """📈 Chart Room: 5 நிமிடத்துக்கு ஒருமுறை (completed 5-min candle + 1 min) — NSE நேரம் + MCX நேரம்."""
+    done = None
+    while True:
+        time.sleep(10)
+        try:
+            from krt import commodity as CM
+            real = pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None)
+            t = real.floor("1min")
+            if not angel_configured() or t.minute % 5 != 1 or done == t or real.second < 15:
+                continue
+            nse = t.weekday() < 5 and "09:20" <= t.strftime("%H:%M") <= "15:31"
+            if not (nse or CM.mcx_open(t)):
+                continue
+            done = t
+            chart_once(t)
+        except Exception as e:
+            __import__("krt.chartroom", fromlist=["STATE"]).STATE["err"] = str(e)[:200]
+            traceback.print_exc()
+
+
 def mcx_loop():
     """🛢 Commodity (MCX): 9:00–23:55 (Mon–Fri) 3 நிமிடத்துக்கு ஒருமுறை — NSE close ஆனாலும் ஓடும்."""
     global ANGEL
@@ -426,7 +457,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full", "full_error",
                                          "full_running", "full_last", "progress")},
-                "news": NEWS, "gu": GU, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(),
+                "news": NEWS, "gu": GU, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
@@ -470,6 +501,21 @@ class H(BaseHTTPRequestHandler):
             if c:
                 _snap_put(c)       # அடுத்த scan-க்கு காத்திருக்காம Paper Trade tab-ல் உடனே தெரியும்
             return self._send(200, _json({"ok": bool(c), "msg": msg, "id": (c or {}).get("id")}))
+        if self.path == "/api/chart/scan":
+            def _go():
+                try:
+                    chart_once(pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None).floor("1min"))
+                except Exception as e:
+                    __import__("krt.chartroom", fromlist=["STATE"]).STATE["err"] = str(e)[:200]
+            threading.Thread(target=_go, daemon=True).start()
+            return self._send(200, _json({"ok": True, "msg": "Chart analysis ஓடுது — 20–40 sec"}))
+        if self.path == "/api/whatsapp":
+            from krt import telegram as TG
+            if d.get("phone") and d.get("apikey"):
+                TG.wa_save(d["phone"], d["apikey"])
+            ok = TG.wa_send("✅ KRT Terminal WhatsApp alerts ON — இனி எல்லா calls-ம் இங்கே வரும்.") if d.get("test", True) else TG.wa_enabled()
+            return self._send(200, _json({"ok": bool(ok), "msg": "✅ Saved — test message அனுப்பியாச்சு (10–30 sec-ல் WhatsApp-ல் வரும்)" if ok
+                                          else "⚠ Phone + API key வேணும்", "status": TG.status()}))
         if self.path == "/api/mcx/scan":
             def _go():
                 global ANGEL
@@ -614,6 +660,7 @@ if __name__ == "__main__":
     threading.Thread(target=power_loop, daemon=True).start()
     threading.Thread(target=v4_loop, daemon=True).start()
     threading.Thread(target=mcx_loop, daemon=True).start()
+    threading.Thread(target=chart_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

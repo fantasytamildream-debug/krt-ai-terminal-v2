@@ -250,6 +250,9 @@ header{position:relative}
 .mmsec{display:grid;gap:4px}.mmbar{display:grid;grid-template-columns:200px 1fr 70px;gap:8px;align-items:center;font-size:14px}
 .mmbar .bar{height:10px;background:rgba(255,255,255,.06);border-radius:6px;overflow:hidden;position:relative}.mmbar i{display:block;height:100%}
 .mmbar i.pos{background:#22c55e}.mmbar i.neg{background:#ef4444}
+
+.crcard{border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;background:var(--panel)}
+.crai{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(56,189,248,.08);font-size:14px}
 /* ai */
 .aibox{margin:10px 0 14px;padding:12px 14px;border:2px solid #a855f7;border-radius:14px;background:linear-gradient(180deg,rgba(168,85,247,.16),rgba(168,85,247,.03))}
 .aic{border-color:#a855f7}.aic.ok{border:2px solid #22c55e;box-shadow:0 0 18px rgba(34,197,94,.45)}
@@ -357,6 +360,7 @@ header{position:relative}
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="cx">🛢 Commodity</button>
+    <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="pw">🎯 POWER OI</button>
@@ -382,6 +386,7 @@ header{position:relative}
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-cx" hidden></section>
+  <section class="pane" id="p-cr" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
@@ -430,6 +435,21 @@ header{position:relative}
       <button class="primary" style="margin-top:12px" onclick="saveAngel()">Save and test login</button>
       <div class="msg" id="angelMsg"></div>
     </div>
+  </section>
+
+  <section>
+    <strong>📱 WhatsApp alerts (எல்லா calls-ம் auto)</strong>
+    <div class="hint" id="waState"></div>
+    <ol class="how">
+      <li><b>callmebot.com</b> → WhatsApp API page-ல் காட்டுற CallMeBot number-ஐ உங்க phone contacts-ல் save பண்ணுங்க</li>
+      <li>அந்த number-க்கு WhatsApp-ல் இந்த message அனுப்புங்க: <b>I allow callmebot to send me messages</b></li>
+      <li>பதில் வர்ற <b>apikey</b>-ஐ கீழே போடுங்க (ஒரு நிமிடத்துக்குள் வரும்)</li>
+    </ol>
+    <label for="waPhone">உங்க WhatsApp number (+91 உடன்)</label><input id="waPhone" placeholder="+919876543210" autocomplete="off">
+    <label for="waKey">CallMeBot API key</label><input id="waKey" autocomplete="off">
+    <button class="primary" style="margin-top:10px" onclick="saveWA()">Save + test message</button>
+    <div class="msg" id="waMsg"></div>
+    <div class="hint">⚠ Render-ல் redeploy ஆனா இந்த save அழியலாம் — நிரந்தரமா வைக்க Render Environment-ல் <b>WHATSAPP_PHONE</b>, <b>WHATSAPP_APIKEY</b> போடுங்க. CallMeBot = free third-party service (personal use) — சில நேரம் 10–60 sec delay.</div>
   </section>
 
   <section>
@@ -1827,6 +1847,59 @@ function mcxHTML(s){
    ${MC.length?simpleTbl(MC,[["Date / Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.contract||"")}</b><div class="hint">${esc(c.source_label||c.source)} · ×${c.lot}</div>`],["Entry",c=>n2(c.entry)],["SL",c=>`${n2(c.sl0||c.sl)}${c.sl0&&c.sl!==c.sl0?`<div class="hint">→ ${n2(c.sl)}</div>`:""}`],["T1 / T2 / T3",c=>c.targets.map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Hit",tkCell],["Status",c=>`${statusCell(c)}${c.exit_time?`<div class="hint">${esc(String(c.exit_time).slice(5,16))}</div>`:""}`],["",pbtn]],callCls):`<div class="hint">இன்னும் commodity call இல்லை.</div>`}
    <div class="hint" style="margin-top:8px">⚠ ₹ P/L = point × contract multiplier (MCX spec: Crude 100, Crude M 10, NatGas 1250, NatGas mini 250, Gold 100, Gold M 10, Silver 30, Silver M 5, Copper 2500, Zinc 5000) — broker contract note-ஓட சரி பாருங்க. Commodity options-ல் liquidity / spread அதிகம் — limit order மட்டும். Paper / alert, guarantee இல்லை.</div>`;
 }
+async function saveWA(){ const j=await post("/api/whatsapp",{phone:$("waPhone").value,apikey:$("waKey").value,test:true}); $("waMsg").textContent=j.msg||""; }
+function waStateRender(s){ const a=s.alerts||{}; const el=$("waState"); if(!el) return;
+  el.innerHTML=a.whatsapp?`✅ ON · ${esc(a.phone||"")} · அனுப்பியது ${a.sent} · fail ${a.fail}${a.last_ok?" · last "+esc(a.last_ok):""}${a.last_err?` · <span class="dn">${esc(a.last_err)}</span>`:""}`:"⚪ OFF — கீழே setup பண்ணுங்க"; }
+/* ===== 📈 CHART ROOM ===== */
+async function chartScan(){ const j=await post("/api/chart/scan",{}); alert(j.msg||""); setTimeout(load,30000); }
+function crSVG(ch){
+  const C=ch.candles||[], A=ch.analysis||{}, n=C.length, fut=12, W=900, H=420, VH=70, pad=46;
+  if(!n) return "";
+  const xs=i=>pad+i*(W-pad-70)/(n+fut-1);
+  let lo=Math.min(...C.map(c=>c[3]), A.dn_target||1e9), hi=Math.max(...C.map(c=>c[2]), A.up_target||-1e9);
+  const r=(hi-lo)||1; lo-=r*0.04; hi+=r*0.04;
+  const y=p=>10+(H-VH-20)*(hi-p)/(hi-lo), vmax=Math.max(...C.map(c=>c[5]))||1, cw=Math.max(2,(W-pad-70)/(n+fut)*0.6);
+  let g="";
+  for(let k=0;k<=4;k++){ const p=lo+(hi-lo)*k/4; g+=`<line x1="${pad}" x2="${W-60}" y1="${y(p)}" y2="${y(p)}" stroke="var(--line)" stroke-width="0.5"/><text x="${W-56}" y="${y(p)+4}" font-size="11" fill="var(--muted)">${p.toFixed(1)}</text>`; }
+  C.forEach((c,i)=>{ const up=c[4]>=c[1], col=up?"#22c55e":"#ef4444", x=xs(i);
+    g+=`<line x1="${x}" x2="${x}" y1="${y(c[2])}" y2="${y(c[3])}" stroke="${col}"/><rect x="${x-cw/2}" y="${y(Math.max(c[1],c[4]))}" width="${cw}" height="${Math.max(1,Math.abs(y(c[1])-y(c[4])))}" fill="${col}"/>`;
+    const vh=(c[5]/vmax)*(VH-8); g+=`<rect x="${x-cw/2}" y="${H-vh-4}" width="${cw}" height="${vh}" fill="${col}" opacity=".35"/>`;
+    if(i%12===0) g+=`<text x="${x}" y="${H+12}" font-size="10" fill="var(--muted)" text-anchor="middle">${c[0]}</text>`; });
+  const line=(arr,col,dash)=>{ const off=(A.vwap||[]).length&&arr===A.vwap?n-arr.length:(arr.length-n); let pts=[];
+    arr.forEach((v,i)=>{ const j=arr===A.vwap? i+(n-arr.length): i-(arr.length-n); if(v!=null&&j>=0&&j<n) pts.push(`${xs(j)},${y(v)}`); });
+    return pts.length>1?`<polyline points="${pts.join(" ")}" fill="none" stroke="${col}" stroke-width="1.4" ${dash?'stroke-dasharray="4 3"':''}/>`:""; };
+  g+=line(A.vwap||[],"#a78bfa",false)+line(A.ema20||[],"#fbbf24",true);
+  (A.sr_up||[]).concat(A.sr_dn||[]).forEach(s=>{ g+=`<line x1="${pad}" x2="${W-60}" y1="${y(s.price)}" y2="${y(s.price)}" stroke="#64748b" stroke-dasharray="2 4"/><text x="${pad+2}" y="${y(s.price)-3}" font-size="10" fill="#94a3b8">S/R ${s.price} (${s.touches}×)</text>`; });
+  const L=A.lines||{}, off=ch.offset||0;
+  [["upper","#ef4444"],["lower","#22c55e"]].forEach(([k,col])=>{ const ln=L[k]; if(!ln) return; const xa=Math.max(0,n-60), xb=n-1+fut;
+    g+=`<line x1="${xs(xa)}" y1="${y(ln[0]*(xa+off)+ln[1])}" x2="${xs(xb)}" y2="${y(ln[0]*(xb+off)+ln[1])}" stroke="${col}" stroke-width="2" opacity=".85"/>`; });
+  const xn=xs(n-1), xf=xs(n-1+fut);
+  if(A.up_level){ g+=`<line x1="${xs(Math.max(0,n-30))}" x2="${xf}" y1="${y(A.up_level)}" y2="${y(A.up_level)}" stroke="#22c55e" stroke-dasharray="6 3" stroke-width="1.6"/><text x="${xf-4}" y="${y(A.up_level)-4}" font-size="11" fill="#4ade80" text-anchor="end">⬆ break ${A.up_level}</text>
+     <line x1="${xn}" y1="${y(A.up_level)}" x2="${xf}" y2="${y(A.up_target)}" stroke="#22c55e" stroke-width="1.5" marker-end="url(#ah)"/><text x="${xf-4}" y="${y(A.up_target)-4}" font-size="11" fill="#4ade80" text-anchor="end">T ${A.up_target}</text>`; }
+  if(A.dn_level){ g+=`<line x1="${xs(Math.max(0,n-30))}" x2="${xf}" y1="${y(A.dn_level)}" y2="${y(A.dn_level)}" stroke="#ef4444" stroke-dasharray="6 3" stroke-width="1.6"/><text x="${xf-4}" y="${y(A.dn_level)+13}" font-size="11" fill="#f87171" text-anchor="end">⬇ break ${A.dn_level}</text>
+     <line x1="${xn}" y1="${y(A.dn_level)}" x2="${xf}" y2="${y(A.dn_target)}" stroke="#ef4444" stroke-width="1.5" marker-end="url(#ah)"/><text x="${xf-4}" y="${y(A.dn_target)+13}" font-size="11" fill="#f87171" text-anchor="end">T ${A.dn_target}</text>`; }
+  g+=`<rect x="${pad+4}" y="12" width="${Math.min(420,14+String(A.pattern).length*9)}" height="24" rx="6" fill="rgba(0,0,0,.45)"/><text x="${pad+12}" y="29" font-size="14" font-weight="700" fill="${A.bias==='UP'?'#4ade80':A.bias==='DOWN'?'#f87171':'#e2e8f0'}">${esc(A.pattern)} ${A.bias==='UP'?'⬆':A.bias==='DOWN'?'⬇':''}</text>`;
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H+16}" style="width:100%;min-width:620px;background:var(--panel);border-radius:10px" role="img" aria-label="${esc(ch.call.symbol)} chart">
+   <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="currentColor"/></marker></defs>${g}</svg></div>`;
+}
+function crHTML(s){
+  const R=s.chart||{}, A=R.acc||{};
+  const pct=(a,b)=>b?Math.round(a/b*100)+"%":"–";
+  const cards=(R.charts||[]).map(ch=>{const c=ch.call, a=ch.analysis, p=ch.pred||{};
+    return `<div class="crcard"><div class="ctop"><b style="font-size:17px">${esc(c.symbol)} <span class="${c.side==='CE'?'up':'dn'}">${esc(c.strike)} ${esc(c.side)}</span></b><span class="hint">${esc(c.source||"")} · ${esc(c.time||"")} · ${esc(c.status||"")}</span></div>
+     <div class="hint">Option: Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T ${(c.targets||[]).map(n2).join(" / ")} · LTP ₹${n2(c.ltp)}</div>
+     ${crSVG(ch)}
+     <div class="crai">🤖 <b>Chart analysis:</b> ${esc(a.text||"")}<div class="hint">${(a.why||[]).map(esc).join(" · ")} · ATR ${a.atr} · <span style="color:#a78bfa">— VWAP</span> · <span style="color:#fbbf24">- - EMA20</span> · <span class="dn">red line = resistance trend</span> · <span class="up">green = support trend</span></div>
+     <div style="margin-top:4px">🎯 Prediction (${esc(p.time||"")}): <b>${esc(p.status||"")}</b>${p.break_time?` · break ${esc(p.break_time)} @ ${n2(p.break_px)}`:""}${p.correct!=null?(p.correct?' · <b class="up">✓ direction சரி</b>':' · <b class="dn">✗ எதிர் பக்கம்</b>'):""}</div></div></div>`;}).join("");
+  const by=Object.entries(R.by_pattern||{});
+  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2>
+    <div class="hint">Top 2 open calls-ன் underlying 5-min chart · auto-draw: S/R (pivot clusters), trendlines, VWAP, EMA20, volume · pattern (triangle / channel / range / double top-bottom / flag) · ⬆⬇ break level + measured-move target · ஒவ்வொரு prediction-ம் track → accuracy. 5 நிமிடத்துக்கு ஒருமுறை (NSE + MCX நேரம்). ${esc(R.time||"")} ${R.err?`<span class="dn">${esc(R.err)}</span>`:""}</div>
+    <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Predictions ${A.total??0}</span><span class="cb-stat">Break ஆனது ${A.broke??0}</span><span class="cb-stat up">Direction சரி ${pct(A.dir_ok||0,A.dir_n||0)} (${A.dir_ok??0}/${A.dir_n??0})</span><span class="cb-stat up">Target ✓ ${A.target??0}</span><span class="cb-stat dn">Failed ${A.failed??0}</span><span class="cb-stat">No break ${A.nobreak??0}</span><button class="pickbtn" onclick="chartScan()">🔄 இப்போ analyse</button></div></div>
+   ${cards||`<div class="cempty">Open calls வந்ததும் top 2 chart இங்கே வரும் (NSE 9:20–3:30 · MCX இரவு வரை).</div>`}
+   <h2 class="sec">📊 Pattern accuracy</h2>${by.length?simpleTbl(by.map(([k,v])=>({k,...v})),[["Pattern",r=>`<b>${esc(r.k)}</b>`],["Predictions",r=>r.n],["Direction சரி",r=>`${pct(r.dir_ok,r.dir_n)} (${r.dir_ok}/${r.dir_n})`],["Target ✓",r=>r.target],["Failed",r=>r.failed]]):`<div class="hint">இன்னும் data இல்லை.</div>`}
+   <h2 class="sec">📋 Prediction history — date · time · result</h2>${(R.preds||[]).length?simpleTbl(R.preds,[["Date / Time",p=>`${esc(p.date)} ${esc(p.time)}`],["Call",p=>esc(p.call||p.symbol)],["Pattern",p=>esc(p.pattern)],["Bias",p=>p.bias==='UP'?'<b class="up">⬆</b>':p.bias==='DOWN'?'<b class="dn">⬇</b>':"–"],["⬆ break / T",p=>`${n2(p.up_level)} / ${n2(p.up_target)}`],["⬇ break / T",p=>`${n2(p.dn_level)} / ${n2(p.dn_target)}`],["Result",p=>`<b class="${p.status==='TARGET ✓'?'up':p.status==='FAILED'?'dn':''}">${esc(p.status)}</b>${p.break_time?`<div class="hint">break ${esc(p.break_time)}</div>`:""}${p.end_time?`<div class="hint">end ${esc(p.end_time)}</div>`:""}`],["Direction",p=>p.correct==null?"–":p.correct?'<span class="up">✓</span>':'<span class="dn">✗</span>']]):`<div class="hint">இன்னும் prediction இல்லை.</div>`}
+   <div class="hint" style="margin-top:8px">⚠ இது chart geometry rule-based (pivots, line fit, measured move) — AI prediction / guarantee இல்லை. Pattern accuracy table 2–3 வாரம் பார்த்து எந்த pattern நம்பலாம்னு முடிவு பண்ணுங்க.</div>`;
+}
 function render(s){
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
@@ -1847,6 +1920,8 @@ function render(s){
   $("notes").innerHTML = "";
   try{ renderFull(s); }catch(e){ console.error("renderFull",e); $("notes").innerHTML=`<li class="cwarn">⚠ Page பகுதி பிழை: ${esc(e.message)} — Calls tab தொடர்ந்து வேலை செய்யும்</li>`; }
   try{ $("p-cx").innerHTML = SX("mcxHTML",()=>mcxHTML(s)); }catch(e){ console.error(e); }
+  try{ waStateRender(s); }catch(e){}
+  try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); announceNew({tracking:{today:[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))]}}); riskVoice(s.full); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
