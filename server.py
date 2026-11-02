@@ -159,7 +159,17 @@ def chart_once(t):
     from krt.instruments import load as load_inst
     from krt.store import STORE as _ST
     ANGEL = ANGEL or Angel()
-    CR.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), _ST, t)
+    full = STATE.get("full") or {}
+    extra = []
+    for src, rows in (("👑 Money Machine", (full.get("money") or {}).get("picks") or []), ("🟠 Strong Break", [r for r in (full.get("strong") or {}).get("rows") or [] if r.get("strong")]),
+                      ("🚀 Top Movers", (full.get("movers") or {}).get("rows") or [])):
+        for r in rows:
+            o, p = r.get("option") or {}, r.get("rp") or {}
+            if o.get("strike") and p.get("entry"):
+                extra.append({"id": None, "symbol": r["symbol"], "strike": o["strike"], "side": r["side"], "entry": p["entry"], "sl": p["sl"],
+                              "targets": p["targets"], "ltp": o.get("ltp"), "status": "SETUP", "source": src, "time": t.strftime("%H:%M"),
+                              "expiry": o.get("expiry"), "lot": o.get("lot"), "token": o.get("token"), "exch": o.get("exch"), "contract": o.get("contract")})
+    CR.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), _ST, t, extra)
 
 
 def chart_loop():

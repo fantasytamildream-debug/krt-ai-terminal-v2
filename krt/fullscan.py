@@ -1376,6 +1376,8 @@ def run_money(ag, inst, live_q, res, now, live):
     picks.sort(key=lambda p: -p["score"])
     M["picks"] = picks
     M["jackpot"] = next((p for p in picks if p.get("rp") and p["score"] >= 75), None)
+    M["jackpot_ce"] = next((p for p in picks if p["side"] == "CE" and p.get("rp") and p["score"] >= 75), None)
+    M["jackpot_pe"] = next((p for p in picks if p["side"] == "PE" and p.get("rp") and p["score"] >= 75), None)
     if live and 9 * 60 + 45 <= mins <= 14 * 60 + 30:
         try:
             add_simple("MONEYM", "👑 Money Machine", [p for p in picks if p.get("rp") and p["score"] >= 75 and not p["rp"]["codes"]
@@ -1529,13 +1531,21 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
             r["why_not"].append((o.get("none") or "Option இல்லை")[:90])
         if o.get("wide_spread") and not o.get("no_depth") and (o.get("spread_pct") or 0) > 10:
             r["why_not"].append(f"Spread {o.get('spread_pct')}% — limit order, paper மட்டும்")
-        if not r["full"] and r["score"] < 65:
-            r["why_not"].append(f"Scanner 8/9 + score {r['score']} < 65")
-        if r["score"] < 55:
-            r["why_not"].append(f"Score {r['score']} < 55")
+        # V8 accuracy upgrade (பழைய 29% win): 9/9 கட்டாயம் · score ≥70 · 15m volume ≥2× · NIFTY எதிர் இல்லை · VWAP-ல் இருந்து ≤1 ATR
+        vx_ = (r.get("info") or {}).get("vol_x") or 0
+        if not r["full"]:
+            r["why_not"].append("Scanner 9/9 இல்லை")
+        if r["score"] < 70:
+            r["why_not"].append(f"Score {r['score']} < 70")
+        if not r.get("hold") and vx_ < 2:
+            r["why_not"].append(f"15m volume {vx_}× < 2×")
+        if (r["side"] == "CE" and npct <= -0.25) or (r["side"] == "PE" and npct >= 0.25):
+            r["why_not"].append(f"NIFTY {npct:+.2f}% எதிர்")
+        if (r.get("ext_atr") or 0) > 1.0:
+            r["why_not"].append(f"VWAP-ல் இருந்து {r.get('ext_atr')} ATR — late")
         if r.get("hold"):
-            if not (14 * 60 <= mins <= 15 * 60 + 20):
-                r["why_not"].append("Daily / weekly scanner — 2:00–3:20 (candle close அருகில்) தான் entry")
+            if not (14 * 60 + 30 <= mins <= 15 * 60 + 15):
+                r["why_not"].append("Daily / weekly scanner — 2:30–3:15 (candle close அருகில்) தான் entry")
         elif not (9 * 60 + 30 <= mins <= 14 * 60 + 30):
             r["why_not"].append("நேரம் 9:30–2:30 இல்லை")
         if not r["why_not"] and r.get("rp"):

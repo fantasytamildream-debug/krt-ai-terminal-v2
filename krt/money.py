@@ -108,17 +108,24 @@ def build(live_q, C, res, now):
                 if ok:
                     pts += p
                     why.append(t)
-            add((r["pct"] >= 1.5) if ce else (r["pct"] <= -1.5), 15, f"{'Gainer' if ce else 'Loser'} {r['pct']:+.2f}%")
+            lv = (C.get("levels") or {}).get(r["symbol"]) or {}
+            q = live_q.get(r["symbol"]) or {}
+            rng = (q.get("high") or 0) - (q.get("low") or 0)
+            pos = ((r["ltp"] - q["low"]) / rng) if rng > 0 else 0.5
+            add((r["pct"] >= 1.5) if ce else (r["pct"] <= -1.5), 10, f"{'Gainer' if ce else 'Loser'} {r['pct']:+.2f}%")
             add(r["vol_ratio"] >= 2 or r["volx5"] >= 2, 15, f"Volume shocker {max(r['vol_ratio'], r['volx5']):.1f}×")
-            add(r["only_buy"] if ce else r["only_sell"], 15, "Only buyers (day high-ல்)" if ce else "Only sellers (day low-ல்)")
-            add(r["new_hi52"] if ce else r["new_lo52"], 15, "52-week high" if ce else "52-week low")
+            add(r["only_buy"] if ce else r["only_sell"], 10, "Only buyers (day high-ல்)" if ce else "Only sellers (day low-ல்)")
+            add(r["new_hi52"] if ce else r["new_lo52"], 10, "52-week high" if ce else "52-week low")
             add((r["oi"] in bull_k) if ce else (r["oi"] in bear_k), 15, f"OI: {r['oi']}")
             add((r["trend"] in ("Bullish", "Turning Bullish")) if ce else (r["trend"] in ("Bearish", "Turning Bearish")), 10, f"Trend: {r['trend']}")
+            add(bool(lv.get("PDH" if ce else "PDL")) and ((r["ltp"] > lv["PDH"]) if ce else (r["ltp"] < lv["PDL"])), 10, "PDH break" if ce else "PDL break")
+            add((pos >= 0.8) if ce else (pos <= 0.2), 5, f"Day range-ல் {int(pos * 100)}%")
             add((r["shock3"] >= 4) if ce else (r["shock3"] <= -4), 5, f"3 நாள் {r['shock3']:+.1f}%")
             s_ = sp.get(r["sector"])
             add(s_ is not None and ((s_ >= 0.5) if ce else (s_ <= -0.5)), 5, f"Sector {r['sector']} {s_:+.2f}%" if s_ is not None else "")
             add((npct > -0.2) if ce else (npct < 0.2), 5, "NIFTY எதிர் இல்லை")
             r[f"sc_{side}"], r[f"why_{side}"] = pts, why
+            r[f"conf_{side}"] = "HIGH" if pts >= 80 else "MEDIUM" if pts >= 65 else "LOW"
     ce_list = sorted([r for r in rows if r["sc_CE"] >= 45], key=lambda r: -r["sc_CE"])[:12]
     pe_list = sorted([r for r in rows if r["sc_PE"] >= 45], key=lambda r: -r["sc_PE"])[:12]
     top = lambda key, rev=True, n=10, f=None: sorted([r for r in rows if (f(r) if f else True)], key=lambda r: r[key], reverse=rev)[:n]

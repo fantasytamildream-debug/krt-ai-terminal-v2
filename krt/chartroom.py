@@ -81,6 +81,20 @@ def analyse(df):
         neck = float(h[lo[-2][0]:lo[-1][0] + 1].max())
         pat, bias, u_now, l_now = "Double bottom", "UP", neck, min(lo[-1][1], lo[-2][1])
         why.append(f"இரண்டு low ~{lo[-1][1]:.2f} · neckline {neck:.2f}")
+    elif len(hi) >= 3 and hi[-2][1] > hi[-1][1] + 0.3 * atr and hi[-2][1] > hi[-3][1] + 0.3 * atr and abs(hi[-1][1] - hi[-3][1]) <= 0.6 * atr:
+        neck = float(min(l[hi[-3][0]:hi[-2][0] + 1].min(), l[hi[-2][0]:hi[-1][0] + 1].min()))
+        pat, bias, l_now, u_now = "Head & shoulders", "DOWN", neck, hi[-1][1]
+        why.append(f"Head {hi[-2][1]:.2f} · shoulders ~{hi[-1][1]:.2f} · neckline {neck:.2f}")
+    elif len(lo) >= 3 and lo[-2][1] < lo[-1][1] - 0.3 * atr and lo[-2][1] < lo[-3][1] - 0.3 * atr and abs(lo[-1][1] - lo[-3][1]) <= 0.6 * atr:
+        neck = float(max(h[lo[-3][0]:lo[-2][0] + 1].max(), h[lo[-2][0]:lo[-1][0] + 1].max()))
+        pat, bias, u_now, l_now = "Inverse head & shoulders", "UP", neck, lo[-1][1]
+        why.append(f"Head {lo[-2][1]:.2f} · shoulders ~{lo[-1][1]:.2f} · neckline {neck:.2f}")
+    elif U and L and su > flat and sl > flat and sl > su * 1.3:
+        pat, bias = "Rising wedge", "DOWN"
+        why.append("இரண்டு line-ம் மேலே, ஆனா நெருங்குது — bearish wedge")
+    elif U and L and su < -flat and sl < -flat and su < sl * 1.3:
+        pat, bias = "Falling wedge", "UP"
+        why.append("இரண்டு line-ம் கீழே, ஆனா நெருங்குது — bullish wedge")
     elif U and L:
         if abs(su) < flat and sl > flat:
             pat, bias = "Ascending triangle", "UP"
@@ -110,7 +124,7 @@ def analyse(df):
     up_t, dn_t = round(u_now + height, 2), round(l_now - height, 2)
     txt = (f"{pat}: {round(u_now, 2)} மேல் 5-min close ஆனா ⬆ target {up_t} · {round(l_now, 2)} கீழ் close ஆனா ⬇ target {dn_t}."
            + (f" Bias {('⬆ மேலே' if bias == 'UP' else '⬇ கீழே')} ({'trend' if pat in ('Range / rectangle', 'Symmetrical triangle') else 'pattern'})." if bias else ""))
-    return {"pattern": pat, "bias": bias, "up_level": round(u_now, 2), "dn_level": round(l_now, 2), "up_target": up_t, "dn_target": dn_t,
+    return {"pattern": pat, "bias": bias, "trend_before": trend_before, "up_level": round(u_now, 2), "dn_level": round(l_now, 2), "up_target": up_t, "dn_target": dn_t,
             "height": round(height, 2), "atr": round(atr, 2), "px": round(px, 2), "text": txt, "why": why,
             "lines": {"upper": [U[0], U[1]] if U else None, "lower": [L[0], L[1]] if L else None},
             "sr_up": up_lv, "sr_dn": dn_lv, "vwap": [None if np.isnan(x) else round(float(x), 2) for x in vw.values],
@@ -169,12 +183,29 @@ def track(preds, sym, df, now):
             p.update(status="FAILED", end_time=t, end_px=round(c, 2))
 
 
-def run_once(ag, inst, store, now):
+def advice(a, side):
+    """Chart pattern vs call side → எடுக்கலாமா?"""
+    want = "UP" if side == "CE" else "DOWN"
+    lvl = a["up_level"] if side == "CE" else a["dn_level"]
+    tgt = a["up_target"] if side == "CE" else a["dn_target"]
+    if a.get("bias") == want:
+        return {"verdict": "TAKE", "text": f"✅ எடுக்கலாம் — {a['pattern']} {('⬆' if want == 'UP' else '⬇')} bias. Underlying {lvl} {'மேல்' if side == 'CE' else 'கீழ்'} 5-min close ஆனதும் entry · target {tgt}."}
+    if a.get("bias") and a["bias"] != want:
+        return {"verdict": "AVOID", "text": f"⛔ வேண்டாம் / wait — chart {a['pattern']} {('⬆' if a['bias'] == 'UP' else '⬇')} எதிர் பக்கம். {lvl} {'மேல்' if side == 'CE' else 'கீழ்'} clear break ஆனா மட்டும் பாருங்க."}
+    return {"verdict": "WAIT", "text": f"⏳ Pattern தெளிவில்லை — {lvl} {'மேல்' if side == 'CE' else 'கீழ்'} break-க்கு காத்திருங்க."}
+
+
+def run_once(ag, inst, store, now, extra=None):
     day = str(now.date())
     d = store.load()
     P = d.setdefault("chart_preds", {})
     hist = d.setdefault("chart_hist", [])
     top = pick_top2(list((d.get("calls") or {}).values()), day)
+    for x in extra or []:                     # open calls 2-க்கு குறைவுன்னா — Money Machine / Strong / Movers top setups
+        if len(top) >= 2:
+            break
+        if x.get("symbol") and x["symbol"] not in {c["symbol"] for c in top}:
+            top.append(x)
     charts = []
     for c in top:
         u = _underlying(inst, c)
@@ -189,6 +220,7 @@ def run_once(ag, inst, store, now):
         if df is None or len(df) < 30:
             continue
         a = analyse(df)
+        a["advice"] = advice(a, c.get("side") or "CE")
         key = f"{day}|{c['symbol']}"
         track(P, key, df, now)
         cur = P.get(key)
@@ -197,9 +229,12 @@ def run_once(ag, inst, store, now):
                 hist.append(cur)
             P[key] = {"symbol": c["symbol"], "date": day, "time": now.strftime("%H:%M"), "time_full": str(now), "pattern": a["pattern"],
                       "bias": a["bias"], "up_level": a["up_level"], "dn_level": a["dn_level"], "up_target": a["up_target"],
-                      "dn_target": a["dn_target"], "atr": a["atr"], "status": "WATCH", "px": a["px"], "call": f"{c['symbol']} {c['strike']} {c['side']}"}
+                      "dn_target": a["dn_target"], "atr": a["atr"], "status": "WATCH", "px": a["px"], "call": f"{c['symbol']} {c['strike']} {c['side']}",
+                      "call_id": c.get("id"), "side": c.get("side"), "verdict": a["advice"]["verdict"],
+                      "opt": {k: c.get(k) for k in ("entry", "sl", "targets")}}
         tail = df.tail(80)
-        charts.append({"call": {k: c.get(k) for k in ("id", "symbol", "strike", "side", "entry", "sl", "targets", "ltp", "status", "source", "time")},
+        charts.append({"call": {k: c.get(k) for k in ("id", "symbol", "strike", "side", "entry", "sl", "targets", "ltp", "status", "source", "time",
+                                                       "expiry", "lot", "pnl_lot", "token", "exch", "contract")},
                        "candles": [[str(i)[11:16], round(float(r.open), 2), round(float(r.high), 2), round(float(r.low), 2), round(float(r.close), 2), float(r.volume)]
                                    for i, r in tail.iterrows()],
                        "offset": len(df) - len(tail), "analysis": a, "pred": P.get(key)})

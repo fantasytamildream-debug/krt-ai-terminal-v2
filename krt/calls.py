@@ -109,7 +109,7 @@ def rupee_plan(entry, sl, lot, hold):
     return sl, tg_, round((entry - sl) * lot), codes
 TREND_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI", "All rounder"}
 PULLBACK_SRC = {"Breakout/Breakdown", "5-min ORB", "Elite intraday", "Volume+OI"}
-QCODE_TXT = {"Q_MODULE_PAUSED": "Module auto-pause (charges சேர்த்து நஷ்டம்)", "Q_LEARNED": "Learned filter (இந்த condition-ல் நஷ்டம்)", "Q_OPEN_NOISE": "9:45 முன் (opening noise)", "Q_LATE": "2:30 பிறகு", "Q_SL_TIGHT": "SL மிக நெருக்கம் (<15%)",
+QCODE_TXT = {"Q_REMOVED": "Module நீக்கப்பட்டது", "Q_MODULE_PAUSED": "Module auto-pause (charges சேர்த்து நஷ்டம்)", "Q_LEARNED": "Learned filter (இந்த condition-ல் நஷ்டம்)", "Q_OPEN_NOISE": "9:45 முன் (opening noise)", "Q_LATE": "2:30 பிறகு", "Q_SL_TIGHT": "SL மிக நெருக்கம் (<15%)",
              "Q_COUNTER": "NIFTY எதிர் side", "Q_DUP": "அதே stock இன்று ஏற்கனவே call", "Q_DAY_MAX": "இன்றைய max calls",
              "Q_DAY_STOP": "இன்றைய loss limit", "Q_SL_STREAK": "தொடர் 3 SL — pause",
              "RVOL_LT_15": "Volume 1.5×-க்கு கீழ் — trend இல்லை", "SL_TIGHT": "Lot பெரிசு — ₹ SL cap-க்கு SL மிக நெருக்கம் (noise-ல் அடிக்கும்)", "DAILY_TOTAL": "இன்றைய மொத்த intraday calls limit முடிந்தது",
@@ -283,6 +283,8 @@ def quality_v6(c, now):
     """→ None (pass) அல்லது (code, காரணம்)."""
     if not QV6["on"] or c.get("kind") in ("PICK", "MCX") or c.get("hold_until"):
         return None
+    if str(c.get("kind", "")).startswith("POWER"):
+        return ("Q_REMOVED", "POWER OI module நீக்கப்பட்டது (user request)")
     mins = now.hour * 60 + now.minute
     if mins < QV6["start"] and not (c.get("kind") == "STRONG" and mins >= 9 * 60 + 30):
         return ("Q_OPEN_NOISE", "9:45 முன் — opening noise (இன்றைய data-ல் அதிக SL இங்கே தான்)")

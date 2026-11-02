@@ -7,6 +7,7 @@ Paper / alert மட்டும். Order போகாது.
 """
 import datetime as dt
 import threading
+import time
 
 import pandas as pd
 
@@ -24,7 +25,7 @@ CFG = {"watch": ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC"],
        "trade_mini": {"CRUDEOIL": "CRUDEOILM", "NATURALGAS": "NATGASMINI", "GOLD": "GOLDM", "SILVER": "SILVERM"},
        "open": "09:00", "last_entry": "23:00", "eod": "23:20", "close": "23:55",
        "silver_windows": [["10:00", "11:00"], ["14:30", "15:30"], ["19:00", "21:00"]],
-       "min_score": 70, "max_day": 8, "risk_cap": 6000, "max_spread": 5.0}
+       "min_score": 70, "lite_score": 60, "max_day": 10, "risk_cap": 6000, "max_spread": 6.0}
 STATE = {"time": None, "rows": [], "err": None, "beat": None, "jackpot": None, "ai": None}
 CACHE = {}
 LK = threading.Lock()
@@ -44,10 +45,16 @@ def frames(ag, name, fut, now):
     tok = fut[0]
     day = str(now.date())
     ch = CACHE.get(name)
-    if not ch or ch["day"] != day:
-        h = ag.candles("MCX", tok, "ONE_MINUTE", now - pd.Timedelta(days=7), now.normalize())
+    if not ch or ch["day"] != day or ch["hist"] is None or ch["hist"].empty:
+        h = ag.candles("MCX", tok, "ONE_MINUTE", now - pd.Timedelta(days=6), now.normalize())
+        if h is None or h.empty:
+            time.sleep(1.5)                                    # Angel rate-limit → ஒருமுறை மறுபடி
+            h = ag.candles("MCX", tok, "FIVE_MINUTE", now - pd.Timedelta(days=6), now.normalize())
         ch = CACHE[name] = {"day": day, "hist": h if h is not None else pd.DataFrame()}
     td = ag.candles("MCX", tok, "ONE_MINUTE", now.normalize() + pd.Timedelta(hours=9), now)
+    if td is None or td.empty:
+        time.sleep(1.5)
+        td = ag.candles("MCX", tok, "ONE_MINUTE", now.normalize() + pd.Timedelta(hours=9), now)
     parts = [x for x in (ch["hist"], td) if x is not None and not x.empty]
     if not parts:
         return None
@@ -58,10 +65,35 @@ def frames(ag, name, fut, now):
         return None
     fr = {"1M": m1, "3M": V._resample(m1, "3min"), "5M": V._resample(m1, "5min"), "15M": V._resample(m1, "15min"),
           "1H": V._resample(m1, "60min")}
+    if len(fr["5M"]) < 40:
+        return None
     fr["5M"]["fvol"] = fr["5M"]["volume"]
     fr["has_vol"] = float(fr["5M"]["volume"].sum()) > 0
     fr["data_time"] = (m1.index[-1] + pd.Timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
     return fr
+
+
+def s_mcx_momentum(fr, cx):
+    """🔥 MCX Momentum Breakout: 15-min EMA20 vs EMA50 trend + VWAP side + கடைசி 1 மணி high/low-ஐ 5-min close-ல் உடைப்பு + volume ≥1.5×."""
+    m5, m15 = fr["5M"], fr["15M"]
+    if len(m5) < 30 or len(m15) < 55:
+        return None
+    e20, e50 = V.ema(m15["close"], 20).iloc[-1], V.ema(m15["close"], 50).iloc[-1]
+    c = float(m5["close"].iloc[-1])
+    hi12, lo12 = float(m5["high"].iloc[-13:-1].max()), float(m5["low"].iloc[-13:-1].min())
+    v = m5["volume"]
+    vx = float(v.iloc[-1] / v.iloc[-21:-1].mean()) if v.iloc[-21:-1].mean() else 0
+    up = e20 > e50 and c > cx["vwap"]
+    dn = e20 < e50 and c < cx["vwap"]
+    side = "CE" if up else "PE" if dn else None
+    if not side:
+        return {"side": None, "stage": None}
+    brk = c > hi12 if side == "CE" else c < lo12
+    chk = {"15m EMA20/50 trend": True, "VWAP side": True, "1-hour high/low break (5m close)": brk, f"Volume {vx:.1f}× (≥1.5)": vx >= 1.5}
+    n = sum(chk.values())
+    stage = "CONFIRMED" if n == 4 else "READY" if n == 3 else "FORMING"
+    return {"side": side, "stage": stage, "chk": chk, "spot_sl": round(lo12 if side == "CE" else hi12, 2),
+            "buckets": {"trend": True, "volume": vx >= 1.5, "bos": brk, "liquidity": False}, "notes": [f"1h range {lo12}–{hi12}"]}
 
 
 def silver_grade(cx, side):
@@ -134,22 +166,37 @@ def plan(opt, fut_px, spot_sl):
 def scan(ag, inst, now):
     S = dict(V.settings(), silver_windows=CFG["silver_windows"])
     out = []
-    for name in CFG["watch"]:
+    for i_, name in enumerate(CFG["watch"]):
+        if i_:
+            time.sleep(1.2)                                         # Angel rate-limit: commodities இடையே இடைவெளி
+        try:
+            out.append(_scan_one(ag, inst, name, now, S))
+        except Exception as e:
+            out.append({"name": name, "label": COMM[name][1], "status": "ERROR", "error": str(e)[:100]})
+    return out
+
+
+def _scan_one(ag, inst, name, now, S):
+    out = []
+    if True:
         fut = _fut(inst, name)
         if not fut:
-            out.append({"name": name, "label": COMM[name][1], "status": "NO CONTRACT"})
-            continue
+            return {"name": name, "label": COMM[name][1], "status": "NO CONTRACT"}
         try:
             fr = frames(ag, name, fut, now)
         except Exception as e:
-            out.append({"name": name, "label": COMM[name][1], "status": "DATA ERROR", "error": str(e)[:80]})
-            continue
+            return {"name": name, "label": COMM[name][1], "status": "DATA ERROR", "error": str(e)[:80]}
         if not fr:
-            out.append({"name": name, "label": COMM[name][1], "status": "NO DATA", "error": "இன்றைய candles இல்லை (MCX closed / data delay)"})
-            continue
+            return {"name": name, "label": COMM[name][1], "status": "NO DATA", "error": "இன்றைய candles இல்லை / Angel data வரல — அடுத்த scan-ல் மறுபடி"}
         cx = V.context(fr, None, None)
         reg = V.regime(cx)
-        res = {"CQSMC": V.s_cqsmc(cx), "ORDERFLOW": V.s_orderflow(cx), "SILVER": V.s_silver(cx, now, S), "VWAPMR": V.s_vwapmr(cx, reg)}
+        res = {}
+        for k_, fn in (("CQSMC", lambda: V.s_cqsmc(cx)), ("ORDERFLOW", lambda: V.s_orderflow(cx)), ("SILVER", lambda: V.s_silver(cx, now, S)),
+                       ("VWAPMR", lambda: V.s_vwapmr(cx, reg)), ("MCXMOM", lambda: s_mcx_momentum(fr, cx))):
+            try:
+                res[k_] = fn()
+            except Exception:
+                res[k_] = None
         cands = []
         for k, r in res.items():
             if not r or not r.get("side") or not r.get("stage"):
@@ -157,13 +204,18 @@ def scan(ag, inst, now):
             r = dict(r)
             sg = silver_grade(cx, r["side"])
             r.setdefault("chk", {}).update({f"Silver-grade: {a}": b for a, b in sg.items()})
-            if k != "SILVER" and r["stage"] == "CONFIRMED" and (sum(sg.values()) < 2 or (reg == "SIDEWAYS" and k != "VWAPMR")):
+            if k not in ("SILVER", "MCXMOM") and r["stage"] == "CONFIRMED" and (sum(sg.values()) < 2 or (reg == "SIDEWAYS" and k != "VWAPMR")):
                 r["stage"] = "READY"
                 r.setdefault("notes", []).insert(0, f"🥈 Silver-grade {sum(sg.values())}/4 (2 வேணும்)")
-            r["strategy"], r["name"] = k, V.SNAME[k]
-            r["preferred"] = k in V.PREFERRED.get(reg, []) or k == "SILVER"
+            r["strategy"], r["name"] = k, V.SNAME.get(k, "🔥 MCX Momentum Breakout")
+            r["preferred"] = k in V.PREFERRED.get(reg, []) or k in ("SILVER", "MCXMOM")
             r["support"] = [k2 for k2, r2 in res.items() if k2 != k and r2 and r2.get("side") == r["side"] and r2.get("stage")]
-            r["score"] = V.score(r, False, S)
+            try:
+                r["score"] = V.score(r, False, S)
+            except Exception:
+                r["score"] = 50
+            if k == "MCXMOM":
+                r["score"] = min(100, 45 + 12 * sum((r.get("chk") or {}).values()) + 5 * len(r["support"]))
             cands.append(r)
         rank = {"CONFIRMED": 3, "READY": 2, "FORMING": 1}
         cands.sort(key=lambda r: (rank.get(r["stage"], 0), r["preferred"], r["score"]), reverse=True)
@@ -180,18 +232,19 @@ def scan(ag, inst, now):
                     b["option"] = o
                     b["plan"] = plan(o, cx["px"], best.get("spot_sl"))
                     b["why_not"] = []
-                    if best["stage"] != "CONFIRMED":
-                        b["why_not"].append("Stage READY — CONFIRMED ஆகணும்")
-                    if b["score"] < CFG["min_score"]:
-                        b["why_not"].append(f"Score {b['score']} < {CFG['min_score']}")
+                    sgn = sum(1 for kk, vv in (b.get("chk") or {}).items() if kk.startswith("Silver-grade") and vv)
+                    b["lite"] = best["stage"] == "READY" and b["score"] >= CFG["lite_score"] and (sgn >= 2 or best["strategy"] == "MCXMOM")
+                    if best["stage"] != "CONFIRMED" and not b["lite"]:
+                        b["why_not"].append("Stage READY — CONFIRMED (அல்லது READY + Silver-grade 2) ஆகணும்")
+                    if b["score"] < (CFG["lite_score"] if b["lite"] else CFG["min_score"]):
+                        b["why_not"].append(f"Score {b['score']} < {CFG['lite_score'] if b['lite'] else CFG['min_score']}")
                     if o["spread_pct"] > CFG["max_spread"]:
                         b["why_not"].append(f"Spread {o['spread_pct']}%")
                     if b["plan"]["risk_rs"] > CFG["risk_cap"]:
                         b["why_not"].append(f"Risk ₹{b['plan']['risk_rs']:,}/lot > ₹{CFG['risk_cap']:,} — mini contract பாருங்க")
                     b["ok"] = not b["why_not"]
             row["best"] = b
-        out.append(row)
-    return out
+        return row
 
 
 def ai_choice(rows):
@@ -235,7 +288,7 @@ def to_calls(rows, now):
         mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "MCX"]
         for r in rows:
             b = r.get("best") or {}
-            if not (b.get("ok") and b.get("stage") == "CONFIRMED"):
+            if not (b.get("ok") and (b.get("stage") == "CONFIRMED" or b.get("lite"))):
                 continue
             if len(mine) >= CFG["max_day"]:
                 break
@@ -252,7 +305,7 @@ def to_calls(rows, now):
             c = _new("MCX", f"🛢 {b['name']}", rr, opt, now, day)
             if not c or c["id"] in d["calls"]:
                 continue
-            c.update(grade="A" if b["score"] >= 85 else "B", qcodes=[], qtext=[], mcx={"commodity": o.get("commodity"), "fut_px": r["px"]},
+            c.update(grade="A" if (b["score"] >= 85 and b.get("stage") == "CONFIRMED") else "B", qcodes=[], qtext=[], mcx={"commodity": o.get("commodity"), "fut_px": r["px"]},
                      source_label=f"🛢 Commodity · {b['name']}")
             d["calls"][c["id"]] = c
             mine.append(c)
@@ -302,12 +355,20 @@ def track(ag, now):
 def run_once(ag, inst, now):
     with LK:
         STATE["beat"] = now.strftime("%H:%M:%S")
+        errs = []
         rows = scan(ag, inst, now)
-        ch, jp = ai_choice(rows)
-        STATE.update(time=now.strftime("%H:%M:%S"), date=str(now.date()), rows=rows, ai=ch, jackpot=jp, err=None, cfg=CFG,
-                     open=mcx_open(now))
-        to_calls(rows, now)
-        track(ag, now)
+        try:
+            ch, jp = ai_choice(rows)
+        except Exception as e:
+            ch, jp = None, None
+            errs.append(f"AI: {e}")
+        STATE.update(time=now.strftime("%H:%M:%S"), date=str(now.date()), rows=rows, ai=ch, jackpot=jp, cfg=CFG, open=mcx_open(now))
+        for nm_, fn in (("calls", lambda: to_calls(rows, now)), ("track", lambda: track(ag, now))):
+            try:
+                fn()
+            except Exception as e:
+                errs.append(f"{nm_}: {e}")
+        STATE["err"] = " · ".join(errs) or None
         try:
             from .calls import STORE
             STATE["calls"] = sorted([dict(c) for c in STORE.load()["calls"].values() if c["kind"] == "MCX"],

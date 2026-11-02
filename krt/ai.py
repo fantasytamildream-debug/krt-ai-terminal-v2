@@ -145,7 +145,15 @@ def net_of(c):
     return (c.get("pnl_lot") or 0) - charges(c)
 
 
-def optimize(calls, min_n=12):
+RETIRED = {"Elite intraday": "Elite நீக்கப்பட்டது", "Elite holding": "Elite நீக்கப்பட்டது", "Swing": "பழைய Swing — V8 rules-ல் புதுசா",
+           "POWER OI": "POWER OI நீக்கப்பட்டது", "POWER OI (range mode)": "POWER OI நீக்கப்பட்டது", "Chart pattern": "Chart pattern auto-pause"}
+UPGRADES = {"Goki Mannan Jackpot": "V8: 9/9 + score 70 + 15m vol 2× + NIFTY + late இல்லை", "Top Movers": "V6: 🟢 85+ · 9:45 பிறகு · velocity",
+            "Swing 5D": "V8: score 80 · vol 1.8× · close top 25%", "Swing 10D": "V8: score 80 · vol 1.8× · close top 25%",
+            "V4 🥇 CQSMC PRO": "Silver-grade 2/4 filter", "V4 🥈 Order Flow + Profile": "Silver-grade 2/4 filter", "V4 🥉 Gamma Squeeze": "Silver-grade 2/4 filter",
+            "Volume+OI": "V2 + learned filter (volume 2-4x block)", "OI Footprint": "learned filters", "Breakout CE": "V2 rules", "2K Profit Machine": "dup fix (V7)"}
+
+
+def optimize(calls, min_n=8):
     """ஒவ்வொரு module-க்கும்: எந்த feature-bucket (நேரம் / score / volume / trend / velocity / range / OI) நஷ்டம்
     (charges சேர்த்து expectancy < 0, win% module-ஐ விட 8% கம்மி, ≥12 calls) → அதை block. Module மொத்தமா நஷ்டம் (≥25 calls) → pause."""
     OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
@@ -183,7 +191,9 @@ def optimize(calls, min_n=12):
         kn = [net_of(c) for c in keep[-60:]]                 # சமீபத்திய 60 — recover ஆனா தானா resume
         mods[m]["after_filters"] = {"n": len(keep), "exp": round(sum(kn) / len(kn)) if kn else None,
                                     "win": round(sum(1 for x in kn if x > 0) / len(kn) * 100) if kn else None}
-        mods[m]["paused"] = len(L) >= 25 and (len(kn) < 10 or sum(kn) / len(kn) < 0)
+        mods[m]["paused"] = len(L) >= 15 and (len(kn) < 8 or sum(kn) / len(kn) < 0)      # V8: 15 calls-லேயே pause
+        mods[m]["retired"] = RETIRED.get(m)
+        mods[m]["upgrade"] = UPGRADES.get(m)
     STATE["opt"] = {"mods": mods, "blocks": blocks}
     return STATE["opt"]
 

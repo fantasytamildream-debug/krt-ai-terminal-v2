@@ -55,14 +55,18 @@ def swing_picks(ag, inst, universe, C, idx, trend, now, session):
             sc = int(min(100, round(sc)))
             hold = 10 if sc >= 80 and broke[0][1] in "MW" else 5
             # V5.3 Swing 5D upgrade: score ≥75 · volume ≥1.5× · market trend எதிர் இல்லை · day close day-range-ன் சரியான பக்கம் (மேல்/கீழ் 35%)
-            if sc < (65 if hold == 10 else 75) or u["vol_ratio"] < 1.5:
+            # V8 Swing upgrade (பழைய 11% win): score ≥80 · volume ≥1.8× · RSI 55–70 (overbought இல்லை) · close day high-ன் 25%-க்குள்
+            if sc < 80 or u["vol_ratio"] < 1.8:
+                continue
+            rsi_ = f.get("rsi")
+            if rsi_ is not None and ((side == "CE" and not 55 <= rsi_ <= 70) or (side == "PE" and not 30 <= rsi_ <= 45)):
                 continue
             if (trend == "TRENDING DOWN" and side == "CE") or (trend == "TRENDING UP" and side == "PE"):
                 continue
             hi_, lo_ = u.get("high"), u.get("low")
             if hi_ and lo_ and hi_ > lo_:
                 pos = (ltp - lo_) / (hi_ - lo_)
-                if (side == "CE" and pos < 0.65) or (side == "PE" and pos > 0.35):
+                if (side == "CE" and pos < 0.75) or (side == "PE" and pos > 0.25):
                     continue
             sgn = 1 if side == "CE" else -1
             sl = round(ltp - sgn * SLM[hold] * atr, 2)
