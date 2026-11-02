@@ -254,6 +254,7 @@ header{position:relative}
 .crcard{border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;background:var(--panel)}
 .crai{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(56,189,248,.08);font-size:14px}
 /* ai */
+.predbox{margin:8px 0 4px;padding:9px 11px;border:2px solid;border-radius:12px;background:rgba(0,0,0,.22)}.predbar{display:flex;height:8px;border-radius:6px;overflow:hidden;margin-top:6px}.predbar i{display:block;height:100%}.predjp{margin-top:6px;font-size:14px}
 .idxtick{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 2px;font-size:14px;align-items:center}.idxtick .tk{padding:3px 9px;border-radius:99px;background:rgba(0,0,0,.25);border:1px solid var(--line)}.idxtick .tk small{font-weight:700}.idxtick .tk.mcx{color:#fbbf24}
 .crverd{margin:6px 0;padding:7px 10px;border-radius:8px;font-weight:700;font-size:14px;background:rgba(148,163,184,.12)}.crverd.TAKE{background:rgba(34,197,94,.16);color:#4ade80}.crverd.AVOID{background:rgba(239,68,68,.16);color:#fca5a5}
 .mmrow{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}.mmrow>.earlycard{min-width:290px;flex:0 0 auto}
@@ -349,6 +350,7 @@ header{position:relative}
     <div>
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
       <div class="idxtick" id="idxTicker"></div>
+      <div id="predBox"></div>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
@@ -1925,6 +1927,25 @@ function idxTicker(s){
 }
 function mergeMcx(s){ try{ const MC=(s.mcx||{}).calls||[]; const T=(s.full||{}).tracking; if(!T||!MC.length) return; const day=String(s.now||"").slice(0,10);
   for(const key of ["today","history"]){ const m=new Map((T[key]||[]).map(c=>[c.id,c])); MC.forEach(c=>{ if(key==="history"||c.date===day) m.set(c.id,c)}); T[key]=[...m.values()]; } }catch(e){} }
+let PRJ=[], PRLAST=null;
+function paperFromPred(i){ const j=PRJ[i]; if(!j) return; paperGo({symbol:j.index,side:j.side,strike:j.strike,expiry:j.expiry,contract:j.contract,token:j.token,exch:j.exch,lot:j.lot,ltp:j.ltp,sl:j.sl,from_src:"🔮 Index Jackpot",src_modules:["Market Prediction"]}); }
+function predHTML(s){
+  const P=(s.full||{}).predict; const el=$("predBox"); if(!el) return;
+  if(!P){ el.innerHTML=""; return; }
+  PRJ=P.jackpot||[]; const A=P.acc||{}, col=P.dir==="UP"?"#22c55e":P.dir==="DOWN"?"#ef4444":"#eab308";
+  el.innerHTML=`<div class="predbox" style="border-color:${col}"><div class="ctop"><b style="font-size:17px;color:${col}">🔮 ${esc(P.text)}</b><span class="hint">${esc(P.horizon)} · ${esc(P.time)} · score ${P.score}</span></div>
+   <div class="predbar"><i style="width:${P.dir==="UP"?P.prob:100-P.prob}%;background:#22c55e"></i><i style="flex:1;background:#ef4444"></i></div>
+   <div class="chk" style="margin-top:4px">${(P.signals||[]).map(x=>`<span class="${x.pts>0?'up':x.pts<0?'dn':''}">${x.pts>0?'▲':x.pts<0?'▼':'•'} ${esc(x.name)}: ${esc(x.txt)}</span>`).join("")}</div>
+   ${PRJ.length?`<div class="predjp">👑 <b>INDEX JACKPOT SETUP</b> (${P.prob}%) — ${PRJ.map((j,i)=>`<span class="jpchip" onclick="paperFromPred(${i})"><b class="${j.side==='CE'?'up':'dn'}">${esc(j.index)} ${n2(j.strike)} ${j.side}</b> · exp ${esc(j.expiry||"")} · Entry ₹${n2(j.entry)} · SL ₹${n2(j.sl)} · T ${j.targets.map(n2).join("/")} <small>(+₹${n2(j.t_rs[0])} / +₹${n2(j.t_rs[1])} / +₹${n2(j.t_rs[2])})</small></span>`).join("")}<span class="hint"> click = 📝 Paper · 75%+ ஆனா auto call</span></div>`:""}
+   <div class="hint" style="margin-top:4px">🎯 Prediction accuracy (45 நிமிடம் கழிச்சு check): மொத்தம் ${A.all||"–"}${A.all_pct!=null?` (${A.all_pct}%)`:""} · இன்று ${A.today||"–"} · 70%+ predictions ${A.hi_pct!=null?A.hi_pct+"%":"–"} (${A.hi_n||0}) · ⚠ rule-based estimate, guarantee இல்லை</div>
+   ${(A.recent||[]).length?`<details class="tech"><summary>📋 Prediction history</summary>${simpleTbl(A.recent,[["Time",p=>`${esc(p.date)} ${esc(p.time)}`],["NIFTY",p=>n2(p.spot)],["Prediction",p=>`${p.dir==="UP"?'<b class="up">⬆</b>':p.dir==="DOWN"?'<b class="dn">⬇</b>':"↔"} ${p.prob}%`],["45 நிமிடம் கழிச்சு",p=>p.move!=null?`${p.move>0?"+":""}${p.move}%`:"–"],["Result",p=>p.status==="✓"?'<b class="up">✓ சரி</b>':p.status==="✗"?'<b class="dn">✗ தப்பு</b>':esc(p.status)]])}</details>`:""}</div>`;
+  const key=P.dir+"|"+(P.prob>=70);
+  if(PRLAST!==null && key!==PRLAST && P.dir!=="RANGE" && P.prob>=70 && voiceOn()){
+    const j=PRJ[0]; speak(`Market prediction. Nifty likely to go ${P.dir==="UP"?"up":"down"}. ${P.prob} percent.${j?` Jackpot setup: ${j.index} ${j.strike} ${j.side==="CE"?"call":"put"}, entry ${j.entry}.`:""}`);
+    toast(`🔮 <b>${esc(P.text)}</b>${j?`<br>👑 ${esc(j.index)} ${n2(j.strike)} ${j.side} · Entry ₹${n2(j.entry)} · SL ₹${n2(j.sl)}`:""}`);
+  }
+  PRLAST=key;
+}
 function render(s){
   mergeMcx(s);
   const f=s.full, r=s.result;
@@ -1946,6 +1967,7 @@ function render(s){
   $("notes").innerHTML = "";
   try{ renderFull(s); }catch(e){ console.error("renderFull",e); $("notes").innerHTML=`<li class="cwarn">⚠ Page பகுதி பிழை: ${esc(e.message)} — Calls tab தொடர்ந்து வேலை செய்யும்</li>`; }
   try{ idxTicker(s); }catch(e){}
+  try{ predHTML(s); }catch(e){ console.error(e); }
   try{ $("p-cx").innerHTML = SX("mcxHTML",()=>mcxHTML(s)); }catch(e){ console.error(e); }
   try{ waStateRender(s); }catch(e){}
   try{ $("callTable").innerHTML = SX("allCallsPL",()=>allCallsPL(s.full||{})); }catch(e){}
@@ -1961,7 +1983,7 @@ function render(s){
   $("angelForm").style.display = s.hosted ? "none" : "";
   $("ceState").textContent = s.chartink?.ce_saved ? "· saved" : "· auto";
   $("peState").textContent = s.chartink?.pe_saved ? "· saved" : "· auto";
-  clearTimeout(pollT); pollT = setTimeout(load, s.market_open ? 10000 : 30000);
+  clearTimeout(pollT); pollT = setTimeout(load, (s.market_open || (s.mcx||{}).open) ? 10000 : 30000);
 }
 async function load(){
   let data=null;

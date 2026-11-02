@@ -463,10 +463,26 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
         if self.path == "/api/status":
             cfg = load_settings().get("chartink", {})
+            full_ = STATE.get("full")
+            try:
+                # ⚡ instant: STORE-ல் உள்ள இன்றைய calls (புது paper / exit / LTP) snapshot-ஐ விட fresh — நேரடியா merge
+                from krt.calls import STORE as _CS, CALLS_LOCK as _CL
+                if isinstance(full_, dict) and isinstance(full_.get("tracking"), dict):
+                    day_ = str(now_ist().date())
+                    with _CL:
+                        fresh = {c["id"]: dict(c) for c in (_CS.load().get("calls") or {}).values() if c.get("date") == day_ and not c.get("shadow")}
+                    tr_ = dict(full_["tracking"])
+                    for key_ in ("today", "history"):
+                        m_ = {c.get("id"): c for c in tr_.get(key_) or []}
+                        m_.update(fresh)
+                        tr_[key_] = sorted(m_.values(), key=lambda c: (c.get("date") or "", c.get("time") or ""), reverse=True)
+                    full_ = dict(full_, tracking=tr_)
+            except Exception:
+                pass
             cl = saved_clauses()
             return self._send(200, _json({
-                **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full", "full_error",
-                                         "full_running", "full_last", "progress")},
+                **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
+                                         "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),

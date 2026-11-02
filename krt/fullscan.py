@@ -895,6 +895,26 @@ def fast_tick(ag, res):
     except Exception as e:
         res.setdefault("errors", []).append(f"Strong: {e}")
     try:
+        from .predict import compute as _pc, track as _pt
+        from .store import STORE as _PS
+        P_ = _pc(res, live_q, now)
+        if P_:
+            P_["acc"] = _pt(P_, _PS, now) if live else None
+            mins_ = now.hour * 60 + now.minute
+            jp_ = [j for j in (P_.get("jackpot") or []) if j["index"] == "NIFTY"]
+            if live and jp_ and P_["prob"] >= 75 and 9 * 60 + 45 <= mins_ <= 14 * 60 + 30:
+                from .calls import add_simple
+                j = jp_[0]
+                add_simple("INDEXJP", "🔮 Index Jackpot", [{"symbol": j["index"], "side": j["side"], "price": P_["spot"], "sl": None, "score": j["prob"], "stars": 5,
+                                                            "reasons": [P_["text"]] + [x["txt"] for x in P_["signals"] if (x["pts"] > 0) == (P_["dir"] == "UP")][:4],
+                                                            "option": {"token": j["token"], "exch": j["exch"], "contract": j["contract"], "strike": j["strike"],
+                                                                       "type": j["side"], "expiry": j["expiry"], "lot": j["lot"],
+                                                                       "plan": {"entry": j["entry"], "sl": j["sl"], "targets": j["targets"], "risk": j["risk"],
+                                                                                "risk_ok": True, "money": True, "reward_ok": True}}}], now, 2)
+        res["predict"] = P_
+    except Exception as e:
+        res.setdefault("errors", []).append(f"Predict: {e}")
+    try:
         res["ai"] = run_ai(live_q, res, now, live)
     except Exception as e:
         res.setdefault("errors", []).append(f"AI: {e}")
