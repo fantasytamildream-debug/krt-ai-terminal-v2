@@ -639,7 +639,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
     # ---- update open calls ----
     open_ = [c for c in calls.values() if c["status"] in OPEN]
     for c in open_:
-        if (c["kind"] in INTRA or c.get("intraday")) and c["date"] < day:
+        if (c["kind"] in INTRA or c.get("intraday")) and c["date"] < day and c.get("exch") != "MCX":     # MCX → commodity tracker (இரவு 11:20)
             _close(c, "EOD EXIT", c["ltp"], c["date"] + " 15:20")
             changed = True
     open_ = [c for c in calls.values() if c["status"] in OPEN]
@@ -799,7 +799,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         changed = True
                         continue
         c["pnl_lot"] = round((c["ltp"] - c["entry"]) * c["lot"])
-        if live and (c["kind"] in INTRA or c.get("intraday")) and mins >= 15 * 60 + 20 and c["status"] in OPEN:
+        if live and (c["kind"] in INTRA or c.get("intraday")) and mins >= 15 * 60 + 20 and c["status"] in OPEN and c.get("exch") != "MCX":
             _close(c, "EOD EXIT", c["ltp"], str(now))
             if c["kind"].startswith("GU"):
                 tg(f"🕒 15:20 exit: {c['symbol']} {c['strike']:g} {c['side']} @ {c['ltp']} · P/L/lot ₹{c['pnl_lot']}")
@@ -1044,8 +1044,9 @@ def add_machine(rows, now):
 
 def add_pick(row, ltp, now, lots=1):
     """✋ My pick (Live Board-ல் நீங்க தேர்ந்தது) → paper call. Entry = இப்போ LTP. ₹ rules: SL ≤ ₹2,500 · T1 ₹2K · T2 ₹4K · T3 ₹6K."""
-    if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute < 15 * 60 + 25):
-        return None, "Market நேரம் இல்லை"
+    mcx_ = row.get("exch") == "MCX"
+    if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute < ((23 * 60) if mcx_ else (15 * 60 + 25))):
+        return None, "Market நேரம் இல்லை" + (" (MCX 9:15 AM – 11:00 PM)" if mcx_ else "")
     if not (row.get("token") and row.get("contract") and row.get("lot") and ltp):
         return None, "Option data இல்லை (strike / token)"
     day = str(now.date())

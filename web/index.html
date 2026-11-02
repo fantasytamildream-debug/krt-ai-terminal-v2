@@ -254,6 +254,7 @@ header{position:relative}
 .crcard{border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;background:var(--panel)}
 .crai{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(56,189,248,.08);font-size:14px}
 /* ai */
+.idxtick{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 2px;font-size:14px;align-items:center}.idxtick .tk{padding:3px 9px;border-radius:99px;background:rgba(0,0,0,.25);border:1px solid var(--line)}.idxtick .tk small{font-weight:700}.idxtick .tk.mcx{color:#fbbf24}
 .crverd{margin:6px 0;padding:7px 10px;border-radius:8px;font-weight:700;font-size:14px;background:rgba(148,163,184,.12)}.crverd.TAKE{background:rgba(34,197,94,.16);color:#4ade80}.crverd.AVOID{background:rgba(239,68,68,.16);color:#fca5a5}
 .mmrow{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}.mmrow>.earlycard{min-width:290px;flex:0 0 auto}
 .aibox{margin:10px 0 14px;padding:12px 14px;border:2px solid #a855f7;border-radius:14px;background:linear-gradient(180deg,rgba(168,85,247,.16),rgba(168,85,247,.03))}
@@ -347,6 +348,7 @@ header{position:relative}
   <div class="hero">
     <div>
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
+      <div class="idxtick" id="idxTicker"></div>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
@@ -1912,7 +1914,19 @@ function crHTML(s){
      ["Option result",p=>{const c=p.call_id&&CALLMAP.get(p.call_id); return c?`${statusCell(c)} <b class="${(c.pnl_lot||0)>=0?'up':'dn'}">₹${n2(c.pnl_lot||0)}</b>`:(p.opt&&p.opt.entry?`<span class="hint">setup · E ${n2(p.opt.entry)}</span>`:"–")}]]):`<div class="hint">இன்னும் prediction இல்லை.</div>`}
    <div class="hint" style="margin-top:8px">⚠ இது chart geometry rule-based (pivots, line fit, measured move) — AI prediction / guarantee இல்லை. Pattern accuracy table 2–3 வாரம் பார்த்து எந்த pattern நம்பலாம்னு முடிவு பண்ணுங்க.</div>`;
 }
+function idxTicker(s){
+  const el=$("idxTicker"); if(!el) return;
+  const I=((s.full||{}).index||[]), order=["NIFTY","BANKNIFTY","FINNIFTY","SENSEX","MIDCPNIFTY"];
+  const rows=order.map(n=>I.find(x=>x.index===n)).filter(Boolean);
+  const mc=((s.mcx||{}).rows||[]).filter(r=>r.status==="OK"&&r.px).slice(0,4);
+  el.innerHTML=rows.map(x=>`<span class="tk ${x.pct>=0?'up':'dn'}"><b>${esc(x.index)}</b> ${n2(x.spot)} <small>${x.pct>=0?"▲ +":"▼ "}${n2(x.pct)}%</small></span>`).join("")
+    + (mc.length?mc.map(r=>`<span class="tk mcx"><b>🛢 ${esc(r.name)}</b> ${n2(r.px)}</span>`).join(""):"")
+    + (rows.length?`<span class="hint">live ${esc(String(((s.full||{}).tick_time)||"").slice(11,19))}</span>`:"");
+}
+function mergeMcx(s){ try{ const MC=(s.mcx||{}).calls||[]; const T=(s.full||{}).tracking; if(!T||!MC.length) return; const day=String(s.now||"").slice(0,10);
+  for(const key of ["today","history"]){ const m=new Map((T[key]||[]).map(c=>[c.id,c])); MC.forEach(c=>{ if(key==="history"||c.date===day) m.set(c.id,c)}); T[key]=[...m.values()]; } }catch(e){} }
 function render(s){
+  mergeMcx(s);
   const f=s.full, r=s.result;
   $("scanBtn").disabled = s.full_running;
   $("scanBtn").textContent = s.full_running ? "Scanning…" : "Full market scan";
@@ -1931,6 +1945,7 @@ function render(s){
   $("meta").innerHTML = `Market <b>${s.market_open?"open":"closed"}</b><br>${f&&f.tick_time?`<span class="up">● LIVE</span> <b>${esc(String(f.tick_time).slice(11,19))}</b><br>`:""}Deep scan <b>${hm(s.full_last)}</b><br>Next auto <b>${s.next_auto?hm(s.next_auto):"–"}</b><br>Data <b>${f?"ANGEL · "+esc(f.session):"–"}</b>`;
   $("notes").innerHTML = "";
   try{ renderFull(s); }catch(e){ console.error("renderFull",e); $("notes").innerHTML=`<li class="cwarn">⚠ Page பகுதி பிழை: ${esc(e.message)} — Calls tab தொடர்ந்து வேலை செய்யும்</li>`; }
+  try{ idxTicker(s); }catch(e){}
   try{ $("p-cx").innerHTML = SX("mcxHTML",()=>mcxHTML(s)); }catch(e){ console.error(e); }
   try{ waStateRender(s); }catch(e){}
   try{ $("callTable").innerHTML = SX("allCallsPL",()=>allCallsPL(s.full||{})); }catch(e){}

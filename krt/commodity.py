@@ -323,7 +323,17 @@ def track(ag, now):
     from .calls import CALLS_LOCK, STORE, _close, lock_price, OPEN
     with CALLS_LOCK:
         d = STORE.load()
-        op = [c for c in d["calls"].values() if c["kind"] == "MCX" and c["status"] in OPEN]
+        day = str(now.date())
+        hm0 = now.strftime("%H:%M")
+        for c in d["calls"].values():
+            # பழைய bug: MCX paper / call 3:20 PM-க்கே EOD EXIT ஆச்சு → இன்று 11:20 PM முன்னால இருந்தா மறுபடி OPEN
+            if (c.get("exch") == "MCX" and c["date"] == day and c["status"] == "EOD EXIT" and " 15:2" in str(c.get("exit_time"))
+                    and hm0 < CFG["eod"]):
+                c["status"] = f"T{len(c['hits'])} HIT" if c.get("hits") else "OPEN"
+                for k_ in ("exit", "exit_time"):
+                    c.pop(k_, None)
+                c.setdefault("revisions", []).append({"t": hm0, "sl": c["sl"], "why": "MCX: 3:20 EOD தவறு — 11:20 PM வரை reopen"})
+        op = [c for c in d["calls"].values() if (c["kind"] == "MCX" or c.get("exch") == "MCX") and c["status"] in OPEN]
         if not op:
             return 0
         qs = ag.quotes({"MCX": [c["token"] for c in op]}) or {}
@@ -371,7 +381,7 @@ def run_once(ag, inst, now):
         STATE["err"] = " · ".join(errs) or None
         try:
             from .calls import STORE
-            STATE["calls"] = sorted([dict(c) for c in STORE.load()["calls"].values() if c["kind"] == "MCX"],
+            STATE["calls"] = sorted([dict(c) for c in STORE.load()["calls"].values() if c["kind"] == "MCX" or c.get("exch") == "MCX"],
                                     key=lambda c: c.get("signal_time") or "", reverse=True)[:60]
         except Exception:
             pass
