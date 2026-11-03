@@ -169,7 +169,23 @@ def chart_once(t):
                 extra.append({"id": None, "symbol": r["symbol"], "strike": o["strike"], "side": r["side"], "entry": p["entry"], "sl": p["sl"],
                               "targets": p["targets"], "ltp": o.get("ltp"), "status": "SETUP", "source": src, "time": t.strftime("%H:%M"),
                               "expiry": o.get("expiry"), "lot": o.get("lot"), "token": o.get("token"), "exch": o.get("exch"), "contract": o.get("contract")})
-    CR.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), _ST, t, extra)
+    indices = []
+    try:
+        from krt.predict import jackpot as _jp
+        I_ = {x.get("index"): x for x in full.get("index") or []}
+        for idx in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+            if idx not in I_:
+                continue
+            opts = {}
+            for sd, dn in (("CE", "UP"), ("PE", "DOWN")):
+                j = (_jp(I_, dn, 0, (idx,)) or [None])[0]
+                if j:
+                    opts[sd] = j
+            indices.append({"id": None, "symbol": idx, "is_index": True, "status": "SETUP", "source": "📈 Index chart", "time": t.strftime("%H:%M"),
+                            "side": "CE", "strike": None, "entry": None, "sl": None, "targets": [], "chain_opts": opts})
+    except Exception:
+        pass
+    CR.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), _ST, t, extra, indices)
 
 
 def chart_loop():

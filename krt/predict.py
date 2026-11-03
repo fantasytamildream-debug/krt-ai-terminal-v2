@@ -75,12 +75,12 @@ def compute(res, live_q, now):
     return out
 
 
-def jackpot(I, dirn, prob):
+def jackpot(I, dirn, prob, idxs=("NIFTY", "BANKNIFTY", "SENSEX")):
     """NIFTY (+BANKNIFTY) ATM / 1 ITM strike → ₹ plan."""
     from .calls import rupee_plan
     side = "CE" if dirn == "UP" else "PE"
     out = []
-    for idx in ("NIFTY", "BANKNIFTY", "SENSEX"):
+    for idx in idxs:
         x = I.get(idx) or {}
         spot, ch = x.get("spot"), x.get("chain") or []
         if not spot or not ch:
