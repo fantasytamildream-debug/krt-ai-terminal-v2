@@ -47,7 +47,24 @@ class Angel:
         while getattr(self, "_prio", None) and time.time() < end and time.time() - getattr(self, "_prio_t", 0) < 180:
             time.sleep(0.2)
 
-    def _call(self, fn, *a, gap=0.4, tries=3):
+    CANDLE_PER_MIN = 150          # Angel historical API ≈180/min — 150-ல் நிறுத்தி வைக்கும் (எல்லா loops சேர்த்து)
+
+    def _candle_slot(self):
+        """Sliding 60-sec window: நிமிடத்துக்கு CANDLE_PER_MIN-க்கு மேல் candle request போகாது (காத்திருக்கும்)."""
+        import collections
+        with self._lk:
+            w = self.__dict__.setdefault("_cwin", collections.deque())
+            now = time.time()
+            while w and now - w[0] > 60:
+                w.popleft()
+            wait = (60 - (now - w[0]) + 0.05) if len(w) >= self.CANDLE_PER_MIN else 0
+        if wait > 0:
+            self.rate_waits = getattr(self, "rate_waits", 0) + 1
+            time.sleep(min(wait, 30))
+        with self._lk:
+            self._cwin.append(time.time())
+
+    def _call(self, fn, *a, gap=0.4, tries=4):
         self.ensure()
         self._yield()
         err = None
@@ -61,7 +78,7 @@ class Angel:
             except Exception as e:
                 res, err = None, str(e)
                 if "access rate" in err.lower() or "rate limit" in err.lower() or "too many" in err.lower():
-                    self._cool = time.time() + 2.5 * (i + 1)   # Angel "exceeding access rate" → backoff
+                    self._cool = time.time() + 3 * (2 ** i)   # Angel "exceeding access rate" → 3 / 6 / 12 sec backoff
                     self.rate_hits = getattr(self, "rate_hits", 0) + 1
                     continue
             if isinstance(res, dict) and res.get("status"):
@@ -77,6 +94,7 @@ class Angel:
     def candles(self, exch, token, interval, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
         p = {"exchange": exch, "symboltoken": token, "interval": interval,
              "fromdate": start.strftime("%Y-%m-%d %H:%M"), "todate": end.strftime("%Y-%m-%d %H:%M")}
+        self._candle_slot()
         try:
             res = self._call(lambda: self.api.getCandleData(p))
         except RuntimeError:

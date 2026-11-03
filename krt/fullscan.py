@@ -711,13 +711,14 @@ def run_full(ag, prog=lambda m: None) -> dict:
     if not best:
         summary.append("இப்போ rules எல்லாம் pass ஆன setup இல்லை → WAIT.")
 
-    prog("Swing picks")
-    from .swing import swing_picks
-    try:
-        swing = swing_picks(ag, inst, universe, C, idx, trend, now, session)
-    except Exception as e:
-        swing = {"5": [], "10": []}
-        errors.append(f"Swing: {e}")
+    swing = {"5": [], "10": []}
+    if SWING_ON:                 # V10: Swing 5D/10D நிறுத்தம் (win 0% / 14%) — API calls-உம் மிச்சம். பழைய open swing calls exit வரை track ஆகும்.
+        prog("Swing picks")
+        from .swing import swing_picks
+        try:
+            swing = swing_picks(ag, inst, universe, C, idx, trend, now, session)
+        except Exception as e:
+            errors.append(f"Swing: {e}")
     prog("Calls tracking")
     from .calls import update_calls
     try:
@@ -1171,6 +1172,8 @@ def run_breakouts(ag, inst, res, universe, now, live):
             res.setdefault("errors", []).append(f"Breakout calls: {e}")
     return {"time": now.strftime("%H:%M"), "CE": out["CE"], "PE": out["PE"]}
 
+
+SWING_ON = False
 
 STRONG = {"start": 9 * 60 + 30, "end": 14 * 60 + 30, "max_dist": 1.2, "vol_x": 2.0, "day_vr": 1.5, "fresh_bars": 3,
           "max_check": 12, "max_day": 6, "retest_pct": 0.25}

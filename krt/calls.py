@@ -827,7 +827,8 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 "win_rate": round(len(wins) / len(closed) * 100) if closed else None,
                 "t1": sum(any(h.startswith("T1") for h in c["hits"]) for c in rows),
                 "net": sum(c["pnl_lot"] for c in rows)}
-    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in ("ALL ROUNDER", "POWER-A", "POWER-B", "ELITE", "ELITE HOLD", "JACKPOT", "INTRADAY", "SWING 5D", "SWING 10D", "PATTERN 5D", "GAMMA", "GU-INTRADAY", "GU-HOLDING", "MACHINE", "V4", "GOKI", "PICK", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK")}
+    # V10: calls உள்ள எல்லா kinds (புது modules — Mannan / Strong / MCX / Chart / AI Pick… தானா சேரும்)
+    summary = {k: stats([c for c in allc if c["kind"] == k]) for k in sorted({c["kind"] for c in allc} | {"INTRADAY", "JACKPOT", "V4", "GOKI"})}
     summary["ALL"] = stats(allc)
     try:
         from .ai import net_of as _net, charges as _chg
