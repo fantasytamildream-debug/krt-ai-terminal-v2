@@ -880,6 +880,7 @@ def fast_tick(ag, res):
             live_q[n] = {"ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")), "volume": int(vol),
                          "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0,
                          "high": _f(q.get("high")), "low": _f(q.get("low")), "open": _f(q.get("open"))}
+    C["live_q"], C["live_q_t"] = live_q, now        # 👑 Mannan Stock Options candidate filter
     try:
         res["movers"] = run_movers(ag, inst, live_q, res, now, live)
         res["movers"]["gainers"] = [{"symbol": k_, **v_} for k_, v_ in res["movers"]["gainers"]]

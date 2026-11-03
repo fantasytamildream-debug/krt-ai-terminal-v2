@@ -27,7 +27,7 @@ def _build(cache_dir: Path) -> dict:
                 f.write(chunk)
     today = ist_today()
     eq, opts, fno, fut = {}, {}, set(), {}
-    mfut, mopt = {}, {}                  # 🛢 MCX futures (FUTCOM) + options on futures (OPTFUT)
+    mfut, mopt, mall = {}, {}, {}        # 🛢 MCX futures (FUTCOM) + options on futures (OPTFUT) + எல்லா future expiries
     MCXN = {"CRUDEOIL", "CRUDEOILM", "NATURALGAS", "NATGASMINI", "GOLD", "GOLDM", "SILVER", "SILVERM", "COPPER", "ZINC"}
     with open(raw, "rb") as f:
         for row in ijson.items(f, "item"):
@@ -47,6 +47,8 @@ def _build(cache_dir: Path) -> dict:
                 if fx < today or (fx - today).days > 70:
                     continue
                 if it == "FUTCOM":
+                    if (fx - today).days >= 3:
+                        mall.setdefault(nm, []).append([row["token"], sym, fx.isoformat(), "MCX"])
                     if (fx - today).days >= 3 and (nm not in mfut or fx.isoformat() < mfut[nm][2]):
                         mfut[nm] = [row["token"], sym, fx.isoformat(), "MCX"]
                 elif sym[-2:] in ("CE", "PE"):
@@ -85,7 +87,12 @@ def _build(cache_dir: Path) -> dict:
     for name, rows in mopt.items():
         exps = sorted({r[2] for r in rows})[:2]
         mopt[name] = [r for r in rows if r[2] in exps]
-    return {"eq": eq, "fno": sorted(fno), "opts": opts, "fut": fut, "mcx_fut": mfut, "mcx_opt": mopt}
+    mfut2 = {}                           # 👑 Mannan carry: அடுத்த மாத future (term structure)
+    for nm, rs in mall.items():
+        rs = sorted(rs, key=lambda r: r[2])
+        if len(rs) >= 2:
+            mfut2[nm] = rs[1]
+    return {"eq": eq, "fno": sorted(fno), "opts": opts, "fut": fut, "mcx_fut": mfut, "mcx_opt": mopt, "mcx_fut2": mfut2}
 
 
 def load(cache_dir: str | Path) -> dict:

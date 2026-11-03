@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -279,9 +279,12 @@ QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, 
        "sl_streak": 3, "counter_pct": 0.4}
 
 
+OWN_POOL = ("AIPICK", "MACHINE", "MANNAN-IDX", "MANNAN-STK")     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
+
+
 def quality_v6(c, now):
     """→ None (pass) அல்லது (code, காரணம்)."""
-    if not QV6["on"] or c.get("kind") in ("PICK", "MCX") or c.get("hold_until"):
+    if not QV6["on"] or c.get("kind") in ("PICK", "MCX", "MANNAN-CMD") or c.get("hold_until"):
         return None
     if str(c.get("kind", "")).startswith("POWER"):
         return ("Q_REMOVED", "POWER OI module நீக்கப்பட்டது (user request)")
@@ -313,7 +316,7 @@ def quality_v6(c, now):
         return None
     day = c["date"]
     mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until")
-            and not x.get("shadow") and (x["kind"] == c["kind"] if c["kind"] in ("AIPICK", "MACHINE") else x["kind"] not in ("AIPICK", "MACHINE"))]
+            and not x.get("shadow") and (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL)]
     if any(x["symbol"] == c["symbol"] for x in mine):
         return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
     if len(mine) >= QV6["max_day"]:

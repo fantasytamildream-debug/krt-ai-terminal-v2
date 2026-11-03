@@ -28,6 +28,7 @@ CFG = {"watch": ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC"],
        "min_score": 70, "lite_score": 60, "max_day": 10, "risk_cap": 6000, "max_spread": 6.0}
 STATE = {"time": None, "rows": [], "err": None, "beat": None, "jackpot": None, "ai": None}
 CACHE = {}
+FR = {}          # name → (time, frames)
 LK = threading.Lock()
 
 
@@ -188,6 +189,7 @@ def _scan_one(ag, inst, name, now, S):
             return {"name": name, "label": COMM[name][1], "status": "DATA ERROR", "error": str(e)[:80]}
         if not fr:
             return {"name": name, "label": COMM[name][1], "status": "NO DATA", "error": "இன்றைய candles இல்லை / Angel data வரல — அடுத்த scan-ல் மறுபடி"}
+        FR[name] = (now, fr)               # 👑 Mannan Commodity இதையே பயன்படுத்தும்
         cx = V.context(fr, None, None)
         reg = V.regime(cx)
         res = {}

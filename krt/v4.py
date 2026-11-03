@@ -38,6 +38,7 @@ LOCK = threading.Lock()
 STATE = {"t": None, "indices": {}, "setups": [], "errors": [], "bt": None, "bt_running": False, "pending": {}, "last_sig": {},
          "prog": "", "tried": None}
 NODATA = {}     # idx → காரணம்
+FR = {}         # idx → (time, frames) — Mannan Index-க்கு share
 CACHE = {}      # idx → {"day", "m1", "f5"} — முந்தைய நாட்கள் data ஒரு நாளைக்கு ஒருமுறை மட்டும் fetch
 
 
@@ -175,6 +176,7 @@ def load_frames(ag, inst, idx, now):
         fr["5M"] = fr["5M"].join(fv.rename("fvol"), how="left")
     fr["has_vol"] = fv is not None and float(fr["5M"].get("fvol", pd.Series(dtype=float)).fillna(0).sum()) > 0
     fr["data_time"] = (m1.index[-1] + pd.Timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
+    FR[idx] = (now_, fr)                 # 👑 Mannan Index இதையே பயன்படுத்தும் (கூடுதல் API call இல்லை)
     return fr
 
 

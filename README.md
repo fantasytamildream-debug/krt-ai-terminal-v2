@@ -14,6 +14,12 @@ Rule-based F&O opportunity scanner — 🟢 CE / 🔴 PE setups, levels, volume,
 | 4 | Premium entry / SL / T1-T3 engine | ⏳ |
 | 5 | Alerts + performance dashboard | ⏳ |
 
+## 👑 Jackpot Mannan (v79)
+- `krt/mannan.py` — 3 தனி engines: 📊 Mannan Index · 🛢 Mannan Commodity · 📈 Mannan Stock Options, ஒவ்வொன்றிலும் 10 strategies
+- Best setup மட்டும்: ≥2 strategies ஒரே பக்கம் · எதிர் 0 · score 75+ · market திசை · meta-label (triple-barrier backtest) · ஒரு scan-க்கு 1 call
+- Website tab "👑 Jackpot Mannan": best setup, 10-strategy table (backtest + live + Test needed), open calls, முடிந்த calls (saved)
+- Tests: `tests/test_mannan.py`
+
 ## V9 (v78) மாற்றங்கள்
 - 🧭 ஒரே market திசை (`ai.market_dir`) — prediction / big move / banner இனி எதிரெதிரா சொல்லாது
 - 🟠 Strong Break V9 — 9:25–2:30 மட்டும், fresh break முதலில், VWAP + market திசை filter, retest entry

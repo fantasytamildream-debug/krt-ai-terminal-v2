@@ -233,6 +233,12 @@ def mcx_loop():
             ANGEL = ANGEL or Angel()
             CM.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), t)
             try:
+                from krt import mannan as MN
+                MN.run_commodity(ANGEL, load_inst(ROOT / "data" / "cache"), t)     # 👑 Mannan Commodity (அதே frames)
+            except Exception as e:
+                __import__("krt.mannan", fromlist=["STATE"]).STATE["CMD"]["err"] = str(e)[:200]
+                traceback.print_exc()
+            try:
                 from krt.ai import pink_tick
                 pink_tick(t)                     # 🩷 commodity calls-க்கும் pink alert (NSE close ஆன பிறகும்)
             except Exception:
@@ -403,6 +409,51 @@ def power_loop():
 GOKI_RUN = {"running": False, "start": None, "done": None, "secs": None}
 
 
+def mannan_loop():
+    """👑 Jackpot Mannan — Index + Stock Options: 5-min candle முடிஞ்சு 1 நிமிடம் 25 sec-ல் (9:21–15:26). Commodity → mcx_loop-ல்."""
+    global ANGEL
+    done = None
+    while True:
+        time.sleep(5)
+        try:
+            real = pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None)
+            t = real.floor("1min")
+            if not angel_configured() or t.minute % 5 != 1 or done == t or real.second < 25 or not market_open(t):
+                continue
+            if not ("09:21" <= t.strftime("%H:%M") <= "15:26") or GOKI_RUN.get("running"):
+                continue
+            done = t
+            from krt import mannan as MN
+            from krt.angel_api import Angel
+            from krt.instruments import load as load_inst
+            from krt import fullscan as FS
+            ANGEL = ANGEL or Angel()
+            inst = load_inst(ROOT / "data" / "cache")
+            full = STATE.get("full") or {}
+            for seg, fn in (("IDX", lambda: MN.run_index(ANGEL, inst, full, t)),
+                            ("STK", lambda: MN.run_stocks(ANGEL, inst, full, FS.C.get("live_q") or {}, t))):
+                try:
+                    fn()
+                except Exception as e:
+                    MN.STATE[seg]["err"] = str(e)[:200]
+                    traceback.print_exc()
+        except Exception:
+            traceback.print_exc()
+
+
+MREP = {"t": 0, "d": None}
+
+
+def mannan_report():
+    if time.time() - MREP["t"] > 5:
+        try:
+            from krt import mannan as MN
+            MREP.update(t=time.time(), d=MN.report())
+        except Exception as e:
+            MREP.update(t=time.time(), d={"err": str(e)[:200]})
+    return MREP["d"]
+
+
 def real_hms():
     return pd.Timestamp.now(tz="Asia/Kolkata").strftime("%H:%M:%S")
 
@@ -530,7 +581,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
-                "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
+                "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
@@ -734,6 +785,7 @@ if __name__ == "__main__":
     threading.Thread(target=v4_loop, daemon=True).start()
     threading.Thread(target=mcx_loop, daemon=True).start()
     threading.Thread(target=chart_loop, daemon=True).start()
+    threading.Thread(target=mannan_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"
