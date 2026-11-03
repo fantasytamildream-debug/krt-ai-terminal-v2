@@ -1172,17 +1172,30 @@ def run_breakouts(ag, inst, res, universe, now, live):
 
 
 STRONG = {"start": 9 * 60 + 30, "end": 14 * 60 + 30, "max_dist": 1.2, "vol_x": 2.0, "day_vr": 1.5, "fresh_bars": 3,
-          "max_check": 8, "max_day": 6}
+          "max_check": 12, "max_day": 6, "retest_pct": 0.25}
 
 
 def run_strong(ag, inst, live_q, res, now, live):
-    """🟠 STRONG BREAK — ஒரே completed 5-min candle-ல்: 1st 5-min candle (ORB) break + PDH/PDL break + (PWH/PWL bonus) +
-    volume ≥2× + fresh break (கடைசி 3 bars-க்குள்) + வலுவான candle + NIFTY எதிர் இல்லை → orange alert + call."""
+    """🟠 STRONG BREAK V9 — ஒரே completed 5-min candle-ல்: 1st 5-min candle (ORB) break + PDH/PDL break + (PWH/PWL bonus) +
+    volume ≥2× + fresh break அல்லது level retest + வலுவான candle + VWAP சரியான பக்கம் + market திசை எதிர் இல்லை → orange alert + call.
+    V9 மாற்றம்: 9:25–2:30 மட்டும் scan (late setups காட்டாது) · புதுசா break ஆனவை முதலில் · VWAP + market திசை filter · retest entry."""
     from .calls import rupee_plan, add_simple
     mins = now.hour * 60 + now.minute
+    LOG = C.setdefault("strong_log", {})
+    for k_ in [k_ for k_ in LOG if not k_.startswith(str(now.date()))]:
+        LOG.pop(k_, None)
+    log_ = sorted(LOG.values(), key=lambda x: x["time"], reverse=True)
     if mins < 9 * 60 + 21:
-        return {"time": now.strftime("%H:%M"), "rows": [], "note": "முதல் 5-min candle (9:15–9:20) முடியட்டும்"}
+        return {"time": now.strftime("%H:%M"), "rows": [], "note": "முதல் 5-min candle (9:15–9:20) முடியட்டும்", "cfg": STRONG, "log": log_}
+    if live and mins > STRONG["end"] + 1:
+        return {"time": now.strftime("%H:%M:%S"), "rows": [], "cfg": STRONG, "log": log_, "closed": True,
+                "note": "⏹ 2:30 பிறகு புது Strong break scan இல்லை — இந்த நேரத்தில் break ஆனவை எல்லாம் late (fresh ✗) தான், அதிக SL. இன்றைய alerts / calls result கீழே."}
     npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    try:
+        from .ai import STATE as _AST
+        mdir = ((_AST.get("risk") or {}).get("dir"))
+    except Exception:
+        mdir = None
     bu_tag = {}
     for kind, rows in (res.get("oi_buildup") or {}).items():
         for x in rows:
@@ -1200,13 +1213,15 @@ def run_strong(ag, inst, live_q, res, now, live):
             beyond = ltp > lvl if side == "CE" else ltp < lvl
             dist = abs(ltp - lvl) / lvl * 100
             if beyond and dist <= STRONG["max_dist"]:
-                cands.append((vr, n, side, lv))
+                # level-க்கு பக்கத்தில் (புதுசா break) உள்ளவை முதலில் — பழைய code day volume மட்டும் பார்த்து பல மணி நேரம் முன் break ஆனதை எடுத்தது
+                cands.append((vr * (1.25 - dist / STRONG["max_dist"]), n, side, lv))
     cands.sort(key=lambda x: -x[0])
     cache = C.setdefault("strong_cache", {})
     slot = now.floor("5min") if hasattr(now, "floor") else now
     t0 = pd.Timestamp(now.date()) + pd.Timedelta(hours=9, minutes=15)
     out = []
-    for vr, n, side, lv in cands[:STRONG["max_check"]]:
+    for _rank, n, side, lv in cands[:STRONG["max_check"]]:
+        vr = live_q[n].get("vol_ratio") or 0
         ck = f"{slot}|{n}|{side}"
         if ck in cache:
             if cache[ck]:
@@ -1232,40 +1247,47 @@ def run_strong(ag, inst, live_q, res, now, live):
             near = (float(last["close"] - last["low"]) / rng) if ce else (float(last["high"] - last["close"]) / rng)
             fresh = any(((cl[i - 1] <= pd_) if ce else (cl[i - 1] >= pd_)) for i in range(max(1, len(cl) - STRONG["fresh_bars"]), len(cl))) \
                 if len(cl) > 1 else True
+            # Retest: முன்பே break ஆகி, கடைசி 2 bars-ல் level-ஐ தொட்டு (±0.25%) மறுபடி வலுவா close → late இல்லை, நல்ல entry
+            lows, highs = df["low"].values[-2:], df["high"].values[-2:]
+            retest = (not fresh) and bool((lows.min() <= pd_ * (1 + STRONG["retest_pct"] / 100)) if ce else (highs.max() >= pd_ * (1 - STRONG["retest_pct"] / 100)))
+            tdf = df[df.index.normalize() == pd.Timestamp(now.date())]
+            tp_ = (tdf["high"] + tdf["low"] + tdf["close"]) / 3
+            vwap = float((tp_ * tdf["volume"]).sum() / max(float(tdf["volume"].sum()), 1)) if len(tdf) else None
+            against = (ce and (npct <= -0.3 or mdir == "DOWN")) or ((not ce) and (npct >= 0.3 or mdir == "UP"))
             chk = {"1st 5-min candle break": bool(cl[-1] > o1h if ce else cl[-1] < o1l),
                    f"{'PDH' if ce else 'PDL'} break (5m close)": bool(cl[-1] > pd_ if ce else cl[-1] < pd_),
                    f"{'PWH' if ce else 'PWL'} break": bool(pw and (cl[-1] > pw if ce else cl[-1] < pw)),
                    f"Volume ≥{STRONG['vol_x']:g}× (5m)": bool(base and vols[-1] >= STRONG["vol_x"] * base),
-                   "Fresh break (late இல்லை)": bool(fresh),
+                   "Fresh break / retest": bool(fresh or retest),
                    "வலுவான candle": bool(body >= 0.5 and near >= 0.7 and ((last["close"] > last["open"]) == ce)),
-                   "NIFTY எதிர் இல்லை": not ((ce and npct <= -0.3) or (not ce and npct >= 0.3))}
+                   f"VWAP {'மேல்' if ce else 'கீழ்'}": bool(vwap and (cl[-1] > vwap if ce else cl[-1] < vwap)),
+                   "Market திசை எதிர் இல்லை": not against}
             k = bu_tag.get(n, "")
             oi_ok = (ce and k in ("Long Built Up", "Short Covering")) or (not ce and k in ("Short Built Up", "Long Unwinding"))
-            w = [25, 25, 15, 20, 10, 5, 0]
-            sc = sum(wi for wi, v in zip(w, chk.values()) if v) + (5 if oi_ok else 0) + min(10, int(vr * 2))
+            w = [20, 20, 10, 15, 10, 10, 10, 5]
+            sc = sum(wi for wi, v in zip(w, chk.values()) if v) + (5 if oi_ok else 0) + min(5, int(vr))
             must = ["1st 5-min candle break", f"{'PDH' if ce else 'PDL'} break (5m close)", f"Volume ≥{STRONG['vol_x']:g}× (5m)",
-                    "Fresh break (late இல்லை)", "வலுவான candle", "NIFTY எதிர் இல்லை"]
+                    "Fresh break / retest", "வலுவான candle", f"VWAP {'மேல்' if ce else 'கீழ்'}", "Market திசை எதிர் இல்லை"]
             strong = all(chk[m] for m in must)
+            miss = [m for m in must if not chk[m]]
             q = live_q[n]
             r = {"symbol": n, "side": side, "price": q.get("ltp"), "pct": q.get("pct"), "vol_ratio": vr, "score": int(min(100, sc)),
-                 "checks": chk, "strong": strong, "oi": k, "bar": (df.index[-1] + pd.Timedelta(minutes=5)).strftime("%H:%M"), "level": pd_, "pwl": pw,
+                 "checks": chk, "strong": strong, "miss": miss, "near": len(miss) == 1, "retest": bool(retest), "oi": k, "bar": (df.index[-1] + pd.Timedelta(minutes=5)).strftime("%H:%M"), "level": pd_, "pwl": pw,
                  "sl": round(min(o1l, float(last["low"])) if ce else max(o1h, float(last["high"])), 2), "targets": [],
                  "min_days": 1, "found": now.strftime("%H:%M"),
-                 "reasons": [f"🟠 {'1st 5m high' if ce else '1st 5m low'} + {'PDH' if ce else 'PDL'} break" + (" + PW break" if chk[f"{'PWH' if ce else 'PWL'} break"] else ""),
+                 "reasons": [f"🟠 {'1st 5m high' if ce else '1st 5m low'} + {'PDH' if ce else 'PDL'} break" + (" + PW break" if chk[f"{'PWH' if ce else 'PWL'} break"] else "")
+                             + (" · retest entry" if retest else ""),
                              f"5m volume {vols[-1] / base:.1f}× · day {vr}×" if base else f"day volume {vr}×", f"OI: {k or 'தெரியல'}"]}
         cache[ck] = r
         if r:
             out.append(r)
     for k_ in [k_ for k_ in cache if not k_.startswith(str(slot))]:
         cache.pop(k_, None)
-    out.sort(key=lambda r: (-int(r["strong"]), -r["score"]))
+    out.sort(key=lambda r: (-int(r["strong"]), -int(r.get("near", False)), -r["score"]))
     S = [r for r in out if r["strong"]][:6]
-    LOG = C.setdefault("strong_log", {})
     for r in S:
         LOG.setdefault(f"{now.date()}|{r['symbol']}|{r['side']}", {"date": str(now.date()), "time": r["bar"], "symbol": r["symbol"], "side": r["side"],
                                                                    "price": r["price"], "score": r["score"]})
-    for k_ in [k_ for k_ in LOG if not k_.startswith(str(now.date()))]:
-        LOG.pop(k_, None)
     if S:
         pick_options(ag, inst, S)
         for r in S:
@@ -1281,12 +1303,15 @@ def run_strong(ag, inst, live_q, res, now, live):
                            now, STRONG["max_day"])
             except Exception as e:
                 res.setdefault("errors", []).append(f"Strong calls: {e}")
-    return {"time": now.strftime("%H:%M:%S"), "rows": out[:10], "cfg": STRONG, "log": sorted(LOG.values(), key=lambda x: x["time"], reverse=True)}
+    # Screen-ல் STRONG + ஒரு check மட்டும் குறையும் (near) rows மட்டும் — 3-4 ✗ உள்ள WATCH cards குப்பை
+    show = [r for r in out if r["strong"] or r.get("near")][:8]
+    return {"time": now.strftime("%H:%M:%S"), "rows": show, "checked": len(out), "cfg": STRONG,
+            "log": sorted(LOG.values(), key=lambda x: x["time"], reverse=True)}
 
 
 def run_ai(live_q, res, now, live):
     """🤖 AI Picks + 🚨 market risk — fast tick-ல் (≈30 sec)."""
-    from .ai import AI, STATE as AST, feats, predict, train, market_risk
+    from .ai import AI, STATE as AST, feats, predict, train, market_risk, pink_of
     from .calls import add_aipick
     from .store import STORE
     risk = market_risk(live_q, res, now)
@@ -1328,19 +1353,42 @@ def run_ai(live_q, res, now, live):
                   pos=r.get("pos"), oi=r.get("oi"), nifty_pct=npct, symbol=r["symbol"])
         p, why = predict(f)
         cold = p is None
-        ok = (p is not None and p >= AI["min_p"]) or (cold and (r.get("score") or 0) >= AI["cold_score"] and f.get("trend") != "against")
+        sc_ = r.get("score") or 0
+        pk = pink_of({"source": src})
+        # V9: பழைய rule-ல் p ≥ 70% மட்டும் → base win ~45% இருக்கும்போது ஒரு call-உம் வரல. இப்போ 3 வழி:
+        #   (1) AI p ≥ min_p  (2) learning mode: score ≥ cold_score  (3) 🩷 proven module (win ≥75%, லாபம்) + score ≥70 + p ≥ 50%
+        ok = (p is not None and p >= AI["min_p"]) or (cold and sc_ >= AI["cold_score"]) \
+            or (pk is not None and sc_ >= AI["pink_score"] and (p is None or p >= AI["pink_min_p"]))
+        why_not = []
+        if not ok:
+            why_not.append(f"AI {round(p * 100)}% < {round(AI['min_p'] * 100)}%" if p is not None else f"score {sc_} < {AI['cold_score']} (learning)")
+            if not pk:
+                why_not.append("module 🩷 proven இல்லை")
+        dir_ = risk.get("dir")
+        if f.get("trend") == "against" or (dir_ and (dir_ == "UP") != (r["side"] == "CE")):
+            ok = False
+            why_not.append(f"Market திசை {'⬆' if dir_ == 'UP' else '⬇' if dir_ == 'DOWN' else ''} எதிர் — {r['side']} வேண்டாம்")
         if risk["level"] == "CRASH" and r["side"] == "CE":
             ok, why = False, why + ["🚨 crash risk — CE வேண்டாம்"]
+        if pk:
+            why = [f"🩷 {src}: win {pk['win']}% ({pk['n']} calls){' · sample small' if pk['small'] else ''}"] + why
         o2 = dict(o, plan=dict(o.get("plan") or {}, entry=rp["entry"], sl=rp["sl"], targets=rp["targets"], money=True))
         cands.append({"symbol": r["symbol"], "side": r["side"], "src": src, "score": r.get("score"), "p": p, "why": why, "ok": ok,
+                      "why_not": why_not, "pink": pk,
                       "feat": f, "option": o2, "rp": rp, "price": r.get("price"), "sl": r.get("sl"), "vol": r.get("vol_ratio")})
-    cands.sort(key=lambda c: (-(c["p"] or 0), -(c["score"] or 0)))
+    cands.sort(key=lambda c: (-int(c["ok"]), -int(bool(c.get("pink"))), -(c["p"] or 0), -(c["score"] or 0)))
     mins = now.hour * 60 + now.minute
     if live and 9 * 60 + 45 <= mins <= 14 * 60 + 30:
         try:
             add_aipick([c for c in cands if c["ok"]], now, AI["max_day"])
         except Exception as e:
             res.setdefault("errors", []).append(f"AI picks: {e}")
+    if live:
+        try:
+            from .ai import pink_tick
+            pink_tick(now)
+        except Exception as e:
+            res.setdefault("errors", []).append(f"Pink alert: {e}")
     return {"risk": risk, "cands": cands[:6], "model": {k: v for k, v in M.items() if k != "stats"}, "opt": AST.get("opt"),
             "top_feats": sorted([(k, v, s_[0], round((s_[1] + 1) / (s_[0] + 2) * 100)) for k, d_ in (M.get("stats") or {}).items()
                                  for v, s_ in d_.items() if s_[0] >= 8], key=lambda x: -x[3])[:6],
@@ -1531,6 +1579,11 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
     rows.sort(key=lambda r: (-int(r["full"]), -r["score"]))
     top = rows[:8]
     mins = now.hour * 60 + now.minute
+    try:
+        from .ai import STATE as _AST
+        mdir_ = (_AST.get("risk") or {}).get("dir")
+    except Exception:
+        mdir_ = None
     for r in top:
         r["min_days"] = 10 if r.get("hold") else 1      # holding scanners → போதுமான நாள் உள்ள expiry
     pick_options(ag, inst, top)
@@ -1561,6 +1614,8 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
             r["why_not"].append(f"15m volume {vx_}× < 2×")
         if (r["side"] == "CE" and npct <= -0.25) or (r["side"] == "PE" and npct >= 0.25):
             r["why_not"].append(f"NIFTY {npct:+.2f}% எதிர்")
+        elif not r.get("hold") and mdir_ and (mdir_ == "UP") != (r["side"] == "CE"):
+            r["why_not"].append(f"Market திசை {'⬆' if mdir_ == 'UP' else '⬇'} எதிர் (prediction + breadth)")
         if (r.get("ext_atr") or 0) > 1.0:
             r["why_not"].append(f"VWAP-ல் இருந்து {r.get('ext_atr')} ATR — late")
         if r.get("hold"):

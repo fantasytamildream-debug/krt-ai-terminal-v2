@@ -24,8 +24,32 @@ class Angel:
                 time.sleep(gap - d)
             self._last = time.time()
 
+    def priority(self):
+        """with ag.priority(): ... — இந்த thread-ன் API calls முதலில் (மற்ற loops max 120 sec காத்திருக்கும்).
+        👑 Goki / Elite 15-min scan deep scan-ஓட மோதி late ஆனதுக்கு fix."""
+        ag = self
+
+        class _P:
+            def __enter__(self_):
+                ag._prio = threading.get_ident()
+                ag._prio_t = time.time()
+
+            def __exit__(self_, *e):
+                ag._prio = None
+                return False
+        return _P()
+
+    def _yield(self):
+        p = getattr(self, "_prio", None)
+        if not p or p == threading.get_ident():
+            return
+        end = time.time() + 120
+        while getattr(self, "_prio", None) and time.time() < end and time.time() - getattr(self, "_prio_t", 0) < 180:
+            time.sleep(0.2)
+
     def _call(self, fn, *a, gap=0.4, tries=3):
         self.ensure()
+        self._yield()
         err = None
         for i in range(tries):
             cd = getattr(self, "_cool", 0) - time.time()

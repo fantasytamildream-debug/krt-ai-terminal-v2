@@ -67,6 +67,11 @@ def do_full():
     try:
         if not angel_configured():
             raise RuntimeError("Angel One connect ஆகவில்லை — Render Environment-ல் ANGEL_API_KEY, ANGEL_CLIENT_ID, ANGEL_MPIN, ANGEL_TOTP_SECRET வேண்டும்")
+        for _ in range(60):                     # 👑 Goki 15-min scan ஓடிக்கிட்டிருந்தா அது முடியட்டும் (max 2 நிமிடம்)
+            if not GOKI_RUN.get("running"):
+                break
+            STATE["progress"] = "👑 Goki scan முடியட்டும் — deep scan காத்திருக்கு…"
+            time.sleep(2)
         from krt.angel_api import Angel
         from krt.fullscan import run_full
         ANGEL = ANGEL or Angel()
@@ -227,6 +232,11 @@ def mcx_loop():
             from krt.instruments import load as load_inst
             ANGEL = ANGEL or Angel()
             CM.run_once(ANGEL, load_inst(ROOT / "data" / "cache"), t)
+            try:
+                from krt.ai import pink_tick
+                pink_tick(t)                     # 🩷 commodity calls-க்கும் pink alert (NSE close ஆன பிறகும்)
+            except Exception:
+                traceback.print_exc()
             MCXE["err"] = None
         except Exception as e:
             MCXE["err"] = str(e)[:200]
@@ -390,12 +400,19 @@ def power_loop():
             traceback.print_exc()
 
 
+GOKI_RUN = {"running": False, "start": None, "done": None, "secs": None}
+
+
+def real_hms():
+    return pd.Timestamp.now(tz="Asia/Kolkata").strftime("%H:%M:%S")
+
+
 def elite_loop():
     """👑 Elite: ஒவ்வொரு 15-min candle முடிந்த 1 நிமிடத்தில் (9:31, 9:46, 10:01…) — deep scan-க்கு காத்திருக்காது."""
     global ANGEL
     done = None
     while True:
-        time.sleep(15)
+        time.sleep(5)             # 15→5 sec: candle முடிஞ்சதும் சீக்கிரம் start
         try:
             t = now_ist()
             slot = t.floor("15min")
@@ -405,7 +422,21 @@ def elite_loop():
             from krt.angel_api import Angel
             from krt.fullscan import run_elite_fast
             ANGEL = ANGEL or Angel()
-            STATE["full"] = run_elite_fast(ANGEL, STATE["full"])
+            t0_ = time.time()
+            GOKI_RUN.update(running=True, start=real_hms())
+            try:
+                with ANGEL.priority():          # 👑 Goki முதலில் — deep scan / V4 / chart loops காத்திருக்கும்
+                    new_ = run_elite_fast(ANGEL, STATE["full"])
+            finally:
+                GOKI_RUN.update(running=False, done=real_hms(), secs=round(time.time() - t0_))
+            g_ = (new_ or {}).get("goki")
+            if isinstance(g_, dict):
+                g_.update(done=GOKI_RUN["done"], secs=GOKI_RUN["secs"])
+            cur_ = STATE.get("full")
+            if cur_ is not new_ and isinstance(cur_, dict) and isinstance(new_, dict):
+                cur_.update(goki=new_.get("goki"), elite=new_.get("elite"))   # deep scan நடுவில் STATE['full']-ஐ மாத்தியிருந்தா அதை அழிக்காம merge
+            else:
+                STATE["full"] = new_
         except Exception:
             traceback.print_exc()
 
@@ -499,7 +530,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
-                "news": NEWS, "gu": GU, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
+                "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
                 "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),

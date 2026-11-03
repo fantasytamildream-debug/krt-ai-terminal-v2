@@ -14,6 +14,15 @@ Rule-based F&O opportunity scanner — 🟢 CE / 🔴 PE setups, levels, volume,
 | 4 | Premium entry / SL / T1-T3 engine | ⏳ |
 | 5 | Alerts + performance dashboard | ⏳ |
 
+## V9 (v78) மாற்றங்கள்
+- 🧭 ஒரே market திசை (`ai.market_dir`) — prediction / big move / banner இனி எதிரெதிரா சொல்லாது
+- 🟠 Strong Break V9 — 9:25–2:30 மட்டும், fresh break முதலில், VWAP + market திசை filter, retest entry
+- 🤖 AI Picks — 3 வழியில் call (AI ≥66% · 🩷 proven module + score 70 · learning score 85), காரணம் காட்டும்
+- ⭐ Calls tab BEST SETUPS + 🩷 Pink filter · 📈 Chart Room live P/L, call marker, results table
+- 👑 Goki — Angel API priority (deep scan காத்திருக்கும்), ready நேரம் காட்டும்
+- 🩷 Pink alert — win ≥75% light / ≥80% dark (≥20 calls), charges சேர்த்து லாபம் கட்டாயம்
+- Tests: `pytest -q tests`
+
 ## Quick start
 ```bash
 git clone https://github.com/<your-username>/krt-terminal.git

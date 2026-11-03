@@ -11,7 +11,7 @@ import math
 
 import pandas as pd
 
-AI = {"min_p": 0.70, "min_samples": 30, "max_day": 5, "cold_score": 88}
+AI = {"min_p": 0.66, "min_samples": 30, "max_day": 5, "cold_score": 85, "pink_score": 70, "pink_min_p": 0.50}
 STATE = {"model": None, "risk": None, "nifty_hist": []}
 IDX = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
 
@@ -115,14 +115,32 @@ def market_risk(live_q, res, now):
     up = sum(1 for x in q if x >= 1) / n * 100
     gex = next((g for g in res.get("gex") or [] if g.get("index") == "NIFTY"), {}) or {}
     neg = "NEGATIVE" in str(gex.get("zone", ""))
+    dirn = market_dir(npct, vel, up, dn, res.get("predict"))
     lvl, txt = "OK", "Market சாதாரணம்"
     if npct <= -1.0 or (npct <= -0.6 and dn >= 60) or vel <= -0.5:
-        lvl, txt = "CRASH", f"Market crash possible — NIFTY {npct:+.2f}% · 5 நிமிடத்தில் {vel:+.2f}% · {dn:.0f}% stocks -1%-க்கு கீழ். CE வேண்டாம், size குறைங்க."
+        lvl, txt, dirn = "CRASH", f"Market crash possible — NIFTY {npct:+.2f}% · 5 நிமிடத்தில் {vel:+.2f}% · {dn:.0f}% stocks -1%-க்கு கீழ். CE வேண்டாம், size குறைங்க.", "DOWN"
     elif abs(vel) >= 0.3 or (neg and abs(npct) >= 0.5) or max(dn, up) >= 55:
-        side = "கீழே" if (vel < 0 or dn > up) else "மேலே"
+        # V9: பழைய code-ல் vel -0.02 மாதிரி சின்ன எண் கூட "கீழே" ஆக்கிடுச்சு (prediction "மேலே" சொல்லும்போதே) → இப்போ ஒரே திசை
+        side = {"UP": "மேலே", "DOWN": "கீழே"}.get(dirn, "இரு பக்கமும் — திசை தெளிவில்லை")
         lvl, txt = "BIG", f"Big move possible ({side}) — NIFTY {npct:+.2f}% · 5 நிமிட வேகம் {vel:+.2f}% · breadth ↑{up:.0f}% ↓{dn:.0f}%{' · negative gamma zone' if neg else ''}."
-    STATE["risk"] = {"level": lvl, "text": txt, "nifty": npct, "vel": vel, "up": round(up), "dn": round(dn), "time": now.strftime("%H:%M")}
+    STATE["risk"] = {"level": lvl, "text": txt, "nifty": npct, "vel": vel, "up": round(up), "dn": round(dn), "dir": dirn, "time": now.strftime("%H:%M")}
     return STATE["risk"]
+
+
+def market_dir(npct, vel, up, dn, pred=None):
+    """ஒரே market திசை (UP / DOWN / None) — prediction, breadth, NIFTY %, 5-min வேகம் எல்லாம் சேர்த்து வாக்கு.
+    சின்ன noise (vel ±0.1-க்கு கீழ், breadth வித்தியாசம் <8%, NIFTY ±0.3-க்கு கீழ்) வாக்கு போடாது."""
+    s = 0
+    if abs(vel) >= 0.1:
+        s += 1 if vel > 0 else -1
+    if abs(up - dn) >= 8:
+        s += 1 if up > dn else -1
+    if abs(npct) >= 0.3:
+        s += 1 if npct > 0 else -1
+    pd_ = (pred or {}).get("dir")
+    if pd_ in ("UP", "DOWN"):
+        s += 2 if pd_ == "UP" else -2
+    return "UP" if s >= 2 else "DOWN" if s <= -2 else None
 
 
 # ───────────── 💸 charges + 🧠 module optimizer ─────────────
@@ -194,8 +212,63 @@ def optimize(calls, min_n=8):
         mods[m]["paused"] = len(L) >= 15 and (len(kn) < 8 or sum(kn) / len(kn) < 0)      # V8: 15 calls-லேயே pause
         mods[m]["retired"] = RETIRED.get(m)
         mods[m]["upgrade"] = UPGRADES.get(m)
-    STATE["opt"] = {"mods": mods, "blocks": blocks}
+        mods[m]["pink"] = pink_tier(mods[m])
+    STATE["opt"] = {"mods": mods, "blocks": blocks, "pink_cfg": PINK}
     return STATE["opt"]
+
+
+# 🩷 PINK ALERT — நல்லா வேலை செய்யும் strategy-ன் call (stock / index / commodity எதுவானாலும்)
+# win ≥75% = light pink · ≥80% = dark pink. ஆனா: charges சேர்த்து லாபம் (avg > 0) கட்டாயம், ≥5 முடிந்த calls.
+# 20 calls-க்கு குறைவு = "sample small" — light pink மட்டும் (4/5 win luck-ஆவும் இருக்கலாம்).
+PINK = {"light": 75, "dark": 80, "min_n": 5, "proven_n": 20}
+
+
+def pink_tier(md):
+    """Module stats → None / {"tier": "light"|"dark", "win", "n", "small"}."""
+    if not md or md.get("paused") or md.get("retired"):
+        return None
+    af = md.get("after_filters") or {}
+    use_af = (af.get("n") or 0) >= PINK["min_n"] and af.get("win") is not None
+    n, win, exp = (af["n"], af["win"], af.get("exp")) if use_af else (md.get("n") or 0, md.get("win") or 0, md.get("exp"))
+    if n < PINK["min_n"] or exp is None or exp <= 0 or win < PINK["light"]:
+        return None
+    small = n < PINK["proven_n"]
+    tier = "dark" if (win >= PINK["dark"] and not small) else "light"
+    return {"tier": tier, "win": win, "n": n, "exp": exp, "small": small}
+
+
+def pink_of(c):
+    """Call-க்கு அதன் module-ன் pink tier."""
+    m = (c.get("ai_from") if c.get("kind") == "AIPICK" else None) or c.get("source") or c.get("kind")
+    if c.get("kind") == "PICK":
+        return None
+    return ((((STATE.get("opt") or {}).get("mods") or {}).get(m)) or {}).get("pink")
+
+
+def pink_scan(store, lock, now, send):
+    """இன்றைய புது calls-ல் pink module-ன் call இருந்தா → tag + Telegram/WhatsApp alert (ஒரு call-க்கு ஒருமுறை)."""
+    day = str(now.date())
+    out = []
+    with lock:
+        d = store.load()
+        for c in (d.get("calls") or {}).values():
+            if c.get("date") != day or c.get("shadow") or c.get("pink_sent") or c.get("status") not in ("OPEN", "T1 HIT"):
+                continue
+            pk = pink_of(c)
+            if not pk:
+                continue
+            c["pink"], c["pink_sent"] = pk, now.strftime("%H:%M")
+            store.dirty = True
+            out.append(c)
+    for c in out:
+        pk = c["pink"]
+        try:
+            send(f"{'🩷🩷 DARK PINK' if pk['tier'] == 'dark' else '🩷 PINK'} ALERT · {c.get('source') or c.get('kind')} (win {pk['win']}% · {pk['n']} calls"
+                 f"{' · ⚠ sample small' if pk['small'] else ''})\nBUY {c['symbol']} {c.get('strike')} {c.get('side')} · Entry ₹{c.get('entry')} · SL ₹{c.get('sl')}"
+                 f" · T1 ₹{(c.get('targets') or [None])[0]} (paper)", f"pink|{c['id']}")
+        except Exception:
+            pass
+    return out
 
 
 def blocked(c):
@@ -210,3 +283,17 @@ def blocked(c):
         if b["module"] == m and f.get(b["k"]) == b["v"]:
             return ("Q_LEARNED", f"{m}: {b['k']}={b['v']} — {b['n']} calls-ல் win {b['win']}%, சராசரி ₹{b['exp']} (learned filter)")
     return None
+
+
+def pink_tick(now):
+    """NSE fast tick / MCX loop இரண்டிலும் கூப்பிடலாம் — optimizer 5 நிமிடத்துக்கு ஒருமுறை fresh + pink scan."""
+    from .calls import CALLS_LOCK, STORE
+    from .telegram import send
+    if not STATE.get("opt") or not STATE.get("_pt") or (now - STATE["_pt"]).total_seconds() > 300:
+        try:
+            optimize(list((STORE.load().get("calls") or {}).values()))
+        except Exception:
+            pass
+        STATE["_pt"] = now
+    return pink_scan(STORE, CALLS_LOCK, now, send)
+
