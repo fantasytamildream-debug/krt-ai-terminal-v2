@@ -797,29 +797,140 @@ def _log(seg, now, r, result):
     del L[30:]
 
 
-def _finish(seg, rows, now, make_call):
-    """rows (symbol-க்கு ஒன்று) → score வரிசை → ok rows-ல் வரிசையா try, ஒரு run-க்கு max 1 புது call (best மட்டும்)."""
+def _finish(seg, rows, now, plan_fn):
+    """rows → score வரிசை. Top 2 BEST (ok) setups-க்கு எப்போதும் strike + entry / SL / targets (plan_fn) →
+    call நேரம் + gates pass = CALL (ஒரு run-க்கு max 1) · இல்லைன்னா 📋 SETUP-ஆ save (அதுக்கும் result track ஆகும்)."""
     rows.sort(key=lambda r: (-int(r.get("ok", False)), -r.get("score", 0)))
-    oks = [r for r in rows if r.get("ok")]
-    if oks and not _hm_ok(seg, now):
-        oks[0].setdefault("why_not", []).append("Call நேரம் இல்லை (" + (f"{CFG['mcx_start']}–{CFG['mcx_end']}" if seg == "CMD"
-                                                                       else f"{CFG['nse_start']}–{CFG['nse_end']}") + ")")
-    elif oks:
-        for r in oks:
+    called = False
+    for r in [r for r in rows if r.get("ok")][:2]:
+        prev = _setup_today(seg, r, now)
+        retry = prev and not prev.get("call") and str(prev.get("reason") or "").startswith(RETRY) and _hm_ok(seg, now) and not called
+        if prev and not retry:                     # இன்று ஏற்கனவே save ஆன setup → மறுபடி strike தேட வேண்டாம்
+            r["setup"] = prev
+            r["call"] = prev.get("call")
+            if not prev.get("call"):
+                r.setdefault("why_not", []).append(prev.get("reason") or "setup ஏற்கனவே save")
+            continue
+        try:
+            opt, err = plan_fn(r)
+        except Exception as e:
+            opt, err = None, f"strike: {e}"[:90]
+        if not opt:
+            r.setdefault("why_not", []).append(err)
+            _log(seg, now, r, f"⛔ {err}")
+            continue
+        c, why = None, None
+        if not _hm_ok(seg, now):
+            why = "⏰ Call நேரம் முடிந்தது (" + (f"{CFG['mcx_start']}–{CFG['mcx_end']}" if seg == "CMD" else f"{CFG['nse_start']}–{CFG['nse_end']}") + ") — setup மட்டும், result track ஆகும்"
+        elif called:
+            why = RETRY + " — அடுத்த scan-ல் மறுபடி try"
+        else:
             try:
-                c, why = make_call(r)
+                c, why = to_call(seg, r, opt, now)
             except Exception as e:
                 c, why = None, f"call: {e}"[:90]
-            if c:
-                r["call"] = c["id"]
-                _log(seg, now, r, "✅ CALL")
-                break
+        if c:
+            called = True
+            r["call"] = c["id"]
+            _log(seg, now, r, "✅ CALL")
+        else:
             r.setdefault("why_not", []).append(why)
             _log(seg, now, r, f"⛔ {why}")
-            if why and "max" in why:          # இன்றைய max முடிஞ்சா மீதி try வேண்டாம்
-                break
+        r["setup"] = save_setup(seg, r, opt, now, c, why, prev if retry else None)
     STATE[seg].update(time=now.strftime("%H:%M:%S"), rows=rows[:12], err=None)
     return STATE[seg]
+
+
+# ───────────────────────── 📋 SETUPS — call ஆகாத BEST setups-உம் strike + result-உடன் save ─────────────────────────
+def _setups(d):
+    return d.setdefault("mannan_setups", {})
+
+
+def _setup_today(seg, r, now):
+    from .store import STORE
+    day = str(now.date())
+    for x in _setups(STORE.load()).values():
+        if x["seg"] == seg and x["date"] == day and x["symbol"] == r.get("symbol") and x["side"] == r.get("side"):
+            if seg != "CMD" or (now - pd.Timestamp(x["date"] + " " + x["time"])).total_seconds() < 7200:
+                return x
+    return None
+
+
+RETRY = "இந்த scan-ல் ஏற்கனவே 1 call"
+
+
+def save_setup(seg, r, opt, now, call=None, reason=None, prev=None):
+    """opt = plan_fn output (token / strike / plan) → STORE['mannan_setups'] (நிரந்தரம், max 400)."""
+    from .calls import CALLS_LOCK, STORE
+    p = (opt or {}).get("plan") or {}
+    src = call or {}
+    rec = {"id": f"{seg}|{now.date()}|{r['symbol']}|{r['side']}|{now.strftime('%H%M')}", "seg": seg, "date": str(now.date()),
+           "time": now.strftime("%H:%M"), "symbol": r["symbol"], "side": r["side"], "score": r.get("score"), "strats": r.get("agree") or [],
+           "meta_p": r.get("meta_p"), "token": (opt or {}).get("token"), "exch": (opt or {}).get("exch") or ("MCX" if seg == "CMD" else "NFO"),
+           "contract": (opt or {}).get("contract"), "strike": (opt or {}).get("strike"), "expiry": (opt or {}).get("expiry"),
+           "lot": (opt or {}).get("lot") or 1, "entry": src.get("entry") or p.get("entry"), "sl": src.get("sl") or p.get("sl"),
+           "sl0": src.get("sl") or p.get("sl"), "targets": src.get("targets") or p.get("targets") or [], "ul_px": r.get("px"),
+           "ul_sl": r.get("sl"), "status": "OPEN", "hits": [], "ltp": src.get("entry") or p.get("entry"), "pnl_lot": 0,
+           "call": (call or {}).get("id"), "reason": None if call else reason, "spread": r.get("spread")}
+    if prev:                                   # retry → அதே record (முதல் பார்த்த நேரம்) update
+        rec.update(id=prev["id"], time=prev["time"])
+    with CALLS_LOCK:
+        d = STORE.load()
+        S = _setups(d)
+        S[rec["id"]] = rec
+        for k in sorted(S, key=lambda k: S[k]["date"] + S[k]["time"])[:-400]:
+            S.pop(k, None)
+        STORE.dirty = True
+    return rec
+
+
+def track_setups(ag, now):
+    """OPEN setups-ன் option LTP (ஒரு batched quote) → T1 (SL → entry) · T2 (SL → T1) · T3 · SL · EOD exit. ~30 sec-க்கு ஒருமுறை."""
+    from .calls import CALLS_LOCK, STORE
+    day, hm = str(now.date()), now.strftime("%H:%M")
+    d = STORE.load()
+    op = [x for x in _setups(d).values() if x["status"] in ("OPEN", "T1 HIT", "T2 HIT") and x.get("token")]
+    if not op:
+        return 0
+    by = {}
+    for x in op:
+        by.setdefault(x["exch"], []).append(x["token"])
+    qs = {}
+    for ex, toks in by.items():
+        try:
+            qs.update(ag.quotes({ex: sorted(set(toks))}) or {})
+        except Exception:
+            pass
+    n = 0
+    with CALLS_LOCK:
+        for x in op:
+            q = qs.get(x["token"]) or {}
+            ltp = float(q.get("ltp") or 0)
+            stale_day = x["date"] < day
+            eod = stale_day or (hm >= "23:20" if x["exch"] == "MCX" else hm >= "15:20")
+            if not ltp and not eod:
+                continue
+            if ltp:
+                x["ltp"] = ltp
+            e, lot, tg = float(x["entry"] or 0), float(x["lot"] or 1), x.get("targets") or []
+            for k, t in enumerate(tg[:3], 1):
+                if ltp and ltp >= t and not any(h.startswith(f"T{k} ") for h in x["hits"]):
+                    x["hits"].append(f"T{k} {hm}")
+                    x["status"] = f"T{k} HIT"
+                    x["sl"] = e if k == 1 else tg[k - 2]          # system rule: T1 → SL entry · T2 → SL T1
+            if len(x["hits"]) >= 3:
+                x.update(status="T3 DONE", exit=tg[2], exit_time=f"{day} {hm}")
+            elif ltp and x.get("sl") and ltp <= float(x["sl"]):
+                x.update(status="SL HIT" if not x["hits"] else "TRAIL SL", exit=ltp, exit_time=f"{day} {hm}")
+            elif eod:
+                x.update(status="EOD EXIT", exit=x.get("ltp"), exit_time=f"{day} {hm}")
+            px = x.get("exit") if x["status"] not in ("OPEN", "T1 HIT", "T2 HIT") else x.get("ltp")
+            x["pnl_lot"] = round(((px or e) - e) * lot)
+            x["upd"] = hm
+            n += 1
+        if n:
+            STORE.dirty = True
+    return n
 
 
 def _live_calls(seg):
@@ -906,7 +1017,7 @@ def run_commodity(ag, inst, now):
                                                                     "risk_ok": True, "money": True, "reward_ok": True, "v4": True}}
             r["option"] = {k: o.get(k) for k in ("strike", "expiry", "ltp", "spread_pct", "commodity")}
             r["plan"] = p
-            return to_call("CMD", r, opt, now)
+            return opt, None
         out = _finish("CMD", rows, now, mk)
         out["stats"] = stats
         out["rv"] = {f"{a}/{b}": z for (a, b), (z, _) in rv.items()}
@@ -924,6 +1035,9 @@ def run_index(ag, inst, full, now):
         for idx in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
             t_fr = (getattr(V, "FR", {}) or {}).get(idx)
             fr = t_fr[1] if t_fr and (now - t_fr[0]).total_seconds() < 400 else None
+            want = now.floor("5min").strftime("%Y-%m-%d %H:%M")
+            if fr and str(fr.get("data_time") or "") < want:      # V4 frames-ல் கடைசி 5-min bar இன்னும் இல்லை → நேரடியா புது data
+                fr = None
             if fr is None:
                 try:
                     fr = V.load_frames(ag, inst, idx, now)
@@ -961,7 +1075,7 @@ def run_index(ag, inst, full, now):
                    "lot": o["lot"], "spread_pct": o.get("spread_pct"),
                    "plan": {"entry": pl["entry"], "sl": pl["sl"], "targets": pl["targets"], "risk": pl["risk"], "risk_ok": True, "money": True, "reward_ok": True}}
             r["option"] = {k: o.get(k) for k in ("strike", "expiry", "ltp", "spread_pct", "delta", "iv")}
-            return to_call("IDX", r, opt, now)
+            return opt, None
         out = _finish("IDX", rows, now, mk)
         out["stats"] = stats
         return out
@@ -1105,7 +1219,7 @@ def run_stocks(ag, inst, full, live_q, now):
                 r.setdefault("why", []).append(f"METAIV: IV/HV {ratio or 0:.1f}× → debit spread நல்லது" if ratio else "EARN: IV crush risk → debit spread நல்லது")
             r["ul_targets"] = rr["targets"]
             r["option"] = {k: o.get(k) for k in ("strike", "expiry", "ltp", "spread_pct", "moneyness")}
-            return to_call("STK", r, o, now)
+            return o, None
         out = _finish("STK", rows, now, mk)
         out["stats"] = stats
         if "14:30" <= now.strftime("%H:%M") <= "15:20" or not STATE["STK"].get("covered"):
@@ -1141,9 +1255,15 @@ def covered_calls(bars, live_q, inst, n=6):
 
 
 # ───────────────────────── report (website) ─────────────────────────
-def report():
+def report(live_px=None):
     from .store import STORE
-    allc = [c for c in (STORE.load().get("calls") or {}).values() if c.get("kind") in KINDS]
+    D = STORE.load()
+    allc = [c for c in (D.get("calls") or {}).values() if c.get("kind") in KINDS]
+    sets = sorted(_setups(D).values(), key=lambda x: x["date"] + x["time"], reverse=True)
+    for r_ in [r for seg in SEG for r in (STATE[seg].get("rows") or [])]:
+        lp = (live_px or {}).get(r_.get("symbol"))
+        if lp:
+            r_["live"] = round(float(lp), 2)
     allc.sort(key=lambda c: str(c.get("signal_time") or c.get("date", "") + " " + c.get("time", "")), reverse=True)
     segs = {}
     for seg, S in SEG.items():
@@ -1154,5 +1274,6 @@ def report():
                      "strats": [{"key": k, "name": nm, "market": mk, "type": ty, **(st.get(k) or {})} for k, nm, mk, ty in STRATS[seg]],
                      "calls": mine[:300], "rv": STATE[seg].get("rv"), "covered": STATE[seg].get("covered") or [],
                      "log": STATE[seg].get("log") or [],
+                     "setups": [x for x in sets if x["seg"] == seg][:200],
                      "near": [r for r in (STATE[seg].get("rows") or []) if not r.get("ok") and r.get("side") and len(r.get("agree") or []) >= 1][:4]}
     return {"segs": segs, "cfg": CFG}

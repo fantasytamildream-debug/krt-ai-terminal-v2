@@ -94,7 +94,7 @@ def test_index_pipeline_creates_one_best_call(monkeypatch):
     now = pd.Timestamp("2026-11-03 11:01")
     prev = _day("2026-11-02 09:15", 75, 23500)
     td = _day("2026-11-03 09:15", 21, 23500, 2)
-    fr = {"5M": pd.concat([prev, td]), "15M": None, "1H": None}
+    fr = {"5M": pd.concat([prev, td]), "15M": None, "1H": None, "data_time": "2026-11-03 23:59"}
     M.V.FR.clear()
     M.V.FR.update({"NIFTY": (now, fr), "BANKNIFTY": (now, fr)})
     sig = lambda s: {"side": s, "sl": 23520.0, "why": "test"}
@@ -117,15 +117,48 @@ def test_index_pipeline_creates_one_best_call(monkeypatch):
     t3 = now + pd.Timedelta(minutes=10)
     M.V.FR.update({"NIFTY": (t3, fr), "BANKNIFTY": (t3, fr)})
     out = M.run_index(None, {}, {"index": []}, t3)
-    assert len(fs.data["calls"]) == 2 and any("ஏற்கனவே" in w for r in out["rows"] for w in r.get("why_not", []))
+    assert len(fs.data["calls"]) == 2 and all(r.get("call") in fs.data["calls"] for r in out["rows"])   # புது call இல்லை, ஏற்கனவே உள்ள call link
     rep = M.report()
     assert len(rep["segs"]["IDX"]["calls"]) == 2 and len(rep["segs"]["IDX"]["strats"]) == 10
 
 
-def test_no_call_outside_time(monkeypatch):
-    rows = [{"ok": True, "score": 90, "symbol": "NIFTY"}]
-    out = M._finish("IDX", rows, pd.Timestamp("2026-11-03 15:00"), lambda r: (_ for _ in ()).throw(AssertionError("call கூடாது")))
-    assert any("நேரம்" in w for w in out["rows"][0]["why_not"])
+def test_outside_time_saves_setup_with_strike_no_call(monkeypatch):
+    fs = _store(monkeypatch)
+    rows = [{"ok": True, "score": 90, "symbol": "DABUR", "side": "CE", "px": 393.15, "sl": 390.0, "agree": ["RS", "MTF"], "why_not": []}]
+    opt = {"token": "9", "exch": "NFO", "contract": "DABUR395CE", "strike": 395, "expiry": "2026-11-25", "lot": 1250,
+           "plan": {"entry": 6.0, "sl": 4.1, "targets": [7.6, 9.2, 10.8]}}
+    out = M._finish("STK", rows, pd.Timestamp("2026-11-04 15:05"), lambda r: (dict(opt), None))
+    r = out["rows"][0]
+    assert not r.get("call") and any("நேரம்" in w for w in r["why_not"])
+    st = r["setup"]
+    assert st["strike"] == 395 and st["entry"] == 6.0 and st["targets"] == [7.6, 9.2, 10.8] and not fs.data["calls"]
+    assert list(fs.data["mannan_setups"].values())[0]["reason"].startswith("⏰")
+
+
+def test_setup_tracker_targets_trail_and_eod(monkeypatch):
+    fs = _store(monkeypatch)
+    now = pd.Timestamp("2026-11-04 15:05")
+    rows = [{"ok": True, "score": 90, "symbol": "DABUR", "side": "CE", "px": 393.15, "sl": 390.0, "agree": ["RS", "MTF"], "why_not": []}]
+    opt = {"token": "9", "exch": "NFO", "strike": 395, "lot": 100, "plan": {"entry": 6.0, "sl": 4.0, "targets": [7.0, 8.0, 9.0]}}
+    M._finish("STK", rows, now, lambda r: (dict(opt), None))
+    px = {"v": 7.2}
+
+    class Ag:
+        def quotes(self, d):
+            return {"9": {"ltp": px["v"]}}
+    M.track_setups(Ag(), now + pd.Timedelta(minutes=1))
+    x = list(fs.data["mannan_setups"].values())[0]
+    assert x["status"] == "T1 HIT" and x["sl"] == 6.0 and x["pnl_lot"] == 120       # T1 → SL entry
+    px["v"] = 5.9
+    M.track_setups(Ag(), now + pd.Timedelta(minutes=2))
+    assert x["status"] == "TRAIL SL" and x["pnl_lot"] == -10
+    # EOD
+    rows[0].update(symbol="ITC")
+    M._finish("STK", rows, now, lambda r: (dict(opt, token="10"), None))
+    px["v"] = 6.5
+    M.track_setups(Ag(), pd.Timestamp("2026-11-04 15:21"))
+    y = [s for s in fs.data["mannan_setups"].values() if s["symbol"] == "ITC"][0]
+    assert y["status"] == "EOD EXIT"
 
 
 def test_covered_call_screen():
@@ -200,3 +233,16 @@ def test_commodity_pipeline(monkeypatch):
     c = list(fs.data["calls"].values())
     assert len(c) == 1 and c[0]["kind"] == "MANNAN-CMD" and c[0]["exch"] == "MCX", out["rows"][0].get("why_not")
     assert 0 < c[0]["sl"] < c[0]["entry"] < c[0]["targets"][0]
+
+
+def test_index_stale_frames_reloaded(monkeypatch):
+    _store(monkeypatch)
+    now = pd.Timestamp("2026-11-04 11:05:20")
+    fr_old = {"5M": pd.concat([_day("2026-11-03 09:15", 75, 23500), _day("2026-11-04 09:15", 22, 23500, 1)]), "15M": None, "1H": None,
+              "data_time": "2026-11-04 11:01"}
+    M.V.FR.clear()
+    M.V.FR["NIFTY"] = (now, fr_old)
+    called = []
+    monkeypatch.setattr(M.V, "load_frames", lambda ag, inst, idx, now: called.append(idx) or None)
+    M.run_index(None, {}, {"index": []}, now)
+    assert "NIFTY" in called                    # 11:05 bar இல்லாத frames → நேரடி reload

@@ -342,3 +342,26 @@ def exit_alerts(store, lock, now, send):
             pass
     return len(msgs)
 
+
+
+def pink_history(calls):
+    """🩷 pink tag ஆன எல்லா calls (pink_scan tag பண்ணது) → date-wise result + மொத்த win ratio. நிரந்தரம் (STORE-ல்)."""
+    pk = [c for c in calls if c.get("pink") and not c.get("shadow")]
+    pk.sort(key=lambda c: (c.get("date") or "", c.get("time") or ""), reverse=True)
+    OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
+    days = {}
+    for c in pk:
+        d = days.setdefault(c["date"], {"date": c["date"], "calls": 0, "closed": 0, "win": 0, "net": 0, "dark": 0})
+        d["calls"] += 1
+        d["dark"] += int((c.get("pink") or {}).get("tier") == "dark")
+        d["net"] += c.get("pnl_lot") or 0
+        if c.get("status") not in OPEN:
+            d["closed"] += 1
+            d["win"] += int((c.get("pnl_lot") or 0) > 0)
+    for d in days.values():
+        d["win_rate"] = round(d["win"] / d["closed"] * 100) if d["closed"] else None
+    closed = [c for c in pk if c.get("status") not in OPEN]
+    w = sum((c.get("pnl_lot") or 0) > 0 for c in closed)
+    return {"rows": pk[:300], "days": sorted(days.values(), key=lambda d: d["date"], reverse=True),
+            "total": {"calls": len(pk), "closed": len(closed), "win": w, "win_rate": round(w / len(closed) * 100) if closed else None,
+                      "net": round(sum(c.get("pnl_lot") or 0 for c in pk))}}

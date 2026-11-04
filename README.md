@@ -14,6 +14,11 @@ Rule-based F&O opportunity scanner — 🟢 CE / 🔴 PE setups, levels, volume,
 | 4 | Premium entry / SL / T1-T3 engine | ⏳ |
 | 5 | Alerts + performance dashboard | ⏳ |
 
+## v83
+- ⚡ Live ticker: index + MCX — 2 sec Angel quote (`/api/ticks`) · 🕐 AM/PM நேரம் (Chart Room)
+- 🩷 Pink calls box — date-wise result + win ratio · 📰 News Radar (`krt/newsradar.py`) — news score → focus + levels → price confirm ஆனா call
+- 📋 Mannan setups — strike + date/time + result (call ஆகாதவையும்) · version stamp (page ↔ server)
+
 ## 👑 Jackpot Mannan (v79)
 - `krt/mannan.py` — 3 தனி engines: 📊 Mannan Index · 🛢 Mannan Commodity · 📈 Mannan Stock Options, ஒவ்வொன்றிலும் 10 strategies
 - Best setup மட்டும்: ≥2 strategies ஒரே பக்கம் · எதிர் 0 · score 75+ · market திசை · meta-label (triple-barrier backtest) · ஒரு scan-க்கு 1 call
