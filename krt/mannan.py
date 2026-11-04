@@ -756,7 +756,7 @@ def to_call(seg, row, opt, now):
               "reasons": [f"👑 {S['label']} — {', '.join(row['agree'])}"] + row["why"][:5]}
         c = _new(S["kind"], S["src"], rr, opt, now, day)
         if not c:
-            return None, "Plan / quality gate fail (SL / RR / நேரம்)"
+            return None, _why_rejected(S["kind"], row["symbol"]) or "Plan / quality gate fail (SL / RR / நேரம்)"
         if c["id"] in d["calls"]:
             return None, "ஏற்கனவே உள்ள call"
         if c.get("shadow"):
@@ -776,6 +776,27 @@ def to_call(seg, row, opt, now):
     return c, None
 
 
+def _why_rejected(kind, sym):
+    """calls.py quality gate (_reject) பதிவு செய்த உண்மையான காரணம்."""
+    try:
+        from .calls import SKIPPED
+        for x in reversed(SKIPPED.get("log") or []):
+            if x.get("kind") == kind and x.get("symbol") == sym:
+                return f"Quality gate {x.get('code')}: {x.get('detail') or ''}".strip()[:140]
+    except Exception:
+        pass
+    return None
+
+
+def _log(seg, now, r, result):
+    L = STATE[seg].setdefault("log", [])
+    if L and L[0].get("day") != str(now.date()):
+        L.clear()
+    L.insert(0, {"day": str(now.date()), "time": now.strftime("%H:%M"), "symbol": r.get("symbol"), "side": r.get("side"),
+                 "score": r.get("score"), "agree": r.get("agree") or [], "result": result})
+    del L[30:]
+
+
 def _finish(seg, rows, now, make_call):
     """rows (symbol-க்கு ஒன்று) → score வரிசை → ok rows-ல் வரிசையா try, ஒரு run-க்கு max 1 புது call (best மட்டும்)."""
     rows.sort(key=lambda r: (-int(r.get("ok", False)), -r.get("score", 0)))
@@ -791,8 +812,10 @@ def _finish(seg, rows, now, make_call):
                 c, why = None, f"call: {e}"[:90]
             if c:
                 r["call"] = c["id"]
+                _log(seg, now, r, "✅ CALL")
                 break
             r.setdefault("why_not", []).append(why)
+            _log(seg, now, r, f"⛔ {why}")
             if why and "max" in why:          # இன்றைய max முடிஞ்சா மீதி try வேண்டாம்
                 break
     STATE[seg].update(time=now.strftime("%H:%M:%S"), rows=rows[:12], err=None)
@@ -1129,5 +1152,7 @@ def report():
         st = seg_stats(seg, closed)                   # எப்போதும் fresh (calls முடிஞ்சதும் உடனே update)
         segs[seg] = {"cfg": S, "time": STATE[seg].get("time"), "rows": STATE[seg].get("rows") or [], "err": STATE[seg].get("err"),
                      "strats": [{"key": k, "name": nm, "market": mk, "type": ty, **(st.get(k) or {})} for k, nm, mk, ty in STRATS[seg]],
-                     "calls": mine[:300], "rv": STATE[seg].get("rv"), "covered": STATE[seg].get("covered") or []}
+                     "calls": mine[:300], "rv": STATE[seg].get("rv"), "covered": STATE[seg].get("covered") or [],
+                     "log": STATE[seg].get("log") or [],
+                     "near": [r for r in (STATE[seg].get("rows") or []) if not r.get("ok") and r.get("side") and len(r.get("agree") or []) >= 1][:4]}
     return {"segs": segs, "cfg": CFG}

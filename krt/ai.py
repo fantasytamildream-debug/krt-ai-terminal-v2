@@ -295,5 +295,50 @@ def pink_tick(now):
         except Exception:
             pass
         STATE["_pt"] = now
-    return pink_scan(STORE, CALLS_LOCK, now, send)
+    out = pink_scan(STORE, CALLS_LOCK, now, send)
+    try:
+        exit_alerts(STORE, CALLS_LOCK, now, send)
+    except Exception:
+        pass
+    return out
+
+
+EXIT_MSG = {"SL HIT": "🔴 SL HIT — exit", "TRAIL SL": "🟡 TRAIL SL — profit-உடன் exit", "T3 DONE": "🏆 T3 DONE — full target, exit",
+            "EOD EXIT": "⏹ EOD auto exit"}
+
+
+def exit_alerts(store, lock, now, send):
+    """🔔 Browser மூடியிருந்தாலும்: இன்றைய calls-ல் T1/T2/T3 hit · SL / exit ஆனதும் Telegram / WhatsApp (ஒவ்வொன்றுக்கும் ஒருமுறை)."""
+    day = str(now.date())
+    msgs = []
+    with lock:
+        d = store.load()
+        for c in (d.get("calls") or {}).values():
+            if c.get("date") != day or c.get("shadow"):
+                continue
+            h = len(c.get("hits") or [])
+            if "_al" not in c:                 # முதல் தடவை பார்க்கும் call → இப்போதைய நிலை (பழைய hits-க்கு spam இல்லை)
+                c["_al"] = {"h": h, "x": c.get("status") if c.get("status") in EXIT_MSG else None}
+                store.dirty = True
+                continue
+            al = c["_al"]
+            nm = f"{c['symbol']} {c.get('strike')} {c.get('side')}"
+            pl = c.get("pnl_lot") or 0
+            if h > al["h"]:
+                for k in range(al["h"] + 1, h + 1):
+                    msgs.append((f"🎯 T{k} HIT · {nm} · ₹{pl:+,.0f}/lot\n" + ("👉 SL-ஐ entry-க்கு மாத்துங்க (இனி நஷ்டம் இல்லை)" if k == 1 else f"👉 SL-ஐ T{k - 1}-க்கு trail பண்ணுங்க"),
+                                 f"tgt|{c['id']}|{k}"))
+                al["h"] = h
+                store.dirty = True
+            st = c.get("status")
+            if st in EXIT_MSG and al.get("x") != st:
+                al["x"] = st
+                store.dirty = True
+                msgs.append((f"{EXIT_MSG[st]} · {nm} · {c.get('source_label') or c.get('source')}\nExit ₹{c.get('exit')} · P/L ₹{pl:+,.0f}/lot (paper)", f"exit|{c['id']}"))
+    for t, k in msgs[:10]:
+        try:
+            send(t, k)
+        except Exception:
+            pass
+    return len(msgs)
 
