@@ -128,4 +128,5 @@ def test_index_news_bias_no_call():
     items = [{"symbol": "BANKNIFTY", "title": "RBI cuts repo rate", "source": "x", "ts": time.time(), "time": "", "score": 3, "event": "MARKET"},
              {"symbol": "NIFTY", "title": "RBI cuts repo rate", "source": "x", "ts": time.time(), "time": "", "score": 3, "event": "MARKET"}]
     F = NR.build_focus(items, {}, {})
-    assert {f["symbol"] for f in F} == {"NIFTY", "BANKNIFTY"} and all(f["status"] == "BIAS" and f["side"] == "CE" for f in F)
+    assert {f["symbol"] for f in F} == {"NIFTY", "BANKNIFTY"} and all(f["side"] == "CE" and f.get("index") for f in F)
+    assert all(f["status"] == "WEAK" for f in F)            # ஒரே headline → v85 rule: bias இல்லை, WEAK

@@ -2032,7 +2032,10 @@ function radarHTML(s,compact){ const R=s.radar||{}, F=R.focus||[];
   const IX=F.filter(f=>f.index), REC=R.recent||[];
   const st={BIAS:'<b style="color:#f59e0b">📊 INDEX BIAS</b>',CONFIRMED:'<b class="up">✅ CONFIRMED — entry</b>',WATCH:'<b style="color:#38bdf8">👀 WATCH — level-க்கு காத்திருங்க</b>',LATE:'<b class="dn">⏰ LATE — chase வேண்டாம்</b>',AGAINST:'<b class="dn">⛔ Market எதிர்</b>'};
   const recHTML=!compact&&REC.length?`<details class="tech" open><summary>🗞 எல்லா scored news — புதுசு முதல் (${REC.length} · கடைசி 20 மணி நேரம் · ஒவ்வொரு நிமிடமும் update)</summary>${REC.map(n=>`<div class="rrow" style="padding:5px 8px"><b class="${n.score>0?'up':'dn'}">${n.score>0?"+":""}${n.score}</b> <b>${esc(n.symbol)}</b> <small class="nsrc">${esc(n.event||"")}</small> · ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} · ${esc(n.time||"")})</small></div>`).join("")}</details>`:"";
-  const ixHTML=IX.length?`<div class="rrow" style="border-color:#f59e0b"><b>📊 Index news bias:</b> ${IX.map(f=>`<b class="${f.side==='CE'?'up':'dn'}">${esc(f.symbol)} ${f.side==="CE"?"⬆ positive":"⬇ negative"} (${f.score>0?"+":""}${f.score})</b>`).join(" · ")}<div class="hint">${esc(IX[0].why)}</div>${(IX[0].news||[]).slice(0,compact?1:3).map(n=>`<div class="hint">📰 ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} ${esc(n.time||"")})</small></div>`).join("")}</div>`:"";
+  const IXL={BIAS:"",WEAK:" · ⚪ WEAK (ஒரே headline)",CONFLICT:" · ⚠ CONFLICT (price எதிர்)"};
+  const ixHTML=IX.length?`<div class="rrow" style="border-color:${IX.some(f=>f.status==="BIAS")?"#f59e0b":"var(--line)"}"><b>📊 Index news bias:</b> ${IX.map(f=>`<b class="${f.status!=="BIAS"?"":f.side==='CE'?'up':'dn'}" style="${f.status!=="BIAS"?"opacity:.65":""}">${esc(f.symbol)} ${f.side==="CE"?"⬆ positive":"⬇ negative"} (${f.score>0?"+":""}${f.score})${IXL[f.status]||""}</b>`).join(" · ")}
+     ${IX.map(f=>`<div class="hint">${esc(f.symbol)}: ${esc(f.why)}</div>`).join("")}
+     <div class="hint" style="margin-top:3px">இந்த score எந்த headlines-ல் இருந்து வந்தது:</div>${(IX[0].news||[]).slice(0,compact?2:6).map(n=>`<div class="hint">📰 <b class="${n.score>0?'up':'dn'}">${n.score>0?"+":""}${n.score}</b> ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} ${esc(n.time||"")})</small></div>`).join("")}</div>`:"";
   return `<div class="radarbox"><b>📰 NEWS RADAR — முன்கூட்டியே focus</b> <span class="hint">${esc(R.time||"")} · ${R.items||0} scored news · results / orders / brokerage / deals · keyword scoring (LLM இல்லை) · news + price + volume confirm ஆனா மட்டும் call (9:30–2:30, max 4)</span>
    ${ixHTML}
    ${sh.filter(f=>!f.index).map(f=>`<div class="rrow ${f.status}"><div class="ctop"><b>${esc(f.symbol)} <span class="${f.side==='CE'?'up':'dn'}">${f.side}</span> · news ${f.score>0?"+":""}${f.score}</b><span>${st[f.status]||esc(f.status)}</span></div>
@@ -2046,6 +2049,7 @@ const RSPK=new Set(); let RINIT=false;
 function radarVoice(s){ const A=((s.radar||{}).alerts||[]); if(!RINIT){ A.forEach(a=>RSPK.add(a.date+a.symbol+a.side+a.text.length)); RINIT=true; return; }
   A.slice(0,3).forEach(a=>{ const k=a.date+a.symbol+a.side+a.text.length; if(RSPK.has(k)) return; RSPK.add(k);
     const f=((s.radar||{}).focus||[]).find(x=>x.symbol===a.symbol)||{};
+    if(f.index&&f.status!=="BIAS") return;
     if(f.index){ speak(`Market news. ${a.symbol} bias ${f.score>0?"positive. Look only call side setups.":"negative. Look only put side setups."}`); return; }
     speak(`News alert. ${a.symbol}. ${(f.events||[]).join(" ").toLowerCase()} news ${f.score>0?"positive":"negative"}. ${f.status==="CONFIRMED"?`Price confirmed. Buy ${a.side==="CE"?"call":"put"} side.`:`Watch ${a.side==="CE"?"call":"put"} side above ${f.trigger||"level"}. Do not enter before confirmation.`}`);
     toast(`<b>📰 NEWS ${f.status==="CONFIRMED"?"CONFIRMED":"FOCUS"}</b> · ${esc(a.symbol)} ${esc(a.side)}<div class="hint">${esc(a.text).replace(/\n/g,"<br>")}</div>`); }); }
@@ -2338,7 +2342,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v84";
+const APPV="v85";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

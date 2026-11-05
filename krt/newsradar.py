@@ -22,13 +22,13 @@ RULES = [
     (r"net profit (falls|drops|declines|slumps|plunges|down)|profit (falls|drops|slumps|plunges)|net loss|loss widens|swings to loss", -3, "RESULTS"),
     (r"miss(es)? (estimates|expectations)|weak (q[1-4]|quarter|results|numbers)|disappoint", -3, "RESULTS"),
     (r"revenue (falls|drops|declines)|margin (contracts|shrinks|falls)", -2, "RESULTS"),
-    (r"bags?|wins? (order|contract)|order (win|worth|inflow)|secures? (order|contract)|l1 bidder|letter of award", 2, "ORDER"),
+    (r"bags?\b|bagged|wins? (order|contract)|order (win|worth|inflow)|secures? (order|contract)|l1 bidder|letter of award", 2, "ORDER"),
     (r"upgrade|target (price )?(raised|hiked|increased)|buy rating|outperform|overweight", 2, "BROKER"),
     (r"downgrade|target (price )?(cut|lowered|reduced)|sell rating|underperform|underweight", -2, "BROKER"),
     (r"buyback|bonus issue|stock split|dividend", 1, "CORP"),
     (r"block deal|bulk deal", 0, "DEAL"),
     (r"stake sale|ofs\b|offer for sale|promoter (sells|pledge)", -2, "DEAL"),
-    (r"sebi (probe|order|notice|penalty)|raid|fraud|default|penalty|ban\b|show cause|resigns?", -3, "REG"),
+    (r"sebi (probe|order|notice|penalty)|raids?\b|fraud|default|penalty|ban\b|banned|show cause|resigns?\b", -3, "REG"),
     (r"approval|usfda (nod|approval)|gets nod|launch(es)?", 1, "CORP"),
 ]
 # 📊 Index / market news → NIFTY · BANKNIFTY (bias மட்டும், call இல்லை)
@@ -37,10 +37,13 @@ MARKET = [
     (r"fiis? (buy|bought|net buyers|pour)|foreign investors (buy|pour)|dii buying", 2), (r"fiis? (sell|sold|net sellers|dump|pull out)|foreign outflow", -2),
     (r"gdp (grows|rises|beats|jumps)|inflation (eases|cools|falls)|cpi (eases|falls)", 2), (r"gdp (slows|contracts|misses)|inflation (rises|jumps|surges)|cpi (rises|jumps)", -2),
     (r"(sensex|nifty|markets?) (rall|surge|jump|soar|climb|hit record|record high|gain)", 2), (r"(sensex|nifty|markets?) (crash|plunge|tank|slump|fall|tumble|bleed|sink)", -2),
-    (r"wall street (rall|gain|surge|jump)|dow (gains|jumps|rallies)|nasdaq (gains|jumps|rallies)|gift nifty (up|higher|signals gains)", 1),
-    (r"wall street (fall|slump|tumble|sink)|dow (falls|slumps|tumbles)|nasdaq (falls|slumps|tumbles)|gift nifty (down|lower|signals)", -1),
+    (r"wall street (rall|gain|surge|jump)|dow (gains|jumps|rallies)|nasdaq (gains|jumps|rallies)", 1),
+    (r"wall street (fall|slump|tumble|sink)|dow (falls|slumps|tumbles)|nasdaq (falls|slumps|tumbles)", -1),
+    # GIFT Nifty = pre-market-ல் அடுத்த நாள் open-க்கு நேரடி clue → வலுவான weight
+    (r"gift nifty (jumps|rises|surges|soars|up|higher|gains|trades higher|indicates (a )?(positive|gap[- ]up|higher|strong))|gap[- ]up (open|opening|start)|positive (opening|start) (for|on) (dalal|d-street|sensex|nifty)", 3),
+    (r"gift nifty (falls|drops|slips|down|lower|trades lower|indicates (a )?(negative|gap[- ]down|lower|weak))|gap[- ]down (open|opening|start)|negative (opening|start) (for|on) (dalal|d-street|sensex|nifty)", -3),
     (r"crude (falls|slumps|eases|drops)|oil prices? (fall|drop|ease)", 1), (r"crude (surges|jumps|spikes|soars)|oil prices? (surge|jump|spike)", -1),
-    (r"war|missile|attack|tariff (hike|threat)|sanctions?", -2), (r"ceasefire|trade deal|peace (deal|talks)", 2),
+    (r"war\b|wars\b|missiles?\b|attacks?\b|tariff (hike|threat)|sanctions\b|sanctioned", -2), (r"ceasefire|trade deal|peace (deal|talks)", 2),
 ]
 BANK = r"rbi|repo|bank|banking|nbfc|credit growth|npa|psu bank|hdfc bank|icici bank|sbi\b|kotak|axis bank"
 CFG = {"min_score": 3, "hours": 20, "max_day": 4, "start": "09:30", "end": "14:30", "vol_x": 1.5, "max_focus": 12, "q_every": 600}
@@ -50,11 +53,16 @@ LK = threading.Lock()
 INDEXES = ("NIFTY", "BANKNIFTY")
 
 
+def _hit(pat, t):
+    """முழு வார்த்தை தொடக்கம் மட்டும் — "soft-WAR-e" / "multi-BAG-g" / "af-RAID" மாதிரி தவறான match இல்லை."""
+    return re.search(r"\b(?:" + pat + r")", t)
+
+
 def score(title):
     t = title.lower()
     s, ev, hit = 0, None, []
     for pat, w, e in RULES:
-        if re.search(pat, t):
+        if _hit(pat, t):
             s += w
             hit.append(e)
             if ev is None or abs(w) >= 3:
@@ -64,7 +72,7 @@ def score(title):
 
 def mscore(title):
     t = title.lower()
-    return sum(w for pat, w in MARKET if re.search(pat, t))
+    return sum(w for pat, w in MARKET if _hit(pat, t))
 
 
 def collect(news_items, fno):
@@ -93,7 +101,7 @@ def collect(news_items, fno):
         syms = list((x.get("symbols") or [])[:2])
         ms = mscore(k)
         if ms:                                          # market-wide news → index bias
-            syms += ["BANKNIFTY"] if re.search(BANK, k.lower()) else []
+            syms += ["BANKNIFTY"] if _hit(BANK, k.lower()) else []
             syms += ["NIFTY"]
             if not sc:
                 sc, ev = ms, "MARKET"
@@ -106,13 +114,14 @@ def collect(news_items, fno):
     return out
 
 
-def build_focus(items, levels, live_q, mdir=None):
+def build_focus(items, levels, live_q, mdir=None, idx_pct=None):
     """Symbol-க்கு news score கூட்டு → |score| ≥ min → CE / PE focus + trigger levels (PDH / PDL / day range)."""
     agg = {}
     for x in items:
         a = agg.setdefault(x["symbol"], {"symbol": x["symbol"], "score": 0, "news": [], "events": set()})
         a["score"] += x["score"]
         a["events"].add(x["event"])
+        a.setdefault("all", []).append(x)
         if len(a["news"]) < 4:
             a["news"].append(x)
     out = []
@@ -121,8 +130,16 @@ def build_focus(items, levels, live_q, mdir=None):
             continue
         if s in INDEXES:                                 # index = bias மட்டும் (news-ஐ வச்சு index call இல்லை)
             side = "CE" if a["score"] > 0 else "PE"
-            out.append({"symbol": s, "side": side, "score": a["score"], "events": ["MARKET"], "news": a["news"], "index": True, "status": "BIAS",
-                        "why": f"Market news {'positive' if side == 'CE' else 'negative'} → {s} setups-ல் {side} பக்கம் மட்டும் பாருங்க (index call news-ஐ வச்சு இல்லை)"})
+            heads = {x["title"][:60] for x in a["all"]}
+            pc = (idx_pct or {}).get(s)
+            if len(heads) < 2:
+                st, why = "WEAK", "ஒரே ஒரு headline தான் — bias-க்கு போதாது (2+ தனி news வேணும்)"
+            elif pc is not None and abs(pc) >= 0.4 and (pc > 0) != (side == "CE"):
+                st, why = "CONFLICT", f"News {'positive' if side == 'CE' else 'negative'}, ஆனா {s} live {pc:+.2f}% — price-ஐ நம்புங்க, news bias-ஐ விடுங்க"
+            else:
+                st, why = "BIAS", f"Market news {'positive' if side == 'CE' else 'negative'} ({len(heads)} headlines) → {s} setups-ல் {side} பக்கம் மட்டும் பாருங்க (index call news-ஐ வச்சு இல்லை)"
+            out.append({"symbol": s, "side": side, "score": a["score"], "events": ["MARKET"], "news": sorted(a["all"], key=lambda x: -abs(x["score"]))[:6],
+                        "index": True, "status": st, "why": why, "heads": len(heads)})
             continue
         side = "CE" if a["score"] > 0 else "PE"
         lv, q = (levels or {}).get(s) or {}, (live_q or {}).get(s) or {}
@@ -160,7 +177,11 @@ def run(ag, inst, news_items, now, send=None):
                 mdir = (AST.get("risk") or {}).get("dir")
             except Exception:
                 mdir = None
-            focus = build_focus(items, FS.C.get("levels") or {}, FS.C.get("live_q") or {}, mdir)
+            try:
+                npct = (AST.get("risk") or {}).get("nifty")
+            except Exception:
+                npct = None
+            focus = build_focus(items, FS.C.get("levels") or {}, FS.C.get("live_q") or {}, mdir, {"NIFTY": npct} if npct is not None else None)
             day, hm = str(now.date()), now.strftime("%H:%M")
             al = STATE.setdefault("alerted", {})
             for k in [k for k in al if not k.startswith(day)]:

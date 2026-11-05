@@ -421,7 +421,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v84"
+APP_VERSION = "v85"
 
 
 def keepalive_loop():

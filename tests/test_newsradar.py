@@ -73,3 +73,22 @@ def test_pink_history_by_date():
     assert h["total"] == {"calls": 3, "closed": 2, "win": 1, "win_rate": 50, "net": 3800}
     d4 = [d for d in h["days"] if d["date"] == "2026-11-04"][0]
     assert d4["win_rate"] == 50 and d4["net"] == 3500 and h["days"][0]["date"] == "2026-11-05"
+
+
+def test_no_substring_false_hits():
+    # உண்மையா நடந்த bug: "Software" → war, "Multibagg" → bags order, "afraid" → raid
+    for t in ["S A Tech Software India Limited Gets NCLT Merger Directions - Multibagg AI", "Toolbag maker raises funds", "Hardware firm afraid of slowdown"]:
+        assert NR.mscore(t) == 0 and NR.score(t)[0] == 0, t
+    assert NR.score("BHEL bags 4 orders from Adani Power")[1] == "ORDER"
+    assert NR.mscore("Russia-Ukraine war escalates, markets tumble") < 0
+    assert NR.score("Police raid company offices")[0] < 0
+
+
+def test_gift_nifty_strong_and_index_bias_rules():
+    assert NR.mscore("Nifty set for gap-up as GIFT Nifty jumps 350 points") >= 3
+    assert NR.mscore("GIFT Nifty indicates negative start for Dalal Street") <= -3
+    one = [{"symbol": "NIFTY", "title": "GIFT Nifty jumps 350 points", "source": "x", "ts": time.time(), "time": "", "score": 5, "event": "MARKET"}]
+    assert NR.build_focus(one, {}, {})[0]["status"] == "WEAK"                     # ஒரே headline
+    two = one + [{"symbol": "NIFTY", "title": "Sensex, Nifty set to rally at open", "source": "y", "ts": time.time(), "time": "", "score": 2, "event": "MARKET"}]
+    assert NR.build_focus(two, {}, {})[0]["status"] == "BIAS"
+    assert NR.build_focus(two, {}, {}, idx_pct={"NIFTY": -0.8})[0]["status"] == "CONFLICT"   # price எதிர் → price-ஐ நம்பு
