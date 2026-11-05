@@ -388,7 +388,20 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   .hero h1 .dot.live{animation:pulse 2s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.35}}
 }
+.stages{display:flex;gap:4px;margin:6px 0;flex-wrap:wrap}
+.stages span{flex:1;min-width:110px;text-align:center;font-size:11.5px;padding:4px 6px;border-radius:8px;border:1px solid var(--line);opacity:.45}
+.stages span.on{opacity:1;font-weight:800}
+.stages .s1.on{border-color:#38bdf8;background:rgba(56,189,248,.18)}.stages .s2.on{border-color:#f59e0b;background:rgba(245,158,11,.18)}
+.stages .s3.on{border-color:var(--ce);background:rgba(34,197,94,.2)}.stages .s4.on{border-color:var(--pe);background:rgba(239,68,68,.2)}
+.rgchip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+.rgchip.TU{border-color:var(--ce);color:var(--ce)}.rgchip.TD{border-color:var(--pe);color:var(--pe)}.rgchip.SW{border-color:#38bdf8;color:#38bdf8}.rgchip.VO{border-color:#f59e0b;color:#f59e0b}
+.radarbox,.radarbox .hint,.radarbox b{color:#f1f5f9}
+.radarbox a{color:#ffffff;text-decoration:underline;text-underline-offset:2px;font-weight:600}
+.radarbox .nsrc{color:#cbd5e1}
+.pushbar{border:2px solid #22c55e;border-radius:12px;padding:8px 12px;margin:8px 0;background:rgba(34,197,94,.08);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.jrn .kpis .kpi b{font-size:18px}
 </style>
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#0b1220"><link rel="icon" href="/icon.svg">
 </head>
 <body>
 <div class="wrap">
@@ -426,6 +439,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
+    <button role="tab" data-p="nw">📰 News Radar</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -1214,6 +1228,7 @@ function bigCall(c,s){
   const PK=pinkOf(c);
   return `<article data-cid="${esc(c.id)}" class="ccard ${side} ${J.pw.length?'power':''} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''} ${PK?(PK.tier==="dark"?"pink2":"pink"):""}">
     ${PK?`<div style="margin-bottom:4px">${pinkTag(PK)}</div>`:""}
+    ${stagesHTML(stageOfCall(c,s))}
     <div class="ctop"><div class="cbuy">${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
       <span class="crate" title="Rule-based score ${J.sc}/100">${"★".repeat(J.stars)}<i>${"★".repeat(5-J.stars)}</i> <b>${J.sc}</b></span></div>
     <div class="cmeta">⏱ ${c.date!==today?esc(c.date.slice(8,10)+"-"+c.date.slice(5,7))+" ":""}${esc(c.time)}${isNew?` <span class="newtag">🆕 ${age<=1?"இப்போ":age+" நிமி"}</span>`:""} · ${esc(c.source_label||c.source||c.kind)} · ${gradeB(c)} · ${c.hold_until?"Hold "+esc(c.hold_until.slice(5)):"Intraday"} · lot ${esc(c.lot)}</div>
@@ -1262,6 +1277,7 @@ function renderCalls(s){
       <div class="cb-stats num"><span class="cb-stat act">🟢 Active ${active.length}</span><span class="cb-stat ${openPL>=0?'up':'dn'}">Open P/L ${openPL>=0?"+":"−"}₹${n2(Math.abs(openPL))}</span>
       <span class="cb-stat ${net>=0?'up':'dn'}">இன்று மொத்தம் ${net>=0?"+":"−"}₹${n2(Math.abs(net))}</span><span class="cb-stat">✔ முடிந்தது ${closed.length}</span></div>
       <div class="cb-tools">${fb("all","எல்லாம் "+active.length)}${fb("pink","🩷 Pink "+nPink)}${fb("yes","✅ எடுக்கலாம் "+nYes)}${fb("pw","🟣 Strong "+nPw)}<button id="sndBtn" onclick="toggleSound()">${soundOn()?"🔔 ON":"🔕 OFF"}</button><button onclick="goTab('tr')">முழு விவரம்</button></div></div>
+    ${pushBar()}
     ${(()=>{ const P=s.pink_hist||{}, T=P.total||{}; if(!T.calls) return `<div class="pinkhist"><b>🩷 PINK CALLS — date-wise result</b> <span class="hint">இன்னும் pink call இல்லை. Strategy win ≥75% + லாபம் ஆன module-ன் call வந்ததும் இங்கே date-ஓட save ஆகும்.</span></div>`;
       const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
       return `<details class="pinkhist" ${CFILT==="pink"?"open":""}><summary><b>🩷 PINK CALLS — ${T.calls} calls · win ${T.win_rate==null?"–":T.win_rate+"%"} (${T.win}/${T.closed}) · <span class="${T.net>=0?'up':'dn'}">${rs(T.net)}</span></b> <span class="hint">date-wise result பார்க்க tap</span></summary>
@@ -1480,7 +1496,7 @@ function renderBell(){
   $("bellN").className = unseen ? "bn new" : "bn";
   $("bellBtn").title = `${unseen} புது calls · இன்று மொத்தம் ${it.length}`;
   const box=$("bellBox"); if(box.hidden) return;
-  box.innerHTML = `<div class="bhead"><b>🔔 இன்றைய calls (${it.length})</b>${unseen?` · <span class="dn">${unseen} புதுசு</span>`:""}<span><button onclick="voiceToggle()">${voiceOn()?"🔊 Voice ON":"🔇 Voice OFF"}</button> <button onclick="voiceTest()">🔈 Test</button> <button onclick="bellAll()">எல்லாம் படிச்சாச்சு</button></span></div>
+  box.innerHTML = `<div class="bhead"><b>🔔 இன்றைய calls (${it.length})</b>${unseen?` · <span class="dn">${unseen} புதுசு</span>`:""}<span><button onclick="voiceToggle()">${voiceOn()?"🔊 Voice ON":"🔇 Voice OFF"}</button> <button onclick="voiceTest()">🔈 Test</button> <button onclick="pushOn()">📲 Phone ON</button> <button onclick="bellAll()">எல்லாம் படிச்சாச்சு</button></span></div>
    ${it.length?[...it].reverse().map(({n,c})=>`<div class="bitem ${S.has(c.id)?'':'unseen'}" onclick="bellOpen('${c.id}')">
      <b>Msg ${n}</b> · ${esc(c.time)} ${S.has(c.id)?"":'<span class="newtag">NEW</span>'}<br>
      <b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl0||c.sl)} · T1 ₹${n2((c.targets||[])[0])}
@@ -1953,21 +1969,84 @@ function strongHTML(f){
 }
 function SX(name,fn){ try{ return fn(); }catch(e){ console.error(name,e); return `<div class="cwarn">⚠ ${esc(name)} பகுதியில் பிழை: ${esc(e&&e.message||e)} — மற்ற பகுதிகள் வேலை செய்யும் (இந்த screenshot அனுப்புங்க)</div>`; } }
 /* ===== 👑 JACKPOT MANNAN — Index · Commodity · Stock Options (ஒவ்வொன்றிலும் 10 strategies) ===== */
+/* 📲 V13 PHONE PUSH — tab / browser மூடியிருந்தாலும் notification (Web Push + service worker) */
+function pushState(){ return ("serviceWorker" in navigator)&&("PushManager" in window)?(window.Notification?Notification.permission:"default"):"unsupported"; }
+function b64u(k){ const p="=".repeat((4-k.length%4)%4), b=atob((k+p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from([...b].map(c=>c.charCodeAt(0))); }
+async function pushOn(){
+  try{
+    if(pushState()==="unsupported"){ alert("இந்த browser push support பண்ணல. Android-ல் Chrome use பண்ணுங்க. iPhone-ல்: Share → Add to Home Screen → அந்த app-ல் இருந்து ON பண்ணுங்க."); return; }
+    const perm=await Notification.requestPermission(); if(perm!=="granted"){ alert("Notification permission கொடுக்கல. Browser settings → Site settings → Notifications → Allow."); return; }
+    const reg=await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready;
+    const k=await (await fetch("/api/push/key",{cache:"no-store"})).json(); if(!k.ok){ alert(k.msg||"Push key பிழை"); return; }
+    let sub=await reg.pushManager.getSubscription(); if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(k.key)});
+    const j=await post("/api/push/subscribe",{sub:sub.toJSON()}); try{ localStorage.setItem("krt_push","1"); }catch(e){}
+    alert(j.msg||"OK"); if(LAST_S) render(LAST_S);
+  }catch(e){ alert("Push ON பிழை: "+(e.message||e)); } }
+async function pushTest(){ const j=await post("/api/push/test",{}); alert(j.msg||""); }
+function pushBar(){ const st=pushState(), on=(()=>{try{return localStorage.getItem("krt_push")==="1"&&st==="granted";}catch(e){return false;}})();
+  if(on) return `<div class="pushbar" style="border-color:var(--line)"><span>📲 Phone notifications <b class="up">ON</b> — browser மூடியிருந்தாலும் ஒவ்வொரு call / pink / setup / T1 / SL alert வரும்.</span><button class="pickbtn" onclick="pushTest()">🔔 Test</button></div>`;
+  return `<div class="pushbar"><b>📲 எல்லா calls-உம் phone notification-ஆ வேணுமா?</b><span class="hint">browser / tab மூடியிருந்தாலும் வரும் (Android Chrome · iPhone-ல் Home Screen app)</span><button class="pickbtn pp" onclick="pushOn()">📲 Phone notifications ON</button></div>`; }
+
+/* 🚦 4 STAGES — SETUP FOUND → WAITING FOR CONFIRMATION → ENTRY CONFIRMED → INVALIDATED / AVOID */
+function stageOfCall(c,s){
+  if(!c) return {k:1,t:"setup"};
+  if(c.status&&!OPEN_ST.includes(c.status)) return (c.pnl_lot||0)>0?{k:3,t:`✔ முடிந்தது ${c.status} · +₹${n2(c.pnl_lot)}`}:{k:4,t:`${c.status} · ₹${n2(c.pnl_lot)}`};
+  if(c.action==="EXIT") return {k:4,t:"Exit signal — இப்போ exit"};
+  if((c.hits||[]).length||c.action==="BOOK") return {k:3,t:"Target hit — SL entry-க்கு மேல்"};
+  /* server-ன் உண்மையான price-vs-entry நிலை முதலில், AI verdict அதன் மேல் modifier */
+  if(c.action==="LATE") return {k:2,t:"Late — pullback / confirmation-க்கு காத்திருங்க (chase வேண்டாம்)"};
+  const G=aiGuide(c,null,s||LAST_S);
+  if(G.k==="avoid") return {k:4,t:"AI: avoid — "+((G.why||[]).find(w=>w.startsWith("✗"))||"").slice(2)};
+  if(c.action==="ENTRY"||c.action==="WEAK") return {k:3,t:(c.action==="WEAK"?"Entry ஆச்சு — SL கவனம்":"Entry zone-க்குள் ✅")+(G.k==="risky"?" · AI: risky, 1 lot மட்டும்":"")};
+  if(G.k==="risky") return {k:2,t:"Confirmation இன்னும் வரல"};
+  return {k:1,t:"Setup கிடைச்சது"}; }
+function stageOfChart(ch,s){
+  const c=(ch||{}).call||{}, L=c.id&&CALLMAP.get(c.id), a=(ch||{}).analysis||{}, adv=(a.advice||{}).verdict, ce=c.side!=="PE", px=a.px;
+  if(L&&!OPEN_ST.includes(L.status)) return stageOfCall(L,s);
+  const tp=a.trap, rg=(a.regime||{}).kind||"";
+  if(adv==="AVOID") return {k:4,t:"Chart: AVOID"};
+  if(tp&&tp.status==="CONFIRMED"&&tp.side!==(ce?"CE":"PE")) return {k:4,t:`${tp.kind} confirmed — எதிர் பக்கம்`};
+  if((ce&&rg==="TRENDING DOWN")||(!ce&&rg==="TRENDING UP")) return {k:4,t:`Regime ${rg} — எதிர்`};
+  const trig=ce?a.up_level:a.dn_level, brk=px!=null&&trig!=null&&(ce?px>trig:px<trig);
+  if(adv==="TAKE"&&brk) return {k:3,t:`${n2(trig)} ${ce?"மேல்":"கீழ்"} close ✅`};
+  if(adv==="TAKE"||brk) return {k:2,t:`${n2(trig)} ${ce?"மேல்":"கீழ்"} 5-min close + volume-க்கு காத்திருங்க`};
+  return {k:1,t:a.pattern||"Setup"}; }
+function stagesHTML(S){ const N=["🔎 SETUP FOUND","⏳ WAITING FOR CONFIRMATION","✅ ENTRY CONFIRMED","⛔ INVALIDATED / AVOID"];
+  return `<div class="stages">${N.map((n,i)=>`<span class="s${i+1} ${S.k===i+1?"on":""}">${n}${S.k===i+1?`<div style="font-weight:400">${esc(S.t)}</div>`:""}</span>`).join("")}</div>`; }
+function rgChip(r){ if(!r||!r.kind) return ""; const c={"TRENDING UP":"TU","TRENDING DOWN":"TD","SIDEWAYS":"SW","VOLATILE":"VO"}[r.kind]||"";
+  return `<span class="rgchip ${c}" title="${esc(r.txt||"")}">🧭 ${esc(r.kind)}${r.er!=null?` · ER ${r.er} · vol ${r.vol}×`:""}</span>`; }
+function trapLine(t){ if(!t) return '<div class="crai">🏦 <b>Liquidity tracker</b> · கடைசி 12 bars-ல் stop-hunt sweep இல்லை</div>';
+  return `<div class="crai">🏦 <b>Liquidity tracker</b> · <b class="${t.status==="CONFIRMED"?(t.side==="CE"?"up":"dn"):""}">${esc(t.kind)} ${t.status==="CONFIRMED"?"✅ CONFIRMED":"(sweep — confirm வேண்டும்)"}</b> · ${esc(t.txt)}${t.inst?" · 🏦 institutional volume "+t.vol_x+"×":""}</div>`; }
+function journalHTML(J){ if(!J||!J.all||!J.all.n) return ""; const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const box=(t,x)=>x&&x.n?`<div class="kpi"><span>${t} · ${x.n} trades</span><b class="${x.net>=0?'up':'dn'}">${rs(x.net)}</b><span>win ${x.win_rate}% · PF ${x.pf??"–"} · DD −₹${n2(x.mdd)}</span></div>`:"";
+  const a=J.all;
+  return `<details class="tech jrn" open><summary>📒 <b>Verified Trade Journal</b> — உண்மையான result (charges சேர்த்து, paper 1 lot)</summary>
+   <div class="kpis">${box("மொத்தம்",a)}${box("7 நாள்",J.d7)}${box("இன்று",J.today)}${box("Chart Room calls",J.chart)}</div>
+   <div class="hint">Profit factor ${a.pf??"–"} (1-க்கு மேல் = லாபம்) · Max drawdown −₹${n2(a.mdd)} · Expectancy ${rs(a.exp)}/trade · Avg win ${rs(a.avg_win)} · Avg loss ${rs(a.avg_loss)} · Best ${rs(a.best)} · Worst ${rs(a.worst)} · Max loss streak ${a.max_loss_streak}</div>
+   ${(J.modules||[]).length?simpleTbl(J.modules,[["Module",m=>`<b>${esc(m.module)}</b>`],["Trades",m=>m.n],["Win %",m=>m.win_rate+"%"],["Net",m=>`<b class="${m.net>=0?'up':'dn'}">${rs(m.net)}</b>`],["PF",m=>m.pf??"–"],["Max DD",m=>"−₹"+n2(m.mdd)],["Exp/trade",m=>rs(m.exp)]],m=>m.net>0?"uprow":"slrow"):""}</details>`; }
+
 /* 📰 NEWS RADAR — focus list (news score + levels) · CONFIRMED = price + volume news பக்கம் → call */
 function radarHTML(s,compact){ const R=s.radar||{}, F=R.focus||[];
-  const sh=compact?F.filter(f=>f.status==="CONFIRMED"||f.status==="WATCH").slice(0,4):F;
+  const sh=compact?F.filter(f=>f.index||f.status==="CONFIRMED"||f.status==="WATCH").slice(0,5):F;
   if(!F.length) return compact?"":`<div class="radarbox"><b>📰 NEWS RADAR</b> <span class="hint">${R.err?"⚠ "+esc(R.err):"இப்போ strong news focus இல்லை (score ±3 வேணும்)"} ${R.time?"· "+esc(R.time):""}</span></div>`;
-  const st={CONFIRMED:'<b class="up">✅ CONFIRMED — entry</b>',WATCH:'<b style="color:#38bdf8">👀 WATCH — level-க்கு காத்திருங்க</b>',LATE:'<b class="dn">⏰ LATE — chase வேண்டாம்</b>',AGAINST:'<b class="dn">⛔ Market எதிர்</b>'};
+  const IX=F.filter(f=>f.index), REC=R.recent||[];
+  const st={BIAS:'<b style="color:#f59e0b">📊 INDEX BIAS</b>',CONFIRMED:'<b class="up">✅ CONFIRMED — entry</b>',WATCH:'<b style="color:#38bdf8">👀 WATCH — level-க்கு காத்திருங்க</b>',LATE:'<b class="dn">⏰ LATE — chase வேண்டாம்</b>',AGAINST:'<b class="dn">⛔ Market எதிர்</b>'};
+  const recHTML=!compact&&REC.length?`<details class="tech" open><summary>🗞 எல்லா scored news — புதுசு முதல் (${REC.length} · கடைசி 20 மணி நேரம் · ஒவ்வொரு நிமிடமும் update)</summary>${REC.map(n=>`<div class="rrow" style="padding:5px 8px"><b class="${n.score>0?'up':'dn'}">${n.score>0?"+":""}${n.score}</b> <b>${esc(n.symbol)}</b> <small class="nsrc">${esc(n.event||"")}</small> · ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} · ${esc(n.time||"")})</small></div>`).join("")}</details>`:"";
+  const ixHTML=IX.length?`<div class="rrow" style="border-color:#f59e0b"><b>📊 Index news bias:</b> ${IX.map(f=>`<b class="${f.side==='CE'?'up':'dn'}">${esc(f.symbol)} ${f.side==="CE"?"⬆ positive":"⬇ negative"} (${f.score>0?"+":""}${f.score})</b>`).join(" · ")}<div class="hint">${esc(IX[0].why)}</div>${(IX[0].news||[]).slice(0,compact?1:3).map(n=>`<div class="hint">📰 ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} ${esc(n.time||"")})</small></div>`).join("")}</div>`:"";
   return `<div class="radarbox"><b>📰 NEWS RADAR — முன்கூட்டியே focus</b> <span class="hint">${esc(R.time||"")} · ${R.items||0} scored news · results / orders / brokerage / deals · keyword scoring (LLM இல்லை) · news + price + volume confirm ஆனா மட்டும் call (9:30–2:30, max 4)</span>
-   ${sh.map(f=>`<div class="rrow ${f.status}"><div class="ctop"><b>${esc(f.symbol)} <span class="${f.side==='CE'?'up':'dn'}">${f.side}</span> · news ${f.score>0?"+":""}${f.score}</b><span>${st[f.status]||esc(f.status)}</span></div>
-     <div class="hint">${(f.events||[]).map(esc).join(" · ")} · LTP ${n2(f.ltp)}${f.pct!=null?` (${f.pct>=0?"+":""}${n2(f.pct)}%)`:""}${f.vr?` · vol ${n2(f.vr)}×`:""} · <b>Trigger ${n2(f.trigger)}</b> · SL (stock) ${n2(f.ul_sl)}</div>
+   ${ixHTML}
+   ${sh.filter(f=>!f.index).map(f=>`<div class="rrow ${f.status}"><div class="ctop"><b>${esc(f.symbol)} <span class="${f.side==='CE'?'up':'dn'}">${f.side}</span> · news ${f.score>0?"+":""}${f.score}</b><span>${st[f.status]||esc(f.status)}</span></div>
+     <div class="hint">${(f.events||[]).map(esc).join(" · ")} · LTP ${f.ltp?n2(f.ltp):"– (market closed)"}${f.pct!=null?` (${f.pct>=0?"+":""}${n2(f.pct)}%)`:""}${f.vr?` · vol ${n2(f.vr)}×`:""} · <b>Trigger ${n2(f.trigger)}</b> · SL (stock) ${n2(f.ul_sl)}</div>
      <div class="hint">👉 ${esc(f.why||"")}</div>
      ${(f.news||[]).slice(0,compact?1:3).map(n=>`<div class="hint">📰 ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small>(${esc(n.source||"")} ${esc(n.time||"")} · ${n.score>0?"+":""}${n.score})</small></div>`).join("")}</div>`).join("")}
-   ${!compact&&(R.log||[]).length?`<div class="hint">Calls: ${(R.log||[]).slice(0,6).map(x=>`${esc(ampm(x.time))} ${esc(x.symbol)} ${esc(x.result)}`).join(" · ")}</div>`:""}</div>`; }
+   ${!compact&&(R.log||[]).length?`<div class="hint">Calls: ${(R.log||[]).slice(0,6).map(x=>`${esc(ampm(x.time))} ${esc(x.symbol)} ${esc(x.result)}`).join(" · ")}</div>`:""}
+   ${compact?`<div class="hint">👉 எல்லா news (${REC.length}) + index news → <a href="#" onclick="goTab('nw');return false">📰 News tab</a> · புது news வந்ததும் இங்கே மேலே வரும்</div>`:""}
+   ${recHTML}</div>`; }
 const RSPK=new Set(); let RINIT=false;
 function radarVoice(s){ const A=((s.radar||{}).alerts||[]); if(!RINIT){ A.forEach(a=>RSPK.add(a.date+a.symbol+a.side+a.text.length)); RINIT=true; return; }
   A.slice(0,3).forEach(a=>{ const k=a.date+a.symbol+a.side+a.text.length; if(RSPK.has(k)) return; RSPK.add(k);
     const f=((s.radar||{}).focus||[]).find(x=>x.symbol===a.symbol)||{};
+    if(f.index){ speak(`Market news. ${a.symbol} bias ${f.score>0?"positive. Look only call side setups.":"negative. Look only put side setups."}`); return; }
     speak(`News alert. ${a.symbol}. ${(f.events||[]).join(" ").toLowerCase()} news ${f.score>0?"positive":"negative"}. ${f.status==="CONFIRMED"?`Price confirmed. Buy ${a.side==="CE"?"call":"put"} side.`:`Watch ${a.side==="CE"?"call":"put"} side above ${f.trigger||"level"}. Do not enter before confirmation.`}`);
     toast(`<b>📰 NEWS ${f.status==="CONFIRMED"?"CONFIRMED":"FOCUS"}</b> · ${esc(a.symbol)} ${esc(a.side)}<div class="hint">${esc(a.text).replace(/\n/g,"<br>")}</div>`); }); }
 let MNSEG="ALL";
@@ -2216,7 +2295,8 @@ function crHTML(s){
   const CH=[...(R.charts||[])].sort((x,y)=>(!!y.is_index)-(!!x.is_index)||String(((y.call||{}).date||"")+((y.call||{}).time||"")).localeCompare(String(((x.call||{}).date||"")+((x.call||{}).time||""))));
   CRC=CH.map(ch=>ch.call);
   const cards=CH.map((ch,ci)=>{const c=ch.call, a=ch.analysis, p=ch.pred||{}, adv=a.advice||{}, G=c.strike?aiGuide(c,ch,s):null;
-    return `<div class="crcard ${G&&G.k==="must"?"pink2":""}"><div class="crcardwrap"><div><div class="ctop"><b style="font-size:17px">${esc(c.symbol)} <span class="${c.side==='CE'?'up':'dn'}">${esc(c.strike)} ${esc(c.side)}</span></b><span class="hint">${esc(c.source||"")} · ${esc(ampm(c.time||""))} · ${esc(c.status||"")}</span></div>
+    const ST=stageOfChart(ch,s);
+    return `<div class="crcard ${G&&G.k==="must"?"pink2":""}">${stagesHTML(ST)}<div style="margin:2px 0 4px">${rgChip(a.regime)}</div><div class="crcardwrap"><div><div class="ctop"><b style="font-size:17px">${esc(c.symbol)} <span class="${c.side==='CE'?'up':'dn'}">${esc(c.strike)} ${esc(c.side)}</span></b><span class="hint">${esc(c.source||"")} · ${esc(ampm(c.time||""))} · ${esc(c.status||"")}</span></div>
      <div class="mvstrike">👉 <b>${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b> ${c.expiry?`· exp ${esc(c.expiry)}`:""}${c.lot?` · lot ${c.lot}`:""}
        <div class="crow num"><span>Entry <b>₹${n2(c.entry)}</b></span><span>SL <b class="dn">₹${n2(c.sl)}</b></span><span>LTP <b>₹${n2(crLive(c).ltp)}</b></span></div>
        <div class="ctg num">${(c.targets||[]).map((t,j)=>`<span>T${j+1} ${n2(t)}${c.entry&&c.lot?` <b class="up">+₹${n2(Math.round((t-c.entry)*c.lot))}</b>`:""}</span>`).join("")}</div></div>
@@ -2233,9 +2313,10 @@ function crHTML(s){
      ${crSVG(ch)}
      ${c.token?`<button class="pickbtn pp" onclick="paperFromChart(${ci})">📝 Paper</button>`:""}
      <div class="crai">🤖 <b>Chart analysis:</b> ${esc(a.text||"")}<div class="hint">${(a.why||[]).map(esc).join(" · ")} · ATR ${a.atr} · <span style="color:#a78bfa">— VWAP</span> · <span style="color:#fbbf24">- - EMA20</span> · <span class="dn">red line = resistance trend</span> · <span class="up">green = support trend</span></div>
+     ${trapLine(a.trap)}
      <div style="margin-top:4px">🎯 Prediction (${esc(ampm(p.time||""))}): <b>${esc(p.status||"")}</b>${p.break_time?` · break ${esc(p.break_time)} @ ${n2(p.break_px)}`:""}${p.correct!=null?(p.correct?' · <b class="up">✓ direction சரி</b>':' · <b class="dn">✗ எதிர் பக்கம்</b>'):""}</div></div></div><div>${G?aiGuideHTML(G):'<div class="aiguide"><div>🤖 AI guide</div><div class="hint">Index chart — option call வந்ததும் guide வரும்</div></div>'}</div></div></div>`;}).join("");
   const by=Object.entries(R.by_pattern||{});
-  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2><div class="hint" style="color:#f9a8d4"><b>V10:</b> புது call chart மேலே · ஒவ்வொரு option call-க்கும் பக்கத்தில் 🤖 AI guide — 🏆 MUST TRY · 👍 Looking good · ⚠ Don't take · ⛔ Avoid (chart verdict + MTF + call quality + strategy win % + market திசை + late / SL அருகில்)</div>
+  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2>${journalHTML(s.journal)}<div class="hint" style="color:#f9a8d4"><b>V13:</b> 🚦 4 stages (Setup → Waiting → Entry confirmed → Invalidated) · 🧭 Regime (Trending / Sideways / Volatile) · 🏦 Liquidity trap tracker · 📒 Verified journal. <b>V10:</b> புது call chart மேலே · ஒவ்வொரு option call-க்கும் பக்கத்தில் 🤖 AI guide — 🏆 MUST TRY · 👍 Looking good · ⚠ Don't take · ⛔ Avoid (chart verdict + MTF + call quality + strategy win % + market திசை + late / SL அருகில்)</div>
     <div class="hint"><b>NIFTY · BANKNIFTY · FINNIFTY · SENSEX எப்போதும்</b> + top 2 open calls — 5-min chart · 5 engines: 🏗 Market Structure (HH/HL/LH/LL, BOS/CHOCH) · 💧 Liquidity (equal highs/lows, sweeps, supply/demand zones, FVG) · 🧭 Multi-timeframe (5m/15m/1H/4H) · 🎯 Smart Entry (confluence → entry/SL/T1-T3) · 📊 Accuracy + 📐 Fibonacci · 🕯 Candlestick · 🔊 Volume · · auto-draw: S/R (pivot clusters), trendlines, VWAP, EMA20, volume · pattern (triangle / wedge / channel / range / double top-bottom / head & shoulders / flag) · call side-ஓட ஒப்பிட்டு ✅ TAKE / ⛔ AVOID / ⏳ WAIT · open call 2-க்கு குறைவுன்னா Money Machine / Strong / Movers top setup chart · ⬆⬇ break level + measured-move target · ஒவ்வொரு prediction-ம் track → accuracy. 5 நிமிடத்துக்கு ஒருமுறை (NSE + MCX நேரம்). ${esc(ampm(R.time||""))} ${R.err?`<span class="dn">${esc(R.err)}</span>`:""}</div>
     <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Predictions ${A.total??0}</span><span class="cb-stat">Break ஆனது ${A.broke??0}</span><span class="cb-stat up">Direction சரி ${pct(A.dir_ok||0,A.dir_n||0)} (${A.dir_ok??0}/${A.dir_n??0})</span><span class="cb-stat up">Target ✓ ${A.target??0}</span><span class="cb-stat dn">Failed ${A.failed??0}</span><span class="cb-stat">No break ${A.nobreak??0}</span><button class="pickbtn" onclick="chartScan()">🔄 இப்போ analyse</button></div></div>
    ${cards||`<div class="cempty">Open calls வந்ததும் top 2 chart இங்கே வரும் (NSE 9:20–3:30 · MCX இரவு வரை).</div>`}
@@ -2257,7 +2338,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v83";
+const APPV="v84";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

@@ -14,6 +14,12 @@ Rule-based F&O opportunity scanner — 🟢 CE / 🔴 PE setups, levels, volume,
 | 4 | Premium entry / SL / T1-T3 engine | ⏳ |
 | 5 | Alerts + performance dashboard | ⏳ |
 
+## v84
+- 📲 Phone push notifications (Web Push, `krt/notify.py`, `web/sw.js`) — ஒவ்வொரு call / pink / Mannan setup / news / T1 / SL
+- 😴 Render keep-alive (market நேரத்தில்) — மாலை commodity calls நிற்காம
+- 🚦 4 stages (Setup → Waiting → Entry confirmed → Invalidated) · 🧭 Regime · 🏦 Liquidity trap · 📒 Verified journal
+- 📰 News Radar tab · index / market news bias · எல்லா scored news list
+
 ## v83
 - ⚡ Live ticker: index + MCX — 2 sec Angel quote (`/api/ticks`) · 🕐 AM/PM நேரம் (Chart Room)
 - 🩷 Pink calls box — date-wise result + win ratio · 📰 News Radar (`krt/newsradar.py`) — news score → focus + levels → price confirm ஆனா call

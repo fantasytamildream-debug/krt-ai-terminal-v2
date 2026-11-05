@@ -297,7 +297,9 @@ def pink_tick(now):
         STATE["_pt"] = now
     out = pink_scan(STORE, CALLS_LOCK, now, send)
     try:
-        exit_alerts(STORE, CALLS_LOCK, now, send)
+        from .notify import both, notify_tick
+        notify_tick(now)                               # 📲 எல்லா புது calls → phone push (stock / index / MCX)
+        exit_alerts(STORE, CALLS_LOCK, now, both)      # 🎯 T1/T2/T3 · SL · exit → Telegram + phone push
     except Exception:
         pass
     return out
@@ -365,3 +367,45 @@ def pink_history(calls):
     return {"rows": pk[:300], "days": sorted(days.values(), key=lambda d: d["date"], reverse=True),
             "total": {"calls": len(pk), "closed": len(closed), "win": w, "win_rate": round(w / len(closed) * 100) if closed else None,
                       "net": round(sum(c.get("pnl_lot") or 0 for c in pk))}}
+
+
+def trade_journal(calls):
+    """📒 VERIFIED TRADE JOURNAL — முடிந்த calls மட்டும் (paper, 1 lot), charges சேர்த்து:
+    win rate · profit factor (மொத்த லாபம் ÷ மொத்த நஷ்டம்) · max drawdown (cumulative net peak → trough) · expectancy · streaks."""
+    OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT", "VOID")
+    done = [c for c in calls if not c.get("shadow") and c.get("status") not in OPEN and c.get("kind") != "PICK" and c.get("pnl_lot") is not None]
+    done.sort(key=lambda c: str(c.get("exit_time") or f"{c.get('date')} {c.get('time')}"))
+
+    def stats(xs):
+        if not xs:
+            return {"n": 0}
+        net = [(c.get("pnl_lot") or 0) - charges(c) for c in xs]
+        wins, losses = [x for x in net if x > 0], [x for x in net if x <= 0]
+        eq, peak, mdd = 0.0, 0.0, 0.0
+        for x in net:
+            eq += x
+            peak = max(peak, eq)
+            mdd = max(mdd, peak - eq)
+        streak = best_w = best_l = 0
+        for x in net:
+            streak = (streak + 1 if streak >= 0 else 1) if x > 0 else (streak - 1 if streak <= 0 else -1)
+            best_w, best_l = max(best_w, streak), min(best_l, streak)
+        gl = abs(sum(losses))
+        return {"n": len(xs), "win": len(wins), "win_rate": round(len(wins) / len(xs) * 100, 1), "net": round(sum(net)),
+                "gross": round(sum(c.get("pnl_lot") or 0 for c in xs)), "pf": round(sum(wins) / gl, 2) if gl else None,
+                "mdd": round(mdd), "avg_win": round(sum(wins) / len(wins)) if wins else 0, "avg_loss": round(sum(losses) / len(losses)) if losses else 0,
+                "exp": round(sum(net) / len(xs)), "best": round(max(net)), "worst": round(min(net)), "max_win_streak": best_w, "max_loss_streak": -best_l}
+    import datetime as _dt
+    today = _dt.date.today()
+    last7 = str(today - _dt.timedelta(days=7))
+    by = {}
+    for c in done:
+        by.setdefault(c.get("source_label") or c.get("source") or c.get("kind"), []).append(c)
+    mods = sorted(({"module": k, **stats(v)} for k, v in by.items() if len(v) >= 3), key=lambda r: -(r.get("net") or 0))
+    curve, eq = [], 0.0
+    for c in done[-200:]:
+        eq += (c.get("pnl_lot") or 0) - charges(c)
+        curve.append(round(eq))
+    return {"all": stats(done), "d7": stats([c for c in done if str(c.get("date")) >= last7]),
+            "today": stats([c for c in done if str(c.get("date")) == str(today)]),
+            "chart": stats([c for c in done if c.get("kind") == "CHART"]), "modules": mods[:25], "curve": curve}

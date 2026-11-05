@@ -31,10 +31,23 @@ RULES = [
     (r"sebi (probe|order|notice|penalty)|raid|fraud|default|penalty|ban\b|show cause|resigns?", -3, "REG"),
     (r"approval|usfda (nod|approval)|gets nod|launch(es)?", 1, "CORP"),
 ]
+# 📊 Index / market news → NIFTY · BANKNIFTY (bias மட்டும், call இல்லை)
+MARKET = [
+    (r"rbi (cuts?|slashes|lowers) (repo|rates?)|rate cut|fed (cuts?|lowers)|dovish", 3), (r"rbi (hikes?|raises)|rate hike|fed (hikes?|raises)|hawkish", -3),
+    (r"fiis? (buy|bought|net buyers|pour)|foreign investors (buy|pour)|dii buying", 2), (r"fiis? (sell|sold|net sellers|dump|pull out)|foreign outflow", -2),
+    (r"gdp (grows|rises|beats|jumps)|inflation (eases|cools|falls)|cpi (eases|falls)", 2), (r"gdp (slows|contracts|misses)|inflation (rises|jumps|surges)|cpi (rises|jumps)", -2),
+    (r"(sensex|nifty|markets?) (rall|surge|jump|soar|climb|hit record|record high|gain)", 2), (r"(sensex|nifty|markets?) (crash|plunge|tank|slump|fall|tumble|bleed|sink)", -2),
+    (r"wall street (rall|gain|surge|jump)|dow (gains|jumps|rallies)|nasdaq (gains|jumps|rallies)|gift nifty (up|higher|signals gains)", 1),
+    (r"wall street (fall|slump|tumble|sink)|dow (falls|slumps|tumbles)|nasdaq (falls|slumps|tumbles)|gift nifty (down|lower|signals)", -1),
+    (r"crude (falls|slumps|eases|drops)|oil prices? (fall|drop|ease)", 1), (r"crude (surges|jumps|spikes|soars)|oil prices? (surge|jump|spike)", -1),
+    (r"war|missile|attack|tariff (hike|threat)|sanctions?", -2), (r"ceasefire|trade deal|peace (deal|talks)", 2),
+]
+BANK = r"rbi|repo|bank|banking|nbfc|credit growth|npa|psu bank|hdfc bank|icici bank|sbi\b|kotak|axis bank"
 CFG = {"min_score": 3, "hours": 20, "max_day": 4, "start": "09:30", "end": "14:30", "vol_x": 1.5, "max_focus": 12, "q_every": 600}
 STATE = {"time": None, "focus": [], "err": None, "calls": [], "alerts": [], "log": []}
 CACHE = {"q_t": 0, "q_items": []}
 LK = threading.Lock()
+INDEXES = ("NIFTY", "BANKNIFTY")
 
 
 def score(title):
@@ -47,6 +60,11 @@ def score(title):
             if ev is None or abs(w) >= 3:
                 ev = e
     return s, ev or (hit[0] if hit else None)
+
+
+def mscore(title):
+    t = title.lower()
+    return sum(w for pat, w in MARKET if re.search(pat, t))
 
 
 def collect(news_items, fno):
@@ -72,11 +90,18 @@ def collect(news_items, fno):
             continue
         seen.add(k)
         sc, ev = score(k)
+        syms = list((x.get("symbols") or [])[:2])
+        ms = mscore(k)
+        if ms:                                          # market-wide news → index bias
+            syms += ["BANKNIFTY"] if re.search(BANK, k.lower()) else []
+            syms += ["NIFTY"]
+            if not sc:
+                sc, ev = ms, "MARKET"
         if not sc:
             continue
-        for sym in (x.get("symbols") or [])[:2]:
+        for sym in syms[:3]:
             out.append({"symbol": sym, "title": x["title"], "source": x.get("source"), "link": x.get("link"), "ts": x.get("ts") or 0,
-                        "time": x.get("time"), "score": sc, "event": ev})
+                        "time": x.get("time"), "score": ms if sym in INDEXES and ms else sc, "event": "MARKET" if sym in INDEXES else ev})
     out.sort(key=lambda x: -x["ts"])
     return out
 
@@ -93,6 +118,11 @@ def build_focus(items, levels, live_q, mdir=None):
     out = []
     for s, a in agg.items():
         if abs(a["score"]) < CFG["min_score"]:
+            continue
+        if s in INDEXES:                                 # index = bias மட்டும் (news-ஐ வச்சு index call இல்லை)
+            side = "CE" if a["score"] > 0 else "PE"
+            out.append({"symbol": s, "side": side, "score": a["score"], "events": ["MARKET"], "news": a["news"], "index": True, "status": "BIAS",
+                        "why": f"Market news {'positive' if side == 'CE' else 'negative'} → {s} setups-ல் {side} பக்கம் மட்டும் பாருங்க (index call news-ஐ வச்சு இல்லை)"})
             continue
         side = "CE" if a["score"] > 0 else "PE"
         lv, q = (levels or {}).get(s) or {}, (live_q or {}).get(s) or {}
@@ -113,7 +143,7 @@ def build_focus(items, levels, live_q, mdir=None):
                             f"Level {trig:.2f}-ஐ விட 2%+ ஓடிடுச்சு — late, chase வேண்டாம் (pullback-க்கு காத்திருங்க)" if late else
                             f"{'மேல்' if side == 'CE' else 'கீழ்'} {trig:.2f} உடைஞ்சாச்சு · volume {vr:.1f}×" if brk else
                             f"{'மேல்' if side == 'CE' else 'கீழ்'} {trig:.2f} உடைஞ்சா entry (volume ≥{CFG['vol_x']}×)" if trig else "levels இன்னும் வரல")})
-    out.sort(key=lambda r: (r["status"] != "CONFIRMED", -abs(r["score"])))
+    out.sort(key=lambda r: (not r.get("index"), r["status"] != "CONFIRMED", -abs(r["score"])))
     return out[:CFG["max_focus"]]
 
 
@@ -178,7 +208,8 @@ def run(ag, inst, news_items, now, send=None):
                         else:
                             STATE["log"].insert(0, {"time": hm, "symbol": f["symbol"], "result": "⛔ quality gate / duplicate"})
                 del STATE["log"][30:]
-            STATE.update(time=now.strftime("%I:%M:%S %p"), focus=focus, err=None, items=len(items))
+            STATE.update(time=now.strftime("%I:%M:%S %p"), focus=focus, err=None, items=len(items),
+                         recent=[{k: x.get(k) for k in ("symbol", "title", "source", "link", "time", "score", "event")} for x in items[:50]])
         except Exception as e:
             STATE["err"] = str(e)[:200]
     return STATE

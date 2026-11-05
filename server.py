@@ -390,7 +390,8 @@ def news_loop():
                     from krt.instruments import load as load_inst
                     ANGEL = ANGEL or Angel()
                     ag_ = ANGEL
-                NR.run(ag_, load_inst(ROOT / "data" / "cache") if ag_ else {}, c["items"], now_ist(), _tg)
+                from krt.notify import both as _both
+                NR.run(ag_, load_inst(ROOT / "data" / "cache") if ag_ else {}, c["items"], now_ist(), _both)
             except Exception:
                 traceback.print_exc()
         except Exception as e:
@@ -420,7 +421,29 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v83"
+APP_VERSION = "v84"
+
+
+def keepalive_loop():
+    """😴 Render free plan: 15 நிமிடம் யாரும் site திறக்கலைன்னா server தூங்கிடும் → scan / calls / notifications நின்னுடும்
+    (மாலை 6 மணிக்கு மேல் commodity calls வராதது இதனால் தான் இருக்கலாம்). Market நேரத்தில் 10 நிமிடத்துக்கு ஒருமுறை தன்னையே ping."""
+    import urllib.request
+    url = (os.getenv("RENDER_EXTERNAL_URL") or os.getenv("KEEPALIVE_URL") or "").rstrip("/")
+    if not url:
+        return
+    while True:
+        time.sleep(600)
+        try:
+            from krt import commodity as CM
+            t = now_ist()
+            if market_open(t) or CM.mcx_open(t) or ("08:45" <= t.strftime("%H:%M") <= "09:15" and t.weekday() < 5):
+                urllib.request.urlopen(url + "/health", timeout=20).read()
+                KEEP["t"] = real_hms()
+        except Exception as e:
+            KEEP["err"] = str(e)[:120]
+
+
+KEEP = {"t": None, "err": None}
 GOKI_RUN = {"running": False, "start": None, "done": None, "secs": None}
 TICK = {"t": None, "items": {}, "err": None}
 
@@ -503,8 +526,27 @@ def mannan_loop():
                 except Exception as e:
                     MN.STATE[seg]["err"] = str(e)[:200]
                     traceback.print_exc()
+            try:
+                from krt.notify import notify_tick
+                notify_tick(t)                          # 📲 Mannan calls / setups உடனே phone-க்கு
+            except Exception:
+                traceback.print_exc()
         except Exception:
             traceback.print_exc()
+
+
+JRN = {"t": 0, "d": None}
+
+
+def journal():
+    if time.time() - JRN["t"] > 30:
+        try:
+            from krt.ai import trade_journal
+            from krt.calls import STORE as _S
+            JRN.update(t=time.time(), d=trade_journal(list((_S.load().get("calls") or {}).values())))
+        except Exception as e:
+            JRN.update(t=time.time(), d={"err": str(e)[:200]})
+    return JRN["d"]
 
 
 PHIST = {"t": 0, "d": None}
@@ -648,10 +690,21 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self._send(200, "ok", "text/plain")
+        # 📲 service worker / manifest / icon — secret இல்லை, login இல்லாம (phone push register-க்கு)
+        if self.path in ("/sw.js", "/manifest.json", "/icon.svg"):
+            ct = {"/sw.js": "application/javascript; charset=utf-8", "/manifest.json": "application/manifest+json", "/icon.svg": "image/svg+xml"}[self.path]
+            return self._send(200, (ROOT / "web" / self.path.lstrip("/")).read_bytes(), ct)
         if not self._auth_ok():
             return self._deny()
         if self.path in ("/", "/index.html"):
             return self._send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if self.path == "/api/push/key":
+            try:
+                from krt import notify as NT
+                _, pub = NT.vapid()
+                return self._send(200, _json({"ok": True, "key": pub, "subs": len(NT.subs()), "state": NT.STATE}))
+            except Exception as e:
+                return self._send(200, _json({"ok": False, "msg": f"Push setup பிழை: {e} (requirements.txt-ல் pywebpush இருக்கா?)"}))
         if self.path == "/api/ticks":
             return self._send(200, _json({**TICK, "v": APP_VERSION}))
         if self.path == "/api/status":
@@ -676,7 +729,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json({
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
-                "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION,
+                "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
+                "journal": journal(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -703,6 +757,18 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, _json({"ok": False, "msg": "தவறான request"}))
 
+        if self.path == "/api/push/subscribe":
+            try:
+                from krt import notify as NT
+                n = NT.subscribe(d.get("sub"), self.headers.get("User-Agent", ""))
+                NT.push("✅ KRT notifications ON", "இனி ஒவ்வொரு call / pink / setup / exit-உம் இந்த phone-க்கு வரும்.", tag="welcome")
+                return self._send(200, _json({"ok": True, "msg": f"📲 Notifications ON ({n} device)"}))
+            except Exception as e:
+                return self._send(200, _json({"ok": False, "msg": f"Subscribe பிழை: {e}"}))
+        if self.path == "/api/push/test":
+            from krt import notify as NT
+            n = NT.push("🔔 Test — KRT Terminal", "Notification சரியா வருது ✅ (BUY NIFTY 24000 CE · Entry ₹120 · SL ₹96 — test மட்டும்)", tag="test", urgent=True)
+            return self._send(200, _json({"ok": bool(n), "msg": f"Test push {n} device-க்கு அனுப்பியாச்சு" if n else "Subscribe ஆன phone இல்லை — முதல்ல 📲 ON அழுத்துங்க"}))
         if self.path == "/api/v4/settings":
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
@@ -883,6 +949,7 @@ if __name__ == "__main__":
     threading.Thread(target=chart_loop, daemon=True).start()
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
+    threading.Thread(target=keepalive_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

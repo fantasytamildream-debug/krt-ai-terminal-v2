@@ -9,3 +9,4 @@ smartapi-python>=1.4
 logzero>=1.7
 websocket-client>=1.6
 ijson>=3.2
+pywebpush>=2.0,<3

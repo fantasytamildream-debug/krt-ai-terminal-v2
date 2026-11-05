@@ -131,7 +131,9 @@ def analyse(df):
     mtf_ = mtf_engine(df)
     base = {"pattern": pat, "bias": bias, "up_level": round(u_now, 2), "dn_level": round(l_now, 2)}
     se_ = smart_entry(base, st_, lq_, mtf_, cdl_, fib_, px, atr, round(vx, 2))
-    return {"structure": st_, "liquidity": lq_, "fib": fib_, "candles": cdl_, "mtf": mtf_, "smart": se_,
+    rg_ = regime_engine(h, l, c)
+    tr_ = trap_engine(o, h, l, c, v, hi, lo, atr)
+    return {"structure": st_, "liquidity": lq_, "fib": fib_, "candles": cdl_, "mtf": mtf_, "smart": se_, "regime": rg_, "trap": tr_,
             "pattern": pat, "bias": bias, "trend_before": trend_before, "up_level": round(u_now, 2), "dn_level": round(l_now, 2), "up_target": up_t, "dn_target": dn_t,
             "height": round(height, 2), "atr": round(atr, 2), "px": round(px, 2), "text": txt, "why": why,
             "lines": {"upper": [U[0], U[1]] if U else None, "lower": [L[0], L[1]] if L else None},
@@ -164,6 +166,63 @@ def structure_engine(hi, lo, c, atr):
     if last_l is not None and px < last_l:
         events.append({"type": "BOS ⬇" if trend == "DOWN" else "CHOCH ⬇", "price": round(last_l, 2), "side": "DOWN"})
     return {"labels": labels[-10:], "trend": trend or "SIDE", "events": events, "last_h": last_h, "last_l": last_l}
+
+
+def regime_engine(h, l, c, look=20):
+    """3. 🧭 MARKET REGIME: Trending ↑/↓ · Sideways · Volatile.
+    Efficiency ratio (ER) = |கடைசி 20 bars நகர்வு| ÷ (ஒவ்வொரு bar நகர்வு கூட்டு) — 1 = நேர் கோடு trend, 0 = அங்கும் இங்கும்.
+    Volatility = இப்போ ATR ÷ கடைசி 100 bars median ATR."""
+    n = len(c)
+    if n < look + 15:
+        return {"kind": "UNKNOWN", "txt": "data குறைவு"}
+    move = abs(c[-1] - c[-look - 1])
+    path = float(np.abs(np.diff(c[-look - 1:])).sum()) or 1e-9
+    er = move / path
+    tr = np.maximum(h[1:] - l[1:], np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1])))
+    a_now = float(tr[-14:].mean())
+    a_med = float(np.median(pd.Series(tr).rolling(14).mean().dropna().values[-100:])) if len(tr) > 30 else a_now
+    vol = a_now / a_med if a_med else 1.0
+    up = c[-1] > c[-look - 1]
+    if vol >= 1.6 and er < 0.45:
+        k, tip = "VOLATILE", "பெரிய swings, திசை இல்லை → size குறைங்க, SL அகலம், breakout fake ஆகலாம்"
+    elif er >= 0.40:
+        k, tip = ("TRENDING UP" if up else "TRENDING DOWN"), f"{'CE' if up else 'PE'} side pullback / breakout மட்டும் · எதிர் side வேண்டாம்"
+    elif er <= 0.22 and vol < 1.3:
+        k, tip = "SIDEWAYS", "Range — breakout calls fail ஆகலாம் · range edges-ல் மட்டும் / wait"
+    else:
+        k, tip = "MIXED", "Transition — confirmation (5-min close + volume) வரும் வரை காத்திருங்க"
+    return {"kind": k, "er": round(er, 2), "vol": round(vol, 2), "txt": tip}
+
+
+def trap_engine(o, h, l, c, v, hi, lo, atr, look=12):
+    """4. 🏦 INSTITUTIONAL LIQUIDITY TRACKER: swing high/low-க்கு மேல்/கீழ் wick (stop-hunt sweep) + அதே bar உள்ளே close
+    → அடுத்த bars sweep bar-ன் எதிர் முனையை close-ல் உடைச்சா = TRAP CONFIRMED. Sweep bar volume ≥1.5× = institutional."""
+    n = len(c)
+    if n < 30:
+        return None
+    vb = float(np.mean(v[-31:-1])) or 1.0
+    best = None
+    for j in range(n - look, n):
+        ph = [p for p in hi if p[0] < j - 1]
+        pl = [p for p in lo if p[0] < j - 1]
+        for kind, lvl in (("BULL TRAP", ph[-1][1] if ph else None), ("BEAR TRAP", pl[-1][1] if pl else None)):
+            if lvl is None:
+                continue
+            swept = (h[j] > lvl and c[j] < lvl) if kind == "BULL TRAP" else (l[j] < lvl and c[j] > lvl)
+            if not swept:
+                continue
+            after = range(j + 1, n)
+            conf = any(c[k] < l[j] for k in after) if kind == "BULL TRAP" else any(c[k] > h[j] for k in after)
+            inst = bool(v[j] >= 1.5 * vb)
+            r = {"kind": kind, "side": "PE" if kind == "BULL TRAP" else "CE", "level": round(float(lvl), 2), "i": int(j),
+                 "status": "CONFIRMED" if conf else "SWEEP", "inst": inst, "vol_x": round(float(v[j] / vb), 2),
+                 "txt": (f"{'⬆ Swing high' if kind == 'BULL TRAP' else '⬇ Swing low'} {lvl:.2f} sweep"
+                         + (" (🏦 அதிக volume)" if inst else "")
+                         + (f" → {'கீழ்' if kind == 'BULL TRAP' else 'மேல்'} confirm — {kind} ✅ ({'PE' if kind == 'BULL TRAP' else 'CE'} பக்கம்)" if conf
+                            else " — trap confirm-க்கு காத்திருங்க (sweep candle-ன் எதிர் முனை close-ல் உடையணும்)"))}
+            if best is None or (r["status"] == "CONFIRMED") > (best["status"] == "CONFIRMED") or r["i"] > best["i"]:
+                best = r
+    return best
 
 
 def liquidity_engine(o, h, l, c, hi, lo, atr):
