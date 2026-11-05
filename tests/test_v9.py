@@ -24,15 +24,25 @@ def _md(n, win, exp, af=None, paused=False):
 
 
 def test_pink_tiers():
+    # v86 PINK v2: min 10 calls + Wilson lower bound ≥55% (dark: 20+ calls, ≥80%, lb ≥62%)
     assert ai.pink_tier(_md(30, 82, 500))["tier"] == "dark"
     assert ai.pink_tier(_md(30, 77, 500))["tier"] == "light"
-    small = ai.pink_tier(_md(8, 90, 700))
-    assert small["tier"] == "light" and small["small"]          # 20 calls-க்கு குறைவு → dark இல்லை
-    assert ai.pink_tier(_md(30, 85, -50)) is None                # நஷ்டம் → pink இல்லை
-    assert ai.pink_tier(_md(3, 100, 900)) is None                # 3 calls → போதாது
+    assert ai.pink_tier(_md(8, 90, 700)) is None                 # 10 calls-க்கு குறைவு
+    assert ai.pink_tier(_md(5, 80, 500)) is None                 # 05-11 நடந்தது: 4/5 win → இனி pink இல்லை
+    assert ai.pink_tier(_md(12, 75, 500)) is None                # lower bound 47% < 55%
+    assert ai.pink_tier(_md(30, 85, -50)) is None                # நஷ்டம்
     assert ai.pink_tier(_md(30, 85, 500, paused=True)) is None
-    # filters பிறகு உள்ள stats முன்னுரிமை
-    assert ai.pink_tier(_md(105, 37, -16, {"n": 25, "win": 81, "exp": 300}))["tier"] == "dark"
+    assert ai.pink_tier(_md(105, 37, -16, {"n": 25, "win": 84, "exp": 300}))["tier"] == "dark"
+    assert ai.pink_tier(_md(30, 82, 500), recent=[500, -900, -800, 300, -700, -600]) is None   # probation: 6-ல் 4 நஷ்டம்
+
+
+def test_pink_gate_direction_and_mean_reversion():
+    ai.STATE["risk"] = {"dir": "UP", "nifty": 2.5}
+    assert ai.pink_gate({"side": "PE", "exch": "NFO"}, "V4 💎 VWAP Mean Reversion")          # rally நாளில் PE → block
+    assert ai.pink_gate({"side": "CE", "exch": "NFO"}, "V4 ICT") is None
+    ai.STATE["risk"] = {"dir": None, "nifty": 1.4}
+    assert "mean-reversion" in ai.pink_gate({"side": "PE", "exch": "NFO"}, "V4 💎 VWAP Mean Reversion")
+    assert ai.pink_gate({"side": "PE", "exch": "MCX"}, "MCX") is None                         # MCX-க்கு NIFTY திசை பொருந்தாது
 
 
 def test_pink_of_aipick_uses_source_module():

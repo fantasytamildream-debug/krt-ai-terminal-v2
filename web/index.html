@@ -434,15 +434,15 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
+    <button role="tab" data-p="gm">💥 Gamma Blast</button>
+    <button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="cx">🛢 Commodity</button>
     <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
-    <button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
     <button role="tab" data-p="nw">📰 News Radar</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
-    <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="v4m">🔥 AI Master Scanner</button>
     <button role="tab" data-p="v4s">🧠 Strategy Engine</button>
     <button role="tab" data-p="v4b">🎯 Best Setups</button>
@@ -1165,10 +1165,15 @@ function invSet(v){
 const OPEN_ST=["OPEN","T1 HIT","T2 HIT","T3 HIT","T4 HIT"];
 /* 🩷 module pink tier (server: ai.pink_tier) — stock / index / commodity எல்லா calls-க்கும் */
 let PINKMODS={};
-function pinkOf(c){ if(!c||c.kind==="PICK") return null; if(c.pink) return c.pink;
-  const m=(c.kind==="AIPICK"&&c.ai_from)||c.source||c.kind; return ((PINKMODS[m]||{}).pink)||null; }
+function pinkOf(c){ if(!c||c.kind==="PICK"||c.pink_block) return null; if(c.pink) return c.pink;
+  const m=(c.kind==="AIPICK"&&c.ai_from)||c.source||c.kind, pk=((PINKMODS[m]||{}).pink)||null; if(!pk) return null;
+  /* v86: server pink_gate மாதிரியே — market திசை எதிர் / trend நாளில் mean-reversion counter-trend = pink இல்லை */
+  if(c.side&&c.exch!=="MCX"){ const D=mktDir(LAST_S||{}).dir, ce=c.side==="CE", np=((((LAST_S||{}).full||{}).index||[]).find(x=>x.index==="NIFTY")||{}).pct||0;
+    if(D&&(D==="UP")!==ce) return null;
+    if(Math.abs(np)>=1&&(np>0)!==ce&&/mean reversion|vwap2sd|reversal|fade/i.test(String(m))) return null; }
+  return pk; }
 function modOf(c){ const m=(c.kind==="AIPICK"&&c.ai_from)||c.source||c.kind; return PINKMODS[m]||null; }
-function pinkTag(pk){ return pk?`<span class="pinktag ${pk.tier==="dark"?"dark":""}">🩷${pk.tier==="dark"?"🩷 DARK PINK":" PINK"} · win ${pk.win}% (${pk.n})${pk.small?" · ⚠ sample small":""}</span>`:""; }
+function pinkTag(pk){ return pk?`<span class="pinktag ${pk.tier==="dark"?"dark":""}" title="Wilson lower bound = sample size-ஐ வச்சு குறைஞ்சபட்ச win %">🩷${pk.tier==="dark"?"🩷 DARK PINK":" PINK"} · win ${pk.win}% (${pk.n})${pk.lb!=null?` · min ${pk.lb}%`:""}${pk.small?" · ⚠ <20 calls":""}</span>`:""; }
 let SEEN=null, FLASH=new Set(), BASE_TITLE=document.title;
 const soundOn=()=>{try{return localStorage.getItem("krt_sound")==="1"}catch(e){return false}};
 function toggleSound(){try{localStorage.setItem("krt_sound",soundOn()?"0":"1")}catch(e){} if(soundOn()) beep(); const b=$("sndBtn"); if(b) b.textContent=soundOn()?"🔔 Sound ON":"🔕 Sound OFF";}
@@ -1937,7 +1942,7 @@ function optHTML(f){
   const M=Object.entries(O.mods||{}).map(([k,v])=>({k,...v})).sort((a,b)=>b.exp-a.exp);
   const rate=r=>r.n<12?"?":Math.max(1,Math.min(10,Math.round(5+r.exp/250+(r.win-45)/10)));
   const PC=O.pink_cfg||{light:75,dark:80,min_n:5,proven_n:20}, nP=M.filter(r=>r.pink).length;
-  return top+`<div class="hint" style="margin:8px 0;padding:8px 10px;border:1px solid var(--pink);border-radius:10px;background:rgba(249,168,212,.08)">🩷 <b>PINK ALERT rule:</b> win ≥${PC.light}% = <span class="pinktag">🩷 PINK</span> · ≥${PC.dark}% = <span class="pinktag dark">🩷🩷 DARK PINK</span> · charges சேர்த்து avg லாபம் கட்டாயம் · min ${PC.min_n} calls · ${PC.proven_n} calls-க்கு குறைவு = “⚠ sample small” (light pink மட்டும் — 4/5 win luck-ஆவும் இருக்கலாம்). இந்த module-ன் call stock / index / commodity எதுல வந்தாலும் pink alert + voice + Telegram/WhatsApp. இப்போ pink modules: <b>${nP}</b>.</div>`
+  return top+`<div class="hint" style="margin:8px 0;padding:8px 10px;border:1px solid var(--pink);border-radius:10px;background:rgba(249,168,212,.08)">🩷 <b>PINK v2 rule:</b> win ≥${PC.light}% + <b>min ${PC.min_n} calls</b> + Wilson lower bound ≥${Math.round((PC.lb_light||.55)*100)}% = <span class="pinktag">🩷 PINK</span> · ${PC.proven_n}+ calls, ≥${PC.dark}%, lower bound ≥${Math.round((PC.lb_dark||.62)*100)}% = <span class="pinktag dark">🩷🩷 DARK PINK</span> · charges சேர்த்து லாபம் கட்டாயம் · கடைசி ${PC.prob_look||6} pink calls-ல் ${PC.prob_loss||4}+ நஷ்டம் = pink நிறுத்தம் · market திசை எதிர் / trend நாளில் mean-reversion = pink இல்லை. இந்த module-ன் call stock / index / commodity எதுல வந்தாலும் pink alert + voice + Telegram/WhatsApp. இப்போ pink modules: <b>${nP}</b>.</div>`
    +`<h3 class="sec">📊 Module ratings (charges சேர்த்து · live)</h3>`+simpleTbl(M,[["Module",r=>`<b>${esc(r.k)}</b>`],["🩷",r=>r.pink?pinkTag(r.pink):""],["Calls",r=>r.n],["Win %",r=>r.win+"%"],["Gross",r=>`₹${n2(r.gross)}`],["Net",r=>`<b class="${r.net>=0?'up':'dn'}">₹${n2(r.net)}</b>`],["Avg / call",r=>`<b class="${r.exp>=0?'up':'dn'}">₹${n2(r.exp)}</b>`],["Filters பிறகு",r=>r.after_filters&&r.after_filters.exp!=null?`<b class="${r.after_filters.exp>=0?'up':'dn'}">₹${n2(r.after_filters.exp)}</b> · ${r.after_filters.win}% <span class="hint">(${r.after_filters.n})</span>`:"–"],["Rating",r=>`<b>${rate(r.after_filters&&r.after_filters.exp!=null?{...r,exp:r.after_filters.exp,win:r.after_filters.win}:r)}/10</b>`],["Status",r=>r.retired?`<span class="hint">🗄 ${esc(r.retired)}</span>`:r.paused?'<b class="dn">⏸ AUTO-PAUSED</b>':'<span class="up">ACTIVE</span>'],["Upgrade",r=>r.upgrade?`<span class="hint">🔧 ${esc(r.upgrade)}</span>`:""]],r=>r.retired?"":r.paused?"slrow":r.pink?(r.pink.tier==="dark"?"pink2row":"pinkrow"):r.exp>0?"uprow":"")
    +`<h3 class="sec">✂ Learned filters (${(O.blocks||[]).length}) — இந்த condition-ல் இனி call இல்லை</h3>`
    +((O.blocks||[]).length?simpleTbl(O.blocks,[["Module",b=>esc(b.module)],["Condition",b=>`<b>${esc(b.k)} = ${esc(b.v)}</b>`],["Calls",b=>b.n],["Win %",b=>b.win+"%"],["Avg / call",b=>`<b class="dn">₹${n2(b.exp)}</b>`]]):`<div class="hint">இன்னும் போதுமான data இல்லை (bucket-க்கு ≥12 calls வேணும்).</div>`);
@@ -2028,16 +2033,27 @@ function journalHTML(J){ if(!J||!J.all||!J.all.n) return ""; const rs=v=>(v>=0?"
 /* 📰 NEWS RADAR — focus list (news score + levels) · CONFIRMED = price + volume news பக்கம் → call */
 function radarHTML(s,compact){ const R=s.radar||{}, F=R.focus||[];
   const sh=compact?F.filter(f=>f.index||f.status==="CONFIRMED"||f.status==="WATCH").slice(0,5):F;
-  if(!F.length) return compact?"":`<div class="radarbox"><b>📰 NEWS RADAR</b> <span class="hint">${R.err?"⚠ "+esc(R.err):"இப்போ strong news focus இல்லை (score ±3 வேணும்)"} ${R.time?"· "+esc(R.time):""}</span></div>`;
+  if(!F.length&&!((R.market||{}).move)&&!(R.setups||[]).length) return compact?"":`<div class="radarbox"><b>📰 NEWS RADAR</b> <span class="hint">${R.err?"⚠ "+esc(R.err):"இப்போ strong news focus இல்லை (score ±3 வேணும்)"} ${R.time?"· "+esc(R.time):""}</span></div>`;
   const IX=F.filter(f=>f.index), REC=R.recent||[];
   const st={BIAS:'<b style="color:#f59e0b">📊 INDEX BIAS</b>',CONFIRMED:'<b class="up">✅ CONFIRMED — entry</b>',WATCH:'<b style="color:#38bdf8">👀 WATCH — level-க்கு காத்திருங்க</b>',LATE:'<b class="dn">⏰ LATE — chase வேண்டாம்</b>',AGAINST:'<b class="dn">⛔ Market எதிர்</b>'};
   const recHTML=!compact&&REC.length?`<details class="tech" open><summary>🗞 எல்லா scored news — புதுசு முதல் (${REC.length} · கடைசி 20 மணி நேரம் · ஒவ்வொரு நிமிடமும் update)</summary>${REC.map(n=>`<div class="rrow" style="padding:5px 8px"><b class="${n.score>0?'up':'dn'}">${n.score>0?"+":""}${n.score}</b> <b>${esc(n.symbol)}</b> <small class="nsrc">${esc(n.event||"")}</small> · ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} · ${esc(n.time||"")})</small></div>`).join("")}</details>`:"";
-  const IXL={BIAS:"",WEAK:" · ⚪ WEAK (ஒரே headline)",CONFLICT:" · ⚠ CONFLICT (price எதிர்)"};
+  const IXL={BIAS:"",CONFIRMED:" · ✅ price confirm",WEAK:" · ⚪ WEAK (ஒரே headline)",CONFLICT:" · ⚠ CONFLICT (price எதிர்)"};
+  const MB=R.market||{}, mvHTML=MB.move?`<div class="rrow" style="border-color:${MB.move==="RALLY"?"var(--ce)":"var(--pe)"}"><b class="${MB.move==="RALLY"?"up":"dn"}">${MB.move==="RALLY"?"📈 MARKET RALLY":"📉 MARKET SELL-OFF"} — NIFTY ${MB.nifty>=0?"+":""}${n2(MB.nifty)}%${MB.banknifty!=null?` · BANKNIFTY ${MB.banknifty>=0?"+":""}${n2(MB.banknifty)}%`:""}</b>
+     ${(MB.causes||[]).length?`<div class="hint">🔎 காரணம் (headlines-ல் இருந்து): <b>${MB.causes.map(esc).join(" · ")}</b></div>`:`<div class="hint">காரணம் சொல்லும் headline இன்னும் வரல</div>`}
+     ${(MB.heads||[]).slice(0,compact?2:6).map(n=>`<div class="hint">📰 ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} ${esc(n.time||"")})</small></div>`).join("")}</div>`:"";
+  const SU=R.setups||[], suRow=x=>`<div class="rrow ${x.status==="CONFIRMED"?"CONFIRMED":""}"><div class="ctop"><b class="${x.side==='CE'?'up':'dn'}">${x.index?"📊 ":""}BUY ${esc(x.symbol)} ${n2(x.strike)} ${x.side}</b><span><b>${esc(x.live)}</b></span></div>
+     <div class="hint">exp ${esc(x.expiry||"")} · lot ${x.lot||"–"} · ⏱ முதல்ல ${esc(ampm(x.first))} · news ${x.score>0?"+":""}${x.score} · ${esc(x.status)}</div>
+     <div class="crow num"><span>Entry <b>₹${n2(x.entry)}</b></span><span>SL <b class="dn">₹${n2(x.sl)}</b></span><span>LTP <b>₹${n2(x.ltp)}</b>${x.move!=null?` (${x.move>=0?"+":""}${x.move}%)`:""}</span></div>
+     ${(x.targets||[]).length?`<div class="ctg num">${x.targets.map((t,j)=>`<span>T${j+1} ${n2(t)}${x.lot&&x.entry?` <b class="up">+₹${n2(Math.round((t-x.entry)*x.lot))}</b>`:""}</span>`).join("")}</div>`:""}
+     <div class="hint">📰 ${esc(x.news||"")}</div>${x.token?`<button class="pickbtn pp" onclick='paperGo(${JSON.stringify({symbol:x.symbol,side:x.side,strike:x.strike,expiry:x.expiry,contract:x.contract,token:x.token,exch:x.exch,lot:x.lot,ltp:x.ltp||x.entry,sl:x.sl,from_src:"📰 News Radar",src_modules:["📰 News Radar"]}).replace(/'/g,"&#39;")})'>📝 Paper</button>`:""}</div>`;
+  const suHTML=SU.length?`<div class="rrow" style="border-color:#38bdf8"><b>📰 NEWS SETUPS — CE / PE + strike</b> <span class="hint">(news + level; ✅ Entry OK = முதல் விலையில் இருந்து +5% வரை)</span>
+     <div class="hint up" style="margin-top:4px"><b>📈 CE</b></div>${SU.filter(x=>x.side==="CE").slice(0,compact?3:8).map(suRow).join("")||'<div class="hint">CE setup இல்லை</div>'}
+     <div class="hint dn" style="margin-top:4px"><b>📉 PE</b></div>${SU.filter(x=>x.side==="PE").slice(0,compact?3:8).map(suRow).join("")||'<div class="hint">PE setup இல்லை</div>'}</div>`:"";
   const ixHTML=IX.length?`<div class="rrow" style="border-color:${IX.some(f=>f.status==="BIAS")?"#f59e0b":"var(--line)"}"><b>📊 Index news bias:</b> ${IX.map(f=>`<b class="${f.status!=="BIAS"?"":f.side==='CE'?'up':'dn'}" style="${f.status!=="BIAS"?"opacity:.65":""}">${esc(f.symbol)} ${f.side==="CE"?"⬆ positive":"⬇ negative"} (${f.score>0?"+":""}${f.score})${IXL[f.status]||""}</b>`).join(" · ")}
      ${IX.map(f=>`<div class="hint">${esc(f.symbol)}: ${esc(f.why)}</div>`).join("")}
      <div class="hint" style="margin-top:3px">இந்த score எந்த headlines-ல் இருந்து வந்தது:</div>${(IX[0].news||[]).slice(0,compact?2:6).map(n=>`<div class="hint">📰 <b class="${n.score>0?'up':'dn'}">${n.score>0?"+":""}${n.score}</b> ${n.link?`<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>`:esc(n.title)} <small class="nsrc">(${esc(n.source||"")} ${esc(n.time||"")})</small></div>`).join("")}</div>`:"";
   return `<div class="radarbox"><b>📰 NEWS RADAR — முன்கூட்டியே focus</b> <span class="hint">${esc(R.time||"")} · ${R.items||0} scored news · results / orders / brokerage / deals · keyword scoring (LLM இல்லை) · news + price + volume confirm ஆனா மட்டும் call (9:30–2:30, max 4)</span>
-   ${ixHTML}
+   ${mvHTML}${suHTML}${ixHTML}
    ${sh.filter(f=>!f.index).map(f=>`<div class="rrow ${f.status}"><div class="ctop"><b>${esc(f.symbol)} <span class="${f.side==='CE'?'up':'dn'}">${f.side}</span> · news ${f.score>0?"+":""}${f.score}</b><span>${st[f.status]||esc(f.status)}</span></div>
      <div class="hint">${(f.events||[]).map(esc).join(" · ")} · LTP ${f.ltp?n2(f.ltp):"– (market closed)"}${f.pct!=null?` (${f.pct>=0?"+":""}${n2(f.pct)}%)`:""}${f.vr?` · vol ${n2(f.vr)}×`:""} · <b>Trigger ${n2(f.trigger)}</b> · SL (stock) ${n2(f.ul_sl)}</div>
      <div class="hint">👉 ${esc(f.why||"")}</div>
@@ -2141,6 +2157,9 @@ let MMP=[];
 function paperFromMM(i){ const r=MMP[i]; if(!r||!(r.option||{}).token){ alert("Strike இன்னும் வரல"); return; } const o=r.option;
   paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"👑 Money Machine",src_modules:["Money Machine"]}); }
 function mmList(L,cols){ return (L&&L.length)?simpleTbl(L,cols):`<div class="hint">இப்போ இல்லை.</div>`; }
+function mmLiveHTML(L){ const cls={OK:"ENTRY",SLIGHT:"WAIT",LATE:"WAIT",INVALID:"EXIT",DONE:"WAIT"}[L.status]||"WAIT";
+  const head={OK:"✅ இப்போ ENTRY எடுக்கலாம்",SLIGHT:"⚠ சற்று late — limit order",LATE:"⏭ LATE — இப்போ வேண்டாம்",INVALID:"⛔ INVALID — வேண்டாம்",DONE:"✔ Call முடிந்தது"}[L.status]||L.status;
+  return `<div class="mcact ${cls}" style="font-size:13px"><b>${head}</b><div class="hint" style="font-weight:400">⏱ முதல்ல வந்தது <b>${esc(ampm(L.first_time))}</b> @ ₹${n2(L.first_opt)}${L.first_stock?` (stock ${n2(L.first_stock)})`:""}${L.call?` · 📢 Call ${esc(ampm(L.call.time))} @ ₹${n2(L.call.entry)}`:""} · இப்போ ₹${n2(L.ltp)} (${L.move>=0?"+":""}${L.move}%)</div><div class="hint" style="font-weight:400">👉 ${esc(L.text)}</div></div>`; }
 function mmHTML(f){
   const M=f.money; if(!M) return `<div class="cempty">👑 Money Machine market நேரத்தில் ~30 sec-க்கு ஒருமுறை update ஆகும்.</div>`;
   MMP=M.picks||[]; const J=M.jackpot, pc=v=>`<b class="${v>=0?'up':'dn'}">${v>0?"+":""}${n2(v)}%</b>`;
@@ -2149,7 +2168,8 @@ function mmHTML(f){
   const pick=(r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard ${r.score>=75?'stg':''}"><div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate">confidence <b>${r.score}%</b></span></div>
      <div class="hint">${esc(r.sector||"")} · ${r.pct>0?"+":""}${n2(r.pct)}% · ${r.score>=80?'<b class="up">HIGH</b>':r.score>=65?'<b style="color:#facc15">MEDIUM</b>':'LOW'}</div>
      ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · LTP ₹${n2(o.ltp)}</div></div>`:`<div class="hint">Strike தேடுது…</div>`}
-     ${p?`<div class="crow num"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span></div><div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     ${p?`<div class="crow num"><span>Entry <b>₹${n2(r.live?r.live.ref:p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span></div><div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     ${r.live?mmLiveHTML(r.live):""}
      <div class="chk">${(r.why||[]).map(t=>`<span class="up">✓ ${esc(t)}</span>`).join("")}</div>
      ${o.token?`<button class="pickbtn pp" onclick="paperFromMM(${i})">📝 Paper</button>`:""}</div>`;};
   const sideTbl=(L,s)=>mmList(L,[["Stock",r=>`<b class="${s==='CE'?'up':'dn'}">${esc(r.symbol)}</b><div class="hint">${esc(r.sector)}</div>`],["%",r=>pc(r.pct)],["Score",r=>`<b>${r["sc_"+s]}</b>`],["ஏன்",r=>`<span class="hint">${(r["why_"+s]||[]).map(esc).join(" · ")}</span>`]]);
@@ -2158,7 +2178,7 @@ function mmHTML(f){
   return `<div class="gkhead" style="border-color:#facc15;background:linear-gradient(180deg,rgba(250,204,21,.16),rgba(250,204,21,.02))"><h2 style="color:#facc15">👑 MONEY MACHINE</h2>
     <div class="hint">moneycontrol மாதிரி எல்லா market view-ம் (Angel live data) ஒரே இடத்தில் → ஒவ்வொரு stock-க்கும் CE / PE score: Gainer/Loser 15 · Volume shocker 15 · Only buyers/sellers 15 · 52-week high/low 15 · Futures OI 15 · Technical trend 10 · 3-நாள் shocker 5 · Sector 5 · NIFTY 5. Gainer 10 · Volume 15 · Only buyers/sellers 10 · 52w 10 · OI 15 · Trend 10 · PDH/PDL break 10 · Day range 5 · 3-நாள் 5 · Sector 5 · NIFTY 5. Score ≥75 = 👑 Jackpot → call (9:45–2:30, max 5) · ${esc(M.time||"")}</div>
     <div class="cb-stats" style="margin-top:6px"><span class="cb-stat up">↑ ${M.breadth.up}</span><span class="cb-stat dn">↓ ${M.breadth.down}</span>${M.oi.bull_pct!=null?`<span class="cb-stat up">OI Bullish ${M.oi.bull_pct}%</span><span class="cb-stat dn">OI Bearish ${M.oi.bear_pct}%</span>`:""}<span class="cb-stat">Money calls ${MC.length} · win ${cl.length?Math.round(w/cl.length*100)+"%":"–"}</span></div></div>
-   ${[M.jackpot_ce,M.jackpot_pe].filter(Boolean).map(x=>`<div class="jpbanner" style="border-color:${x.side==='CE'?'#22c55e':'#ef4444'};background:${x.side==='CE'?'rgba(34,197,94,.14)':'rgba(239,68,68,.14)'}">👑 <b>${x.side} JACKPOT ALERT</b> · confidence <b>${x.score}%</b> ${x.score>=80?"(HIGH)":"(MEDIUM)"} — <b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2((x.option||{}).strike)} ${x.side}</b> · Entry ₹${n2(x.rp.entry)} · SL ₹${n2(x.rp.sl)} · T ${x.rp.targets.map(n2).join(" / ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(x)})">📝 Paper</button><div class="hint">${(x.why||[]).map(esc).join(" · ")}</div></div>`).join("")}
+   ${[M.jackpot_ce,M.jackpot_pe].filter(Boolean).map(x=>`<div class="jpbanner" style="border-color:${x.side==='CE'?'#22c55e':'#ef4444'};background:${x.side==='CE'?'rgba(34,197,94,.14)':'rgba(239,68,68,.14)'}">👑 <b>${x.side} JACKPOT ALERT</b> · confidence <b>${x.score}%</b> ${x.score>=80?"(HIGH)":"(MEDIUM)"} — <b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2((x.option||{}).strike)} ${x.side}</b> · Entry ₹${n2(x.live?x.live.ref:x.rp.entry)} · SL ₹${n2(x.rp.sl)} · T ${x.rp.targets.map(n2).join(" / ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(x)})">📝 Paper</button>${x.live?mmLiveHTML(x.live):""}<div class="hint">${(x.why||[]).map(esc).join(" · ")}</div></div>`).join("")}
    ${J&&false?`<div class="jpbanner" style="border-color:#facc15;background:rgba(250,204,21,.14)">👑 <b>JACKPOT:</b> <b class="${J.side==='CE'?'up':'dn'}">${esc(J.symbol)} ${n2((J.option||{}).strike)} ${J.side}</b> · Entry ₹${n2(J.rp.entry)} · SL ₹${n2(J.rp.sl)} · T1/T2/T3 ${J.rp.targets.map(n2).join(" / ")} · score <b>${J.score}</b> — ${(J.why||[]).slice(0,4).map(esc).join(" · ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(J)})">📝 Paper</button></div>`:`<div class="hint" style="margin:8px 0">👑 Jackpot (score ≥75) இப்போ இல்லை.</div>`}
    <h2 class="sec up">📈 CE setups (row)</h2><div class="mmrow">${MMP.filter(r=>r.side==="CE").map(r=>pick(r,MMP.indexOf(r))).join("")||'<div class="hint">CE setup இல்லை</div>'}</div>
    <h2 class="sec dn">📉 PE setups (row)</h2><div class="mmrow">${MMP.filter(r=>r.side==="PE").map(r=>pick(r,MMP.indexOf(r))).join("")||'<div class="hint">PE setup இல்லை</div>'}</div>
@@ -2342,7 +2362,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v85";
+const APPV="v86";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

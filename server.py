@@ -391,7 +391,7 @@ def news_loop():
                     ANGEL = ANGEL or Angel()
                     ag_ = ANGEL
                 from krt.notify import both as _both
-                NR.run(ag_, load_inst(ROOT / "data" / "cache") if ag_ else {}, c["items"], now_ist(), _both)
+                NR.run(ag_, load_inst(ROOT / "data" / "cache") if ag_ else {}, c["items"], now_ist(), _both, STATE.get("full"))
             except Exception:
                 traceback.print_exc()
         except Exception as e:
@@ -421,7 +421,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v85"
+APP_VERSION = "v86"
 
 
 def keepalive_loop():

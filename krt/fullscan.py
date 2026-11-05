@@ -1445,6 +1445,7 @@ def run_money(ag, inst, live_q, res, now, live):
         if pl.get("entry"):
             sl_, tg_, rk_, rc_ = rupee_plan(pl["entry"], pl.get("sl"), o_["lot"], False)
             p["rp"] = {"entry": pl["entry"], "sl": sl_, "targets": tg_, "risk": rk_, "t_rs": [round((t - pl["entry"]) * o_["lot"]) for t in tg_], "codes": rc_}
+    mm_live(picks, now)
     picks.sort(key=lambda p: -p["score"])
     M["picks"] = picks
     M["jackpot"] = next((p for p in picks if p.get("rp") and p["score"] >= 75), None)
@@ -1457,6 +1458,46 @@ def run_money(ag, inst, live_q, res, now, live):
         except Exception as e:
             res.setdefault("errors", []).append(f"Money calls: {e}")
     return M
+
+
+MMLIVE = {"ok": 0.05, "late": 0.12}
+
+
+def mm_live(picks, now):
+    """👑 Money Machine live நிலை: setup முதல்ல எப்போ வந்தது (நேரம் + option விலை) · call கொடுத்திருந்தா அதன் entry ·
+    இப்போ LTP அதிலிருந்து எவ்வளவு ஓடிருக்கு → ✅ ENTRY OK (+5% வரை) · ⚠ சற்று late (+12% வரை, limit order) · ⏭ LATE · ⛔ INVALID (SL கீழ்)."""
+    from .calls import STORE
+    day = str(now.date())
+    F = C.setdefault("mm_first", {})
+    for k in [k for k in F if not k.startswith(day)]:
+        F.pop(k, None)
+    calls = {(c["symbol"], c["side"]): c for c in (STORE.load().get("calls") or {}).values()
+             if c.get("date") == day and c.get("kind") == "MONEYM" and not c.get("shadow")}
+    for p in picks:
+        o, rp = p.get("option") or {}, p.get("rp") or {}
+        ltp = o.get("ltp")
+        if not ltp:
+            continue
+        k = f"{day}|{p['symbol']}|{p['side']}"
+        f = F.setdefault(k, {"time": now.strftime("%H:%M"), "opt": round(float(ltp), 2), "stock": p.get("price"), "score": p.get("score"),
+                             "strike": o.get("strike")})
+        c = calls.get((p["symbol"], p["side"]))
+        ref = float(c["entry"]) if c else f["opt"]
+        sl = float(c["sl"]) if c else float(rp.get("sl") or 0)
+        mv = (float(ltp) - ref) / ref if ref else 0
+        if c and c.get("status") not in ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT"):
+            st, tx = "DONE", f"Call முடிந்தது — {c.get('status')} · ₹{c.get('pnl_lot') or 0:+,.0f}/lot"
+        elif sl and ltp <= sl:
+            st, tx = "INVALID", f"LTP ₹{ltp} SL ₹{sl}-க்கு கீழ் — இந்த setup முடிஞ்சது, வேண்டாம்"
+        elif mv <= MMLIVE["ok"]:
+            st, tx = "OK", f"Entry zone ₹{ref:g}–₹{ref * (1 + MMLIVE['ok']):.2f} — இப்போ ₹{ltp} ({mv * 100:+.1f}%) ✅ எடுக்கலாம் (SL ₹{sl:g})"
+        elif mv <= MMLIVE["late"]:
+            st, tx = "SLIGHT", f"₹{ref:g}-ல் இருந்து {mv * 100:+.1f}% ஓடிருக்கு — limit order ₹{ref * 1.03:.2f}-ல் போடுங்க, chase வேண்டாம்"
+        else:
+            st, tx = "LATE", f"{mv * 100:+.1f}% ஓடிடுச்சு (₹{ref:g} → ₹{ltp}) — late, இப்போ வேண்டாம். ₹{ref * 1.05:.2f}-க்கு pullback வந்தா மட்டும்"
+        p["live"] = {"first_time": f["time"], "first_opt": f["opt"], "first_stock": f["stock"], "ref": round(ref, 2), "ltp": round(float(ltp), 2),
+                     "move": round(mv * 100, 1), "status": st, "text": tx,
+                     "call": {"id": c["id"], "time": c.get("time"), "entry": c.get("entry"), "status": c.get("status")} if c else None}
 
 
 def run_movers(ag, inst, live_q, res, now, live):

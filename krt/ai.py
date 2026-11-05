@@ -174,6 +174,10 @@ UPGRADES = {"Goki Mannan Jackpot": "V8: 9/9 + score 70 + 15m vol 2× + NIFTY + l
 def optimize(calls, min_n=8):
     """ஒவ்வொரு module-க்கும்: எந்த feature-bucket (நேரம் / score / volume / trend / velocity / range / OI) நஷ்டம்
     (charges சேர்த்து expectancy < 0, win% module-ஐ விட 8% கம்மி, ≥12 calls) → அதை block. Module மொத்தமா நஷ்டம் (≥25 calls) → pause."""
+    PREC = {}                                       # module → pink tag ஆன முடிந்த calls P/L (நேர வரிசை)
+    for c_ in sorted((x for x in (calls or []) if x.get("pink") and x.get("status") not in ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")),
+                     key=lambda x: str(x.get("exit_time") or x.get("date"))):
+        PREC.setdefault((c_.get("ai_from") if c_.get("kind") == "AIPICK" else None) or c_.get("source") or c_.get("kind"), []).append(c_.get("pnl_lot") or 0)
     OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
     rows = [c for c in calls if c.get("status") not in OPEN and c.get("status") not in ("VOID", "CANCELLED") and c.get("entry")
             and c.get("kind") not in ("PICK", "AIPICK")]
@@ -212,19 +216,36 @@ def optimize(calls, min_n=8):
         mods[m]["paused"] = len(L) >= 15 and (len(kn) < 8 or sum(kn) / len(kn) < 0)      # V8: 15 calls-லேயே pause
         mods[m]["retired"] = RETIRED.get(m)
         mods[m]["upgrade"] = UPGRADES.get(m)
-        mods[m]["pink"] = pink_tier(mods[m])
+        mods[m]["pink"] = pink_tier(mods[m], PREC.get(m))
     STATE["opt"] = {"mods": mods, "blocks": blocks, "pink_cfg": PINK}
+    STATE["pink_rec"] = {k: v[-PINK["prob_look"]:] for k, v in PREC.items()}
     return STATE["opt"]
 
 
 # 🩷 PINK ALERT — நல்லா வேலை செய்யும் strategy-ன் call (stock / index / commodity எதுவானாலும்)
 # win ≥75% = light pink · ≥80% = dark pink. ஆனா: charges சேர்த்து லாபம் (avg > 0) கட்டாயம், ≥5 முடிந்த calls.
 # 20 calls-க்கு குறைவு = "sample small" — light pink மட்டும் (4/5 win luck-ஆவும் இருக்கலாம்).
-PINK = {"light": 75, "dark": 80, "min_n": 5, "proven_n": 20}
+# 🩷 PINK v2 (v86) — v78-ல் 5 calls-ல் 4 win = pink ஆச்சு → 05-11 அன்று 3/3 SL. இப்போ statistics-ஆ நேர்மை:
+#   • min 10 முடிந்த calls (dark = 20+) · charges சேர்த்து லாபம் கட்டாயம்
+#   • Wilson lower bound (95%) — "sample size-ஐ வச்சு குறைஞ்சபட்சம் எவ்வளவு win %" ≥55% (dark ≥62%)
+#   • Pink probation: module-ன் கடைசி 6 pink calls-ல் 4+ நஷ்டம் → pink நிறுத்தம்
+#   • Call-level: market திசைக்கு எதிர் / trend நாளில் mean-reversion counter-trend → pink இல்லை
+PINK = {"light": 75, "dark": 80, "min_n": 10, "proven_n": 20, "lb_light": 0.55, "lb_dark": 0.62, "prob_look": 6, "prob_loss": 4}
+MR_WORDS = ("mean reversion", "vwap2sd", "reversal", "fade")
 
 
-def pink_tier(md):
-    """Module stats → None / {"tier": "light"|"dark", "win", "n", "small"}."""
+def wilson(w, n, z=1.96):
+    if not n:
+        return 0.0
+    p = w / n
+    d = 1 + z * z / n
+    c = p + z * z / (2 * n)
+    r = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
+    return (c - r) / d
+
+
+def pink_tier(md, recent=None):
+    """Module stats (+ அதன் கடைசி pink calls result) → None / {"tier", "win", "n", "lb", "small"}."""
     if not md or md.get("paused") or md.get("retired"):
         return None
     af = md.get("after_filters") or {}
@@ -232,9 +253,28 @@ def pink_tier(md):
     n, win, exp = (af["n"], af["win"], af.get("exp")) if use_af else (md.get("n") or 0, md.get("win") or 0, md.get("exp"))
     if n < PINK["min_n"] or exp is None or exp <= 0 or win < PINK["light"]:
         return None
+    lb = wilson(round(win / 100 * n), n)
+    if lb < PINK["lb_light"]:
+        return None
+    rec = [x for x in (recent or [])][-PINK["prob_look"]:]
+    if len(rec) >= PINK["prob_look"] and sum(1 for x in rec if x <= 0) >= PINK["prob_loss"]:
+        return None                                  # 🩷 probation — pink calls உண்மையில் தோக்குது
     small = n < PINK["proven_n"]
-    tier = "dark" if (win >= PINK["dark"] and not small) else "light"
-    return {"tier": tier, "win": win, "n": n, "exp": exp, "small": small}
+    tier = "dark" if (win >= PINK["dark"] and not small and lb >= PINK["lb_dark"]) else "light"
+    return {"tier": tier, "win": win, "n": n, "exp": exp, "small": small, "lb": round(lb * 100)}
+
+
+def pink_gate(c, mod_name=""):
+    """Call-level: market திசை எதிர் / பெரிய trend நாளில் counter-trend mean-reversion → pink block காரணம் (இல்லைன்னா None)."""
+    r = STATE.get("risk") or {}
+    d, npct = r.get("dir"), r.get("nifty") or 0
+    ce = c.get("side") == "CE"
+    if c.get("exch") != "MCX":
+        if d and (d == "UP") != ce:
+            return f"Market {'⬆' if d == 'UP' else '⬇'} எதிர் பக்கம்"
+        if abs(npct) >= 1.0 and (npct > 0) != ce and any(w in str(mod_name).lower() for w in MR_WORDS):
+            return f"NIFTY {npct:+.1f}% trend நாள் — mean-reversion counter-trend"
+    return None
 
 
 def pink_of(c):
@@ -256,6 +296,11 @@ def pink_scan(store, lock, now, send):
                 continue
             pk = pink_of(c)
             if not pk:
+                continue
+            why_b = pink_gate(c, c.get("source") or c.get("kind"))
+            if why_b:
+                c["pink_block"], c["pink_sent"] = why_b, now.strftime("%H:%M")      # ஒருமுறை முடிவு — இந்த call pink இல்லை
+                store.dirty = True
                 continue
             c["pink"], c["pink_sent"] = pk, now.strftime("%H:%M")
             store.dirty = True

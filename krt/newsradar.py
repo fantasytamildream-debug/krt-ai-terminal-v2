@@ -12,7 +12,8 @@ import pandas as pd
 
 from .news import _get, match
 
-QUERIES = ["NSE Q2 results net profit", "quarterly results profit jumps revenue NSE", "bags order worth crore", "wins order contract crore NSE",
+QUERIES = ["Sensex Nifty today why market", "stock market today Sensex Nifty rally", "Sensex Nifty fall today reason", "GIFT Nifty pre-market today",
+           "NSE Q2 results net profit", "quarterly results profit jumps revenue NSE", "bags order worth crore", "wins order contract crore NSE",
            "brokerage upgrade target price stock India", "downgrade target cut stock India", "block deal NSE shares", "results miss estimates profit falls"]
 # (pattern, weight, event) — regex, பெரிய எழுத்து வேற்றுமை இல்லை
 RULES = [
@@ -36,7 +37,11 @@ MARKET = [
     (r"rbi (cuts?|slashes|lowers) (repo|rates?)|rate cut|fed (cuts?|lowers)|dovish", 3), (r"rbi (hikes?|raises)|rate hike|fed (hikes?|raises)|hawkish", -3),
     (r"fiis? (buy|bought|net buyers|pour)|foreign investors (buy|pour)|dii buying", 2), (r"fiis? (sell|sold|net sellers|dump|pull out)|foreign outflow", -2),
     (r"gdp (grows|rises|beats|jumps)|inflation (eases|cools|falls)|cpi (eases|falls)", 2), (r"gdp (slows|contracts|misses)|inflation (rises|jumps|surges)|cpi (rises|jumps)", -2),
-    (r"(sensex|nifty|markets?) (rall|surge|jump|soar|climb|hit record|record high|gain)", 2), (r"(sensex|nifty|markets?) (crash|plunge|tank|slump|fall|tumble|bleed|sink)", -2),
+    (r"(sensex|nifty|markets?|d-street|dalal street|indices) (rall|surge|jump|soar|zoom|skyrocket|rocket|spurt|climb|hit record|record high|gain|scale|extend gains)", 2),
+    (r"(sensex|nifty|markets?|d-street|dalal street|indices) (crash|plunge|tank|slump|fall|tumble|bleed|sink|nosedive|crack|slide|extend losses)", -2),
+    (r"(sensex|nifty)[^.]{0,40}\b(up|jumps?|surges?|gains?|rises?|zooms?|soars?|rall(y|ies)|climbs?) (over |nearly |about |more than )?[\d,]{3,6} ?(pts|points)", 3),
+    (r"(sensex|nifty)[^.]{0,40}\b(down|falls?|drops?|slumps?|tanks?|crash(es)?|plunges?|tumbles?|sheds?|loses?) (over |nearly |about |more than )?[\d,]{3,6} ?(pts|points)", -3),
+    (r"bulls? (charge|run|rampage|take charge)|biggest (single[- ]day )?(gain|rally|jump)|best day in", 2), (r"bears? (grip|tighten|rampage|maul)|biggest (single[- ]day )?(fall|loss|crash)|worst day in|bloodbath", -2),
     (r"wall street (rall|gain|surge|jump)|dow (gains|jumps|rallies)|nasdaq (gains|jumps|rallies)", 1),
     (r"wall street (fall|slump|tumble|sink)|dow (falls|slumps|tumbles)|nasdaq (falls|slumps|tumbles)", -1),
     # GIFT Nifty = pre-market-ல் அடுத்த நாள் open-க்கு நேரடி clue → வலுவான weight
@@ -132,10 +137,13 @@ def build_focus(items, levels, live_q, mdir=None, idx_pct=None):
             side = "CE" if a["score"] > 0 else "PE"
             heads = {x["title"][:60] for x in a["all"]}
             pc = (idx_pct or {}).get(s)
-            if len(heads) < 2:
-                st, why = "WEAK", "ஒரே ஒரு headline தான் — bias-க்கு போதாது (2+ தனி news வேணும்)"
-            elif pc is not None and abs(pc) >= 0.4 and (pc > 0) != (side == "CE"):
+            agree = pc is not None and (pc > 0) == (side == "CE")
+            if pc is not None and abs(pc) >= 0.4 and not agree:
                 st, why = "CONFLICT", f"News {'positive' if side == 'CE' else 'negative'}, ஆனா {s} live {pc:+.2f}% — price-ஐ நம்புங்க, news bias-ஐ விடுங்க"
+            elif agree and abs(pc) >= 0.3 and (len(heads) >= 2 or abs(pc) >= 1.0):
+                st, why = "CONFIRMED", f"News + price ஒத்துப்போகுது — {s} live {pc:+.2f}% → {side} setups (strike கீழே)"
+            elif len(heads) < 2:
+                st, why = "WEAK", "ஒரே ஒரு headline தான் — bias-க்கு போதாது (2+ தனி news வேணும்)"
             else:
                 st, why = "BIAS", f"Market news {'positive' if side == 'CE' else 'negative'} ({len(heads)} headlines) → {s} setups-ல் {side} பக்கம் மட்டும் பாருங்க (index call news-ஐ வச்சு இல்லை)"
             out.append({"symbol": s, "side": side, "score": a["score"], "events": ["MARKET"], "news": sorted(a["all"], key=lambda x: -abs(x["score"]))[:6],
@@ -164,7 +172,104 @@ def build_focus(items, levels, live_q, mdir=None, idx_pct=None):
     return out[:CFG["max_focus"]]
 
 
-def run(ag, inst, news_items, now, send=None):
+CAUSE = re.compile(r"\b(?:on|amid|after|as|led by|driven by|tracking|following)\s+([^,;|\-–]{6,70})", re.I)
+
+
+def market_box(items, idx):
+    """📈 Price-led: NIFTY / BANKNIFTY பெரிய move (±0.8%) இருந்தா — அதுக்கு காரணமான market headlines (score இல்லைன்னாலும்)."""
+    npct = (idx.get("NIFTY") or {}).get("pct")
+    bpct = (idx.get("BANKNIFTY") or {}).get("pct")
+    mk = [x for x in items if x["symbol"] in INDEXES or re.search(r"\b(sensex|nifty|dalal|d-street|market|stocks)\b", x["title"].lower())]
+    seen, heads = set(), []
+    for x in sorted(mk, key=lambda x: -x["ts"]):
+        k = x["title"][:70]
+        if k in seen:
+            continue
+        seen.add(k)
+        heads.append(x)
+    causes = []
+    for x in heads[:12]:
+        for m in CAUSE.finditer(x["title"]):
+            c = m.group(1).strip().rstrip(".")
+            if 6 <= len(c) <= 70 and c.lower() not in [z.lower() for z in causes]:
+                causes.append(c)
+    mv = None if npct is None else ("RALLY" if npct >= 0.8 else "SELLOFF" if npct <= -0.8 else None)
+    return {"nifty": npct, "banknifty": bpct, "move": mv, "heads": heads[:8], "causes": causes[:5]}
+
+
+def setups(ag, inst, focus, idx, now, max_new=3):
+    """📰 News setups — CE / PE + strike: stock (WATCH / CONFIRMED) + index (CONFIRMED / BIAS). நாளுக்கு ஒருமுறை strike pick (cache), LTP ஒவ்வொரு run."""
+    from . import fullscan as FS
+    from . import v4 as V
+    day = str(now.date())
+    OC = CACHE.setdefault("opt", {})
+    for k in [k for k in OC if not k.startswith(day)]:
+        OC.pop(k, None)
+    want = [f for f in focus if (f.get("index") and f["status"] in ("CONFIRMED", "BIAS")) or (not f.get("index") and f["status"] in ("WATCH", "CONFIRMED"))][:8]
+    new = 0
+    for f in want:
+        k = f"{day}|{f['symbol']}|{f['side']}"
+        if k in OC or not ag or new >= max_new:
+            continue
+        new += 1
+        try:
+            if f.get("index"):
+                spot = (idx.get(f["symbol"]) or {}).get("spot")
+                if not spot:
+                    continue
+                o, _ = V.pick_strike(ag, inst, f["symbol"], f["side"], spot, now)
+                if not o:
+                    OC[k] = None
+                    continue
+                pl, _ = V.option_plan(o, spot, spot * (0.996 if f["side"] == "CE" else 1.004), V.settings())
+                OC[k] = {"strike": o["strike"], "expiry": o["expiry"], "lot": o["lot"], "token": o["token"], "exch": o["exch"], "contract": o.get("contract"),
+                         "entry": (pl or {}).get("entry") or o.get("ltp"), "sl": (pl or {}).get("sl"), "targets": (pl or {}).get("targets") or [],
+                         "first": now.strftime("%H:%M"), "first_ul": spot}
+            else:
+                rr = {"symbol": f["symbol"], "side": f["side"], "price": f.get("ltp"), "sl": f.get("ul_sl"), "min_days": 3, "targets": []}
+                FS.pick_options(ag, inst, [rr])
+                o = rr.get("option") or {}
+                if not o.get("token"):
+                    OC[k] = None
+                    continue
+                FS.attach_plan(rr, o, now, "📰 News Radar")
+                o = rr.get("option") or o
+                pl = o.get("plan") or {}
+                OC[k] = {"strike": o["strike"], "expiry": o.get("expiry"), "lot": o.get("lot"), "token": o["token"], "exch": o.get("exch", "NFO"),
+                         "contract": o.get("contract"), "entry": pl.get("entry") or o.get("ltp"), "sl": pl.get("sl"), "targets": pl.get("targets") or [],
+                         "first": now.strftime("%H:%M"), "first_ul": f.get("ltp")}
+        except Exception:
+            OC[k] = None
+    toks = {}
+    for f in want:
+        o = OC.get(f"{day}|{f['symbol']}|{f['side']}")
+        if o:
+            toks.setdefault(o["exch"], []).append(o["token"])
+    qs = {}
+    if ag and toks:
+        try:
+            qs = ag.quotes(toks) or {}
+        except Exception:
+            qs = {}
+    out = []
+    for f in want:
+        o = OC.get(f"{day}|{f['symbol']}|{f['side']}")
+        if not o:
+            continue
+        ltp = float((qs.get(o["token"]) or {}).get("ltp") or 0) or None
+        e = float(o["entry"] or 0)
+        mv = ((ltp - e) / e * 100) if (ltp and e) else None
+        live = ("✅ Entry OK" if mv is not None and mv <= 5 else "⚠ சற்று late — limit order" if mv is not None and mv <= 12 else
+                "⏭ LATE — chase வேண்டாம்" if mv is not None else "LTP வரல")
+        if o.get("sl") and ltp and ltp <= float(o["sl"]):
+            live = "⛔ SL கீழ் — invalid"
+        out.append({"symbol": f["symbol"], "side": f["side"], "index": bool(f.get("index")), "status": f["status"], "score": f["score"],
+                    "news": (f.get("news") or [{}])[0].get("title"), "why": f.get("why"), **o, "ltp": ltp, "move": round(mv, 1) if mv is not None else None, "live": live})
+    out.sort(key=lambda x: (x["status"] != "CONFIRMED", not x["index"], -abs(x["score"])))
+    return out
+
+
+def run(ag, inst, news_items, now, send=None, full=None):
     """news_loop-ல் (60 sec) கூப்பிடும். Focus → alert (ஒருமுறை) · CONFIRMED → NEWS call (9:30–2:30, நாளைக்கு max 4)."""
     from . import fullscan as FS
     from .calls import CALLS_LOCK, STORE, _new
@@ -177,11 +282,20 @@ def run(ag, inst, news_items, now, send=None):
                 mdir = (AST.get("risk") or {}).get("dir")
             except Exception:
                 mdir = None
+            idx = {x.get("index"): x for x in ((full or {}).get("index") or [])}
+            ip = {k: v.get("pct") for k, v in idx.items() if k in INDEXES and v.get("pct") is not None}
+            if "NIFTY" not in ip:
+                try:
+                    if (AST.get("risk") or {}).get("nifty") is not None:
+                        ip["NIFTY"] = AST["risk"]["nifty"]
+                except Exception:
+                    pass
+            focus = build_focus(items, FS.C.get("levels") or {}, FS.C.get("live_q") or {}, mdir, ip or None)
+            STATE["market"] = market_box(items, idx)
             try:
-                npct = (AST.get("risk") or {}).get("nifty")
-            except Exception:
-                npct = None
-            focus = build_focus(items, FS.C.get("levels") or {}, FS.C.get("live_q") or {}, mdir, {"NIFTY": npct} if npct is not None else None)
+                STATE["setups"] = setups(ag, inst, focus, idx, now) if ag else STATE.get("setups") or []
+            except Exception as e:
+                STATE["setups_err"] = str(e)[:150]
             day, hm = str(now.date()), now.strftime("%H:%M")
             al = STATE.setdefault("alerted", {})
             for k in [k for k in al if not k.startswith(day)]:
