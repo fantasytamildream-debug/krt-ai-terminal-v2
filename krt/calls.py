@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK", "NEWS")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK", "NEWS", "PREBRK", "DSK")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 

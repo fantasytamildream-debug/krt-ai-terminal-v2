@@ -351,6 +351,12 @@ header{position:relative}
 .radarbox .rrow.AGAINST,.radarbox .rrow.LATE{opacity:.75}
 .pinkhist{border:2px solid var(--pink2);border-radius:14px;padding:8px 12px;margin:10px 0;background:rgba(219,39,119,.07)}
 .verwarn{background:#7f1d1d;color:#fff;padding:6px 10px;border-radius:8px;margin:6px 0;font-weight:700}
+.dskhead{border:2px solid #22d3ee;border-radius:14px;padding:12px 14px;background:linear-gradient(180deg,rgba(34,211,238,.12),rgba(34,211,238,.02))}
+.dskhead h2{color:#67e8f9;margin:0 0 4px}
+.ntbox{border:2px solid var(--pe);border-radius:12px;padding:10px 12px;margin:8px 0;background:rgba(239,68,68,.12)}
+.okbox{border:2px solid var(--ce);border-radius:12px;padding:10px 12px;margin:8px 0;background:rgba(34,197,94,.10)}
+.dskcard{border:2px solid #22d3ee;border-radius:14px;padding:10px 12px;margin:8px 0;background:var(--panel)}
+.layer{display:inline-block;margin:3px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:12px}
 .labbox{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.02)}
 .labbox h2{margin:0 0 6px}.labin{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .labin input{background:var(--panel);color:var(--fg,#e5e7eb);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;width:130px}
@@ -436,6 +442,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
+    <button role="tab" data-p="dsk">🎯 DSK <span id="dskCount"></span></button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -470,6 +477,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-mn" hidden></section>
   <section class="pane" id="p-lab" hidden></section>
+  <section class="pane" id="p-dsk" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
@@ -2021,6 +2029,45 @@ function explainHTML(c,J,s){
     <div class="hint dn"><b>⚠ Risks</b></div>${L(risk)}
     <div class="hint"><b>📋 Plan:</b> Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1/T2/T3 ${(c.targets||[]).map(n2).join(" / ")} · T1 hit → SL entry-க்கு · T2 → SL T1-க்கு · ${c.exch==="MCX"?"11:20 PM":"3:20 PM"} auto exit</div></details>`; }
 
+/* 🎯 DSK — Daily Select Kit: 1–3 high-quality / நாள் · Early Watch → Confirmed Entry → Exit */
+let DSKP=[];
+function paperFromDSK(i){ const x=DSKP[i]; if(!x||!x.token) return; paperGo({symbol:x.symbol,side:x.side,strike:x.strike,expiry:x.expiry,contract:x.contract,token:x.token,exch:x.exch||"NFO",lot:x.lot,ltp:x.ltp||x.entry,sl:x.sl,from_src:"🎯 DSK",src_modules:["🎯 DSK"]}); }
+function dskParts(P){ return (P||[]).map(p=>`<span class="layer" title="${esc(p[2]||"")}">${esc(p[0])} <b class="${p[1]>0?"up":p[1]<0?"dn":""}">${p[1]>0?"+":""}${p[1]}</b></span>`).join(""); }
+function dskStages(k){ const N=["👀 EARLY WATCH","✅ CONFIRMED ENTRY","🚪 EXIT"]; return `<div class="stages">${N.map((n,i)=>`<span class="s${i===0?1:i===1?3:4} ${k===i?"on":""}">${n}</span>`).join("")}</div>`; }
+function dskHTML(s){
+  DSKP=[];
+  const D=s.dsk||{}, J=D.journal||{}, W=((D.model||{}).wf)||{}, R=D.risk||{}, today=String(s.now||"").slice(0,10), rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const TD=(J.rows||[]).filter(c=>c.date===today), cnt=$("dskCount"); if(cnt) cnt.innerHTML=TD.filter(c=>OPEN_ST.includes(c.status)).length?`<b class="up">${TD.filter(c=>OPEN_ST.includes(c.status)).length}</b>`:"";
+  const NT=D.notrade||[];
+  const card=c=>{ const live=CALLMAP.get(c.id)||c, done=!OPEN_ST.includes(live.status), i=DSKP.push(live)-1, d=c.dsk||{};
+    return `<div class="dskcard"><div class="ctop"><b style="font-size:17px" class="${c.side==='CE'?'up':'dn'}">🎯 BUY ${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><span class="crate">DSK <b>${d.score??"–"}</b>/100${d.p!=null?` · ML ${Math.round(d.p*100)}%`:""}</span></div>
+      ${dskStages(done?2:1)}
+      <div class="hint">⏱ ${esc(ampm(c.time))} · exp ${esc(c.expiry||"")} · lot ${c.lot} · from ${esc(d.from_src||"")}</div>
+      <div class="crow num"><span>Entry <b>₹${n2(c.entry)}</b></span><span>SL <b class="dn">₹${n2(live.sl)}</b></span><span>LTP <b>₹${n2(live.exit??live.ltp)}</b></span><span>P/L ${plCell(live)}</span></div>
+      <div class="ctg num">${(c.targets||[]).map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">${rs((t-c.entry)*c.lot)}</b>${(live.hits||[]).some(h=>h.startsWith("T"+(j+1)+" "))?" ✅":""}</span>`).join("")}</div>
+      <div>${dskParts(d.parts)}</div>
+      <div class="hint">${done?`🚪 EXIT: ${statusCell(live)}`:`👉 ${esc(live.guide||"T1 hit → SL entry · T2 → SL T1 · 3:20 exit")}`}</div>
+      ${!done&&live.token?`<button class="pickbtn pp" onclick="paperFromDSK(${i})">📝 Paper</button>`:""}</div>`; };
+  const cand=r=>`<div class="rrow"><div class="ctop"><b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${r.strike?n2(r.strike)+" ":""}${r.side}</b><span><b>${r.score}</b>/100 · ${esc(r.stage)}</span></div>
+      <div class="hint">${esc(r.source||"")}${r.time?" · "+esc(ampm(r.time)):""}${r.level?` · level ${n2(r.level)} · LTP ${n2(r.ltp)}`:""}${r.p!=null?` · ML ${Math.round(r.p*100)}%`:""}</div><div>${dskParts(r.parts)}</div></div>`;
+  return `<div class="dskhead"><h2>🎯 DSK — Daily Select Kit</h2>
+     <div class="hint">ஒரு நாளைக்கு <b>1–3 high-quality opportunities மட்டும்</b> · <b>👀 Early Watch → ✅ Confirmed Entry → 🚪 Exit</b>. 90% success என்று பொய்யான promise இல்லை — strong signals மட்டும் select பண்ணி, paper trading + walk-forward testing மூலம் எந்த combination உண்மையில் net profit தருது என்று கண்டுபிடிக்கும். Accuracy-க்காக trade எண்ணிக்கை குறையும் — அது தான் சரியான trade-off.</div>
+     <div style="margin-top:6px"><span class="layer">🏦 Institutional Activity</span><span class="layer">🧠 Regime + Sector Strength</span><span class="layer">📈 Order Flow + Futures OI</span><span class="layer">🤖 Boosted-stumps + Logistic ensemble</span><span class="layer">🎯 Meta-label filter (walk-forward)</span><span class="layer">💰 Option premium</span><span class="layer">🛑 Adaptive risk + No-Trade</span></div>
+     <div class="hint" style="margin-top:4px">Score ≥ ${D.need||75}${D.unclear?" (market திசை தெளிவில்லை → 85 வேணும்)":""} + call stage ENTRY = CONFIRMED · ${esc(D.time||"market நேரத்தில் 60 sec-க்கு ஒருமுறை")}</div></div>
+   ${NT.length?`<div class="ntbox"><b style="font-size:16px">🛑 NO-TRADE — இப்போ புது entry வேண்டாம்</b>${NT.map(x=>`<div class="hint">• ${esc(x)}</div>`).join("")}</div>`
+     :`<div class="okbox"><b>✅ Trading allowed</b> · ${esc(R.txt||"1 lot · SL ≤ ₹2,500/lot")}${R.day_net!=null?` · இன்று ${rs(R.day_net)}`:""}</div>`}
+   <h3 class="sec">🎯 இன்றைய DSK calls (${TD.length} / ${(D.cfg||{}).max_day||3})</h3>${TD.length?TD.map(card).join(""):'<div class="cempty">இன்னும் DSK call இல்லை — CONFIRMED setup வந்ததும் இங்கே (phone notification + voice-உம் வரும்).</div>'}
+   ${(D.picks||[]).length?`<h3 class="sec">✅ CONFIRMED candidates</h3>${D.picks.map(cand).join("")}`:""}
+   <h3 class="sec">👀 EARLY WATCH</h3>${(D.watch||[]).length?D.watch.map(cand).join(""):'<div class="hint">இப்போ watch candidate இல்லை.</div>'}
+   <div class="labbox"><h2>🤖 ML ensemble + walk-forward test <small class="hint">${(D.model||{}).n||0} முடிந்த calls-ல் train</small></h2>
+     ${W.ok?`<div><b class="${W.useful?"up":"dn"}" style="font-size:16px">${W.useful?"🟢 Model ON":"⚪ Model OFF — rules மட்டும்"}</b> · AUC ${W.auc??"–"} · ${W.folds} folds</div><div class="hint">${esc(W.why)}</div>
+       <div class="hint">எல்லா calls (walk-forward பகுதி): ${W.base.n} · win ${W.base.win}% · ${rs(W.base.avg)}/call</div>
+       ${simpleTbl(W.rows||[],[["ML p ≥",r=>r.thr],["Calls",r=>r.n],["Win",r=>r.win+"%"],["Avg / call",r=>`<b class="${r.avg>=0?'up':'dn'}">${rs(r.avg)}</b>`],["Net",r=>rs(r.net)]],r=>W.best&&r.thr===W.best.thr?"uprow":"")}
+       ${((D.model||{}).imp||[]).length?`<div class="hint">முக்கிய features: ${(D.model.imp).map(x=>esc(x[0])).join(" · ")}</div>`:""}`:`<div class="hint">${esc(W.why||"Market நேரத்தில் / calls முடிந்ததும் train ஆகும்")}</div>`}
+     <div class="hint">Walk-forward = பழைய calls-ல் train → அடுத்த (பார்க்காத) calls-ல் test → முன்னேறு. எதிர்கால data leak இல்லை. Net லாபம் கூடினா மட்டும் model ON.</div></div>
+   <div class="labbox"><h2>📒 DSK journal</h2>${J.stats&&J.stats.n?`<div class="hint">${J.stats.n} முடிந்த · win ${J.stats.win}% · ${rs(J.stats.net)}</div>`:'<div class="hint">முடிந்த DSK calls வந்ததும் உண்மையான win % இங்கே.</div>'}
+     ${(J.rows||[]).length?simpleTbl(J.rows.slice(0,40),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["Score",c=>(c.dsk||{}).score??"–"],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl)],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls):""}</div>`; }
+
 /* 🧪 AI LAB */
 let LABRES=null, LABSYM="", LABLVL="";
 async function labRun(){ LABSYM=($("labSym")||{}).value||""; LABLVL=($("labLvl")||{}).value||"";
@@ -2436,7 +2483,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v87";
+const APPV="v88";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -2513,6 +2560,7 @@ function render(s){
   try{ $("callTable").innerHTML = SX("allCallsPL",()=>allCallsPL(s.full||{})); }catch(e){}
   try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
+  try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
   const _seen=new Set(), _TT=_T.filter(c=>!_seen.has(c.id)&&_seen.add(c.id));

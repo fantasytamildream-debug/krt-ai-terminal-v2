@@ -67,3 +67,40 @@ def test_exit_alerts_once_and_no_spam_on_first_sight():
     ai.exit_alerts(st, lk, now, lambda t, k: sent.append(t))
     ai.exit_alerts(st, lk, now, lambda t, k: sent.append(t))
     assert len(sent) == 2 and "TRAIL SL" in sent[1]                                      # ஒருமுறை மட்டும்
+
+
+def test_login_storm_single_login_and_retry(monkeypatch):
+    """Server restart: 10 threads ஒரே நேரத்தில் → ஒரே login. முதல் login rate error → backoff retry → success."""
+    calls = {"n": 0}
+
+    def fake_login():
+        calls["n"] += 1
+        time.sleep(0.05)
+        if calls["n"] == 1:
+            raise Exception("Couldn't parse the JSON response received from the server: b'Access denied because of exceeding access rate'")
+        return object(), {}
+    monkeypatch.setattr(AA, "angel_login", fake_login)
+    real_sleep = time.sleep
+    monkeypatch.setattr(AA.time, "sleep", lambda s: real_sleep(min(s, 0.01)))
+    ag = AA.Angel()
+    errs = []
+
+    def run():
+        try:
+            ag.ensure()
+        except Exception as e:
+            errs.append(e)
+    th = [threading.Thread(target=run) for _ in range(10)]
+    [t.start() for t in th]
+    [t.join() for t in th]
+    assert not errs and calls["n"] == 2 and ag.api is not None        # 1 fail + 1 success — 10 login இல்லை
+
+
+def test_login_failure_is_runtime_error(monkeypatch):
+    monkeypatch.setattr(AA, "angel_login", lambda: (_ for _ in ()).throw(Exception("Invalid totp")))
+    ag = AA.Angel()
+    try:
+        ag.ensure()
+        assert False
+    except RuntimeError as e:
+        assert "Invalid totp" in str(e)                                 # candles() இதை catch பண்ணும் → scan crash இல்லை

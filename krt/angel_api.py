@@ -5,17 +5,43 @@ from .data.angel_provider import angel_login
 from .instruments import ist_today
 
 
+LOGIN_LK = threading.Lock()      # முழு process-க்கும் ஒரே login
+
+
 class Angel:
     def __init__(self):
         self.api, self.day, self._last = None, None, 0.0
         self._lk = threading.Lock()
 
     def ensure(self):
+        """v88 fix: server restart-ல் 8–10 threads ஒரே நேரத்தில் login பண்ணி Angel "exceeding access rate" →
+        deep scan முழுசா நின்னுச்சு. இப்போ: ஒரே thread மட்டும் login (மற்றவை காத்திருந்து அதே session) ·
+        rate error-க்கு 5/10/20/40 sec backoff · தோல்வி = RuntimeError (scan crash ஆகாது, அந்த data மட்டும் skip)."""
         with self._lk:
-            need = self.api is None or self.day != ist_today()
-        if need:
-            self.api, _ = angel_login()
-            self.day = ist_today()
+            if self.api is not None and self.day == ist_today():
+                return
+        with LOGIN_LK:
+            with self._lk:
+                if self.api is not None and self.day == ist_today():
+                    return
+            err = None
+            for i in range(4):
+                wait = getattr(self, "_login_next", 0) - time.time()
+                if wait > 0:
+                    time.sleep(min(wait, 40))
+                try:
+                    api, _ = angel_login()
+                    with self._lk:
+                        self.api, self.day = api, ist_today()
+                    self.logins = getattr(self, "logins", 0) + 1
+                    return
+                except Exception as e:
+                    err = str(e)
+                    self._login_next = time.time() + 5 * (2 ** i)
+                    self.login_fails = getattr(self, "login_fails", 0) + 1
+                    if not any(k in err.lower() for k in ("access rate", "rate limit", "too many", "parse the json")):
+                        break
+            raise RuntimeError(f"Angel login: {err}")
 
     def _wait(self, gap):
         with self._lk:
@@ -47,7 +73,7 @@ class Angel:
         while getattr(self, "_prio", None) and time.time() < end and time.time() - getattr(self, "_prio_t", 0) < 180:
             time.sleep(0.2)
 
-    CANDLE_PER_MIN = 150          # Angel historical API ≈180/min — 150-ல் நிறுத்தி வைக்கும் (எல்லா loops சேர்த்து)
+    CANDLE_PER_MIN = 100          # v88: 150 → 100 (Angel historical API limit-க்கு நல்ல இடைவெளி · எல்லா loops சேர்த்து)
 
     def _candle_slot(self):
         """Sliding 60-sec window: நிமிடத்துக்கு CANDLE_PER_MIN-க்கு மேல் candle request போகாது (காத்திருக்கும்)."""

@@ -421,8 +421,26 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v87"
+APP_VERSION = "v88"
 LAB = {"t": 0, "d": None}
+
+
+DSKC = {"t": 0, "d": None}
+
+
+def dsk_state():
+    if time.time() - DSKC["t"] > 10:
+        try:
+            from krt import dsk as DS
+            from krt.calls import STORE as _S
+            calls = list((_S.load().get("calls") or {}).values())
+            if DS.STATE.get("time") is None:          # market மூடியிருந்தாலும் model / walk-forward காட்ட
+                DS.model(calls)
+                DS.STATE["model"] = {"wf": DS.MODEL["wf"], "n": DS.MODEL.get("n"), "imp": DS.MODEL.get("imp")}
+            DSKC.update(t=time.time(), d={**DS.STATE, "journal": DS.journal(calls), "cfg": DS.CFG})
+        except Exception as e:
+            DSKC.update(t=time.time(), d={"err": str(e)[:200]})
+    return DSKC["d"]
 
 
 def get_angel():
@@ -458,6 +476,14 @@ def prebreak_loop():
             from krt.instruments import load as load_inst
             ANGEL = ANGEL or Angel()
             AL.prebreak_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {})
+            try:                                     # 🎯 DSK — 1–3 high-quality picks
+                from krt import dsk as DS
+                from krt.ai import STATE as AST
+                from krt.calls import STORE as _S
+                lr = lab_report() or {}
+                DS.run(list((_S.load().get("calls") or {}).values()), STATE.get("full") or {}, t, AST.get("risk") or {}, lr.get("brain") or {})
+            except Exception:
+                traceback.print_exc()
         except Exception:
             traceback.print_exc()
 
@@ -768,7 +794,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
