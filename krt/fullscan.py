@@ -39,7 +39,12 @@ def _depth(q):
 def _session(q_nifty, now):
     t = (q_nifty or {}).get("exchFeedTime") or (q_nifty or {}).get("exchTradeTime")
     ts = pd.to_datetime(t, dayfirst=True, errors="coerce") if t else pd.NaT
-    session = ts.normalize() if not pd.isna(ts) else now.normalize()
+    if not pd.isna(ts):
+        session = ts.normalize()
+    else:                                   # v90: quote feed time இல்லை → கடைசி வார நாள் (Sat/Sun → Fri), இன்றைய தேதி இல்லை
+        session = now.normalize()           #      (முன்னாடி Sunday session ஆகி, save ஆன Friday cache அழிஞ்சு 218 மறுபடி load ஆச்சு)
+        while session.weekday() >= 5:
+            session -= pd.Timedelta(days=1)
     open_ = session + pd.Timedelta(hours=9, minutes=15)
     live = session.date() == now.date() and open_ <= now <= session + pd.Timedelta(hours=15, minutes=30)
     mins = max(1, min(375, int((now - open_).total_seconds() // 60))) if live else 375
@@ -49,6 +54,19 @@ def _session(q_nifty, now):
 def _vol_share(mins):
     """Intraday cumulative volume share (approx U-shape)."""
     return max(0.06, (mins / 375) ** 0.75)
+
+
+def _save_bars():
+    try:
+        from .store import BARS
+        d = export_bars()
+        if d:
+            BARS.load()
+            BARS.data = d
+            BARS.dirty = True
+            BARS.save(force=True)
+    except Exception:
+        pass
 
 
 def ensure_daily(ag, inst, names, session, prog):
@@ -64,6 +82,8 @@ def ensure_daily(ag, inst, names, session, prog):
     for i, n in enumerate(todo):
         if i % 10 == 0:
             prog(f"Daily levels {i}/{len(todo)}")
+        if i and i % 40 == 0:               # v90: 40-க்கு ஒருமுறை GitHub-ல் save — Render restart ஆனாலும் 0-ல் இருந்து இல்லை
+            _save_bars()
         tok = inst["eq"].get(n)
         df = ag.candles("NSE", tok, "ONE_DAY", start, end) if tok else pd.DataFrame()
         if df.empty:

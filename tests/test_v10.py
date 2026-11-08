@@ -104,3 +104,27 @@ def test_login_failure_is_runtime_error(monkeypatch):
         assert False
     except RuntimeError as e:
         assert "Invalid totp" in str(e)                                 # candles() இதை catch பண்ணும் → scan crash இல்லை
+
+
+def test_session_weekend_falls_back_to_friday():
+    import pandas as pd
+    sess, live, _ = FS._session(None, pd.Timestamp("2026-11-08 16:00"))      # Sunday, quote இல்லை
+    assert str(sess.date()) == "2026-11-06" and not live
+    sess, _, _ = FS._session({"exchFeedTime": "06-Nov-2026 15:30:00"}, pd.Timestamp("2026-11-08 16:00"))
+    assert str(sess.date()) == "2026-11-06"
+
+
+def test_daily_levels_saved_every_40(monkeypatch):
+    import pandas as pd
+    saves = []
+    monkeypatch.setattr(FS, "_save_bars", lambda: saves.append(len(FS.C.get("bars") or {})))
+    FS.C.update(session=None, levels={}, avgvol={}, swings={}, nifty_daily=None, feat={}, bars={}, first_seen={})
+    idx = pd.bdate_range(end="2026-11-06", periods=60)
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1e6}, index=idx)
+
+    class Ag:
+        def candles(self, *a):
+            return df.copy()
+    names = [f"S{i}" for i in range(100)]
+    FS.ensure_daily(Ag(), {"eq": {n: n for n in names}}, names, pd.Timestamp("2026-11-06"), lambda m: None)
+    assert saves == [40, 80] and len(FS.C["bars"]) == 100                   # இடையிலேயே save ஆகுது

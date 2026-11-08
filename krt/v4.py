@@ -307,7 +307,8 @@ def volume_profile(df, bins=24):
     vol = np.zeros(bins)
     for (_, r), v in zip(df.iterrows(), w.values):
         a, b = np.searchsorted(edges, r["low"], "right") - 1, np.searchsorted(edges, r["high"], "right") - 1
-        a, b = max(0, a), min(bins - 1, max(a, b))
+        a = min(max(0, a), bins - 1)              # v90: low == range top → a = bins ஆகி divide-by-zero + volume இழப்பு — clamp
+        b = min(bins - 1, max(a, b))
         vol[a:b + 1] += v / (b - a + 1)
     poc_i = int(vol.argmax())
     order = np.argsort(-vol)
