@@ -1208,6 +1208,7 @@ def run_stocks(ag, inst, full, live_q, now):
             iv = None
             try:
                 iv = (greeks_from_price(o["ltp"], r["px"], o["strike"], o["expiry"], o["type"], now.to_pydatetime()) or {}).get("iv")
+                iv = iv / 100 if iv else None          # v87 fix: greeks_from_price IV = % (30.0) · HV = fraction (0.30) → முன்னாடி ratio 100× ஆகி calls block ஆச்சு
             except Exception:
                 pass
             ratio = (iv / r["hv"]) if (iv and r.get("hv")) else None

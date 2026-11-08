@@ -421,7 +421,45 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v86"
+APP_VERSION = "v87"
+LAB = {"t": 0, "d": None}
+
+
+def get_angel():
+    global ANGEL
+    from krt.angel_api import Angel
+    ANGEL = ANGEL or Angel()
+    return ANGEL
+
+
+def lab_report():
+    if time.time() - LAB["t"] > 60:
+        try:
+            from krt import ailab as AL
+            from krt.ai import STATE as AST
+            from krt.calls import STORE as _S
+            LAB.update(t=time.time(), d=AL.report(list((_S.load().get("calls") or {}).values()), STATE.get("full") or {}, AST.get("risk") or {}))
+        except Exception as e:
+            LAB.update(t=time.time(), d={"err": str(e)[:200]})
+    return LAB["d"]
+
+
+def prebreak_loop():
+    """🔭 Pre-Breakout Radar — market நேரத்தில் 60 sec-க்கு ஒருமுறை (daily bars + live quotes; candle API call இல்லை)."""
+    global ANGEL
+    while True:
+        time.sleep(60)
+        try:
+            t = now_ist()
+            if not (angel_configured() and market_open(t)) or GOKI_RUN.get("running"):
+                continue
+            from krt import ailab as AL
+            from krt.angel_api import Angel
+            from krt.instruments import load as load_inst
+            ANGEL = ANGEL or Angel()
+            AL.prebreak_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {})
+        except Exception:
+            traceback.print_exc()
 
 
 def keepalive_loop():
@@ -730,7 +768,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(),
+                "journal": journal(), "lab": lab_report(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -757,6 +795,24 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, _json({"ok": False, "msg": "தவறான request"}))
 
+        if self.path == "/api/level":
+            try:
+                from krt import ailab as AL
+                from krt import fullscan as FS
+                from krt.angel_api import Angel
+                from krt.instruments import load as load_inst
+                if not angel_configured():
+                    return self._send(200, _json({"ok": False, "msg": "Angel One connect ஆகல"}))
+                ag_ = get_angel()
+                sym, lvl = str(d.get("symbol") or "").upper().strip(), float(d.get("level") or 0)
+                if not sym or lvl <= 0:
+                    return self._send(200, _json({"ok": False, "msg": "Symbol + level கொடுங்க (eg: VBL 430)"}))
+                q = (FS.C.get("live_q") or {}).get(sym) or {}
+                r = AL.level_lab(ag_, load_inst(ROOT / "data" / "cache"), sym, lvl, now_ist(), q.get("ltp"), q.get("vol_ratio"))
+                return self._send(200, _json({"ok": not r.get("err"), "msg": r.get("err"), "lab": r}))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"ok": False, "msg": f"Level Lab பிழை: {e}"}))
         if self.path == "/api/push/subscribe":
             try:
                 from krt import notify as NT
@@ -950,6 +1006,7 @@ if __name__ == "__main__":
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
+    threading.Thread(target=prebreak_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"
