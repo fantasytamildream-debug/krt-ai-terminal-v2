@@ -506,5 +506,91 @@ def oi_flow(oi_buildup, live_q):
 def report(calls, full, risk):
     from . import fullscan as FS
     b = battle_lab(calls)
-    return {"prebreak": STATE["prebreak"], "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
+    return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
             "oi": oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"))}
+
+
+# ───────────────────────── 🤖 AUTO LAB — ஒவ்வொரு call-க்கும் தானா history check ─────────────────────────
+SYMC = {}          # (symbol, day) → {"d1", "m5", "t"}  — symbol-க்கு நாளுக்கு 1 daily + 15 நிமிடத்துக்கு 1 5-min fetch
+AUTO = {}          # call id → verdict
+
+
+def _mirror(df):
+    """PE-க்கு: விலையை தலைகீழா (−) மாத்தி அதே 'level break hold' கணக்கு = support breakdown hold."""
+    if df is None:
+        return None
+    return pd.DataFrame({"open": -df["open"], "high": -df["low"], "low": -df["high"], "close": -df["close"], "volume": df["volume"]}, index=df.index)
+
+
+def _sym_data(ag, inst, sym, now):
+    from .instruments import INDEX_SPOT
+    day = str(now.date())
+    for k in [k for k in SYMC if k[1] != day]:
+        SYMC.pop(k, None)
+    x = SYMC.get((sym, day))
+    if x and (now - x["t"]).total_seconds() < 900:
+        return x, False
+    ex, tok = INDEX_SPOT[sym] if sym in INDEX_SPOT else ("NSE", (inst.get("eq") or {}).get(sym))
+    if not tok:
+        return None, False
+    d1 = x["d1"] if x else ag.candles(ex, tok, "ONE_DAY", now - pd.Timedelta(days=400), now)
+    m5 = ag.candles(ex, tok, "FIVE_MINUTE", now - pd.Timedelta(days=25), now)
+    x = SYMC[(sym, day)] = {"d1": d1 if d1 is not None and not d1.empty else None, "m5": m5 if m5 is not None and not m5.empty else None, "t": now}
+    return x, True
+
+
+def call_verdict(c, d1, m5, ltp, vr):
+    """Call-ன் underlying level (signal விலை) — கடந்த காலத்தில் அந்த level-ஐ அதே பக்கம் உடைச்சப்போ hold ஆச்சா / fail ஆச்சா."""
+    level = float(c.get("ul_price") or 0)
+    if not level or d1 is None:
+        return None
+    ce = c.get("side") == "CE"
+    ltp = float(ltp or level)
+    A = analyse_level(c["symbol"], level if ce else -level, d1 if ce else _mirror(d1), m5 if ce else _mirror(m5), ltp if ce else -ltp, vr)
+    n, ph, pr = A["n_events"], A["p_hold"], A["p_reject"]
+    hist = "LOW" if n < 4 else "OK" if (ph or 0) >= 55 else "BAD" if (pr or 0) >= 60 else "MIXED"
+    beyond = round((ltp - level) / level * 100 * (1 if ce else -1), 2)
+    late = beyond > max(1.5, 0.5 * A["atr_d"] / level * 100)
+    trig = f"{level:g} {'மேல்' if ce else 'கீழ்'} 5-min close + volume ≥1.5× ஆனா எடுங்க"
+    txt = {"OK": f"கடந்த {n} தடவை இந்த level-ஐ {'மேல்' if ce else 'கீழ்'} உடைச்சப்போ {ph}% hold ஆச்சு ✓",
+           "BAD": f"கடந்த {n} தடவை இந்த level-ல் {pr}% fail / reject ஆச்சு ✗",
+           "MIXED": f"கடந்த {n} தடவை: {ph}% hold · {pr}% fail — தெளிவில்லை",
+           "LOW": f"இந்த level-க்கு history குறைவு ({n} தடவை) — confirmation மட்டும் நம்புங்க"}[hist]
+    su = A.get("strong_up") or {}
+    return {"id": c["id"], "symbol": c["symbol"], "side": c["side"], "strike": c.get("strike"), "level": round(level, 2), "ltp": round(ltp, 2),
+            "hist": hist, "n": n, "p_hold": ph, "p_reject": pr, "beyond": beyond, "late": bool(late), "trigger": trig, "txt": txt,
+            "strong_up": su if ce else None, "atr_d": A["atr_d"], "time": c.get("time")}
+
+
+def autolab_run(ag, inst, now, calls, full=None, max_fetch=2):
+    """இன்றைய OPEN calls (pink / DSK / grade A முதலில்) → history verdict. API: புது symbol-க்கு மட்டும், ஒரு run-க்கு max 2."""
+    from . import fullscan as FS
+    day = str(now.date())
+    idx = {x.get("index"): x for x in (full or {}).get("index") or []}
+    todo = [c for c in calls if c.get("date") == day and c.get("status") in OPEN and not c.get("shadow") and c.get("exch") != "MCX" and c.get("ul_price")]
+    todo.sort(key=lambda c: (not c.get("pink"), c.get("kind") != "DSK", c.get("grade") != "A", str(c.get("time") or "")), reverse=False)
+    fetched = 0
+    for c in todo:
+        sym = c["symbol"]
+        if (sym, day) not in SYMC or (now - SYMC[(sym, day)]["t"]).total_seconds() >= 900:
+            if fetched >= max_fetch or not ag:
+                continue
+        try:
+            x, new = _sym_data(ag, inst, sym, now)
+        except Exception:
+            continue
+        fetched += int(bool(new))
+        if not x:
+            continue
+        q = (FS.C.get("live_q") or {}).get(sym) or {}
+        ltp = q.get("ltp") or (idx.get(sym) or {}).get("spot")
+        try:
+            v = call_verdict(c, x["d1"], x["m5"], ltp, q.get("vol_ratio"))
+        except Exception:
+            v = None
+        if v:
+            AUTO[c["id"]] = v
+    for k in [k for k in AUTO if not k.startswith(day)]:
+        AUTO.pop(k, None)
+    STATE["auto"] = {"time": now.strftime("%I:%M %p"), "rows": dict(AUTO)}
+    return STATE["auto"]

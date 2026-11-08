@@ -120,3 +120,52 @@ def test_oi_flow_meaning():
 def test_mannan_iv_unit_fixed():
     src = open(AL.__file__.replace("ailab.py", "mannan.py"), encoding="utf-8").read()
     assert "iv = iv / 100 if iv else None" in src
+
+
+def _reject_daily():
+    p = []
+    for k in range(6):
+        p += list(np.linspace(415, 428.5, 8)) + [426, 420, 416]
+    d1 = _daily(p)
+    d1.loc[d1["close"] >= 428, "high"] = 431.0
+    return d1
+
+
+def test_call_verdict_ce_bad_history_and_late():
+    c = {"id": "x", "symbol": "VBL", "side": "CE", "ul_price": 430, "strike": 435, "time": "10:30"}
+    v = AL.call_verdict(c, _reject_daily(), None, 431, 1.2)
+    assert v["hist"] == "BAD" and "fail" in v["txt"] and not v["late"] and "430 மேல்" in v["trigger"]
+    v = AL.call_verdict(c, _reject_daily(), None, 445, 1.2)
+    assert v["late"] and v["beyond"] > 3
+
+
+def test_call_verdict_pe_mirror_support_break_holds():
+    # 400 support-ஐ ஒவ்வொரு தடவையும் கீழே உடைச்சு கீழேயே இருக்கு (PE-க்கு நல்ல history)
+    p = []
+    for k in range(6):
+        p += list(np.linspace(420, 404, 8)) + [396, 392, 395, 405, 412, 418]
+    d1 = _daily(p)
+    c = {"id": "y", "symbol": "ABC", "side": "PE", "ul_price": 400, "strike": 400}
+    v = AL.call_verdict(c, d1, None, 399.5, 1.6)
+    assert v["hist"] == "OK" and v["p_hold"] >= 55 and "கீழ்" in v["trigger"]
+
+
+def test_autolab_run_budget_and_cache(monkeypatch):
+    from krt import fullscan as FS
+    AL.SYMC.clear(); AL.AUTO.clear()
+    monkeypatch.setattr(FS, "C", {"live_q": {}})
+    calls_made = []
+
+    class Ag:
+        def candles(self, ex, tok, iv, a, b):
+            calls_made.append((tok, iv))
+            return _reject_daily()
+    now = pd.Timestamp("2026-11-09 11:00")
+    calls = [{"id": f"2026-11-09|X|S{i}", "date": "2026-11-09", "symbol": f"S{i}", "side": "CE", "ul_price": 430, "status": "OPEN", "exch": "NFO",
+              "pink": i == 3, "time": "10:00"} for i in range(5)]
+    inst = {"eq": {f"S{i}": str(i) for i in range(5)}}
+    AL.autolab_run(Ag(), inst, now, calls, max_fetch=2)
+    assert len(AL.AUTO) == 2 and any(k.endswith("S3") for k in AL.AUTO)        # pink முதலில் · ஒரு run-க்கு 2 symbols
+    n1 = len(calls_made)
+    AL.autolab_run(Ag(), inst, now + pd.Timedelta(minutes=1), calls, max_fetch=2)
+    assert len(AL.AUTO) == 4 and len(calls_made) == n1 + 4                     # புது 2 symbols மட்டும் fetch (cache வேலை செய்யுது)

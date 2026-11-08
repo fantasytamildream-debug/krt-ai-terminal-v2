@@ -421,8 +421,14 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v88"
+APP_VERSION = "v89"
 LAB = {"t": 0, "d": None}
+
+
+def store_state():
+    from krt.calls import STORE as _S
+    return {"remote": _S.remote, "error": _S.error, "load_failed": bool(getattr(_S, "load_failed", False)),
+            "calls": len((_S.data or {}).get("calls") or {}), "dirty": _S.dirty}
 
 
 DSKC = {"t": 0, "d": None}
@@ -476,6 +482,12 @@ def prebreak_loop():
             from krt.instruments import load as load_inst
             ANGEL = ANGEL or Angel()
             AL.prebreak_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {})
+            try:                                     # 🤖 ஒவ்வொரு call-க்கும் தானா history verdict
+                from krt.calls import STORE as _S0
+                AL.autolab_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), STATE.get("full") or {})
+                LAB["t"] = 0
+            except Exception:
+                traceback.print_exc()
             try:                                     # 🎯 DSK — 1–3 high-quality picks
                 from krt import dsk as DS
                 from krt.ai import STATE as AST
@@ -794,7 +806,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
