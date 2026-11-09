@@ -421,7 +421,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v90"
+APP_VERSION = "v91"
 LAB = {"t": 0, "d": None}
 
 

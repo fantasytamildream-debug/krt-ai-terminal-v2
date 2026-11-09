@@ -487,7 +487,7 @@ OI_MEAN = {"Long Built Up": ("price ⬆ + OI ⬆", "புது buyers நு�
            "Long Unwinding": ("price ⬇ + OI ⬇", "buyers வெளியேறுறாங்க — bearish ஆனா குறுகிய கால", "PE")}
 
 
-def oi_flow(oi_buildup, live_q):
+def oi_flow(oi_buildup, live_q, calls=None, mdir=None):
     out = []
     for kind, rows in (oi_buildup or {}).items():
         m = OI_MEAN.get(kind)
@@ -496,18 +496,39 @@ def oi_flow(oi_buildup, live_q):
         for r in rows[:10]:
             q = (live_q or {}).get(r["symbol"]) or {}
             oi, ch = r.get("oi") or 0, r.get("oi_chg") or 0
-            out.append({"symbol": r["symbol"], "kind": kind, "pattern": m[0], "meaning": m[1], "side": m[2], "pct": r.get("pct"),
-                        "oi": oi, "oi_chg": ch, "oi_chg_pct": round(ch / (oi - ch) * 100, 1) if oi and oi != ch else None, "vr": q.get("vol_ratio"),
-                        "strong": bool(q.get("vol_ratio") and q["vol_ratio"] >= 1.5 and abs(ch) > 0)})
-    out.sort(key=lambda r: -abs(r.get("oi_chg_pct") or 0))
+            ocp = round(ch / (oi - ch) * 100, 1) if oi and oi != ch else None
+            vr = q.get("vol_ratio")
+            pct = q.get("pct") if q.get("pct") is not None else r.get("pct")
+            fresh = kind in ("Long Built Up", "Short Built Up")
+            strong = bool(vr and vr >= 1.5 and ocp is not None and abs(ocp) >= 2 and pct is not None and abs(pct) >= 1)
+            against = bool(mdir and (mdir == "UP") != (m[2] == "CE"))
+            oc = next((c for c in (calls or []) if c.get("symbol") == r["symbol"] and c.get("status") in OPEN and not c.get("shadow")), None)
+            if oc and oc.get("side") == m[2]:
+                light, ltxt = ("🟢" if oc.get("action") == "ENTRY" and not against else "🟡"), f"Call இருக்கு: {oc['symbol']} {oc.get('strike')} {oc.get('side')} · " + \
+                    ("entry zone-க்குள் ✅" if oc.get("action") == "ENTRY" else "late — pullback-க்கு காத்திருங்க" if oc.get("action") == "LATE" else str(oc.get("action") or ""))
+            elif strong and fresh and not against:
+                light, ltxt = "🟢", f"ENTRY ZONE — {m[2]} (OI {ocp:+}% + volume {vr}× + price {pct:+.2f}%) · strike-க்கு 📍 Lab"
+            elif strong and not against:
+                light, ltxt = "🟡", "Short covering / unwinding — குறுகிய கால move, 1 lot மட்டும்"
+            elif against:
+                light, ltxt = "🔴", f"Market திசை எதிர் — {m[2]} வேண்டாம்"
+            else:
+                light, ltxt = "🟡", "WATCH — volume / OI இன்னும் போதல"
+            out.append({"symbol": r["symbol"], "kind": kind, "pattern": m[0], "meaning": m[1], "side": m[2], "pct": pct,
+                        "oi": oi, "oi_chg": ch, "oi_chg_pct": ocp, "vr": vr, "strong": strong, "light": light, "ltxt": ltxt, "call": oc["id"] if oc else None})
+    out.sort(key=lambda r: ({"🟢": 0, "🟡": 1, "🔴": 2}.get(r.get("light"), 3), -abs(r.get("oi_chg_pct") or 0)))
     return out[:30]
 
 
 def report(calls, full, risk):
     from . import fullscan as FS
     b = battle_lab(calls)
+    from .calls import STORE
+    byid = {c["id"]: c for c in calls}
+    day = max((c.get("date") or "" for c in calls), default="")
     return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
-            "oi": oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"))}
+            "oi": oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"), [c for c in calls if c.get("date") == day], (risk or {}).get("dir")),
+            "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
 
 
 # ───────────────────────── 🤖 AUTO LAB — ஒவ்வொரு call-க்கும் தானா history check ─────────────────────────
@@ -562,12 +583,17 @@ def call_verdict(c, d1, m5, ltp, vr):
             "strong_up": su if ce else None, "atr_d": A["atr_d"], "time": c.get("time")}
 
 
-def autolab_run(ag, inst, now, calls, full=None, max_fetch=2):
+def autolab_run(ag, inst, now, calls, full=None, max_fetch=4):
     """இன்றைய OPEN calls (pink / DSK / grade A முதலில்) → history verdict. API: புது symbol-க்கு மட்டும், ஒரு run-க்கு max 2."""
     from . import fullscan as FS
     day = str(now.date())
     idx = {x.get("index"): x for x in (full or {}).get("index") or []}
-    todo = [c for c in calls if c.get("date") == day and c.get("status") in OPEN and not c.get("shadow") and c.get("exch") != "MCX" and c.get("ul_price")]
+    for c in calls:                         # MCX: history check இல்லை (NSE data மட்டும்) — "checking…" என்று நிக்காம தெளிவா
+        if c.get("date") == day and c.get("exch") == "MCX" and c.get("status") in OPEN and c["id"] not in AUTO:
+            AUTO[c["id"]] = {"id": c["id"], "symbol": c["symbol"], "side": c.get("side"), "hist": "NA", "n": 0, "late": False,
+                             "txt": "MCX — level history check இல்லை (commodity rules மட்டும்)", "trigger": "Entry zone-க்குள் மட்டும்", "level": None, "beyond": 0}
+    todo = [c for c in calls if c.get("date") == day and c.get("status") in OPEN and not c.get("shadow") and c.get("exch") != "MCX"
+            and c.get("ul_price") and c.get("kind") != "PICK"]
     todo.sort(key=lambda c: (not c.get("pink"), c.get("kind") != "DSK", c.get("grade") != "A", str(c.get("time") or "")), reverse=False)
     fetched = 0
     for c in todo:
@@ -592,5 +618,69 @@ def autolab_run(ag, inst, now, calls, full=None, max_fetch=2):
             AUTO[c["id"]] = v
     for k in [k for k in AUTO if not k.startswith(day)]:
         AUTO.pop(k, None)
+    try:
+        journal_picks(calls, now)
+    except Exception:
+        pass
     STATE["auto"] = {"time": now.strftime("%I:%M %p"), "rows": dict(AUTO)}
     return STATE["auto"]
+
+
+# ───────────────────────── 🏆 AI LAB PICKS — TAKE ஆன ஒவ்வொரு call-ம் date / time / targets-உடன் நிரந்தரமா ─────────────────────────
+def decide(c, v, mdir):
+    """Server-side (journal-க்கு): TAKE / WAIT / SKIP — frontend aiDecision-ன் அதே அடிப்படை."""
+    if not c or c.get("status") not in OPEN or c.get("kind") == "PICK":
+        return None
+    ce = c.get("side") == "CE"
+    if (v or {}).get("hist") == "BAD" or (v or {}).get("late") or (mdir and c.get("exch") != "MCX" and (mdir == "UP") != ce):
+        return "SKIP"
+    good = (v or {}).get("hist") == "OK" or (v and v.get("hist") in ("LOW", "MIXED", "NA") and (c.get("pink") or (c.get("grade") == "A" and (c.get("score") or 0) >= 80)))
+    return "TAKE" if c.get("action") == "ENTRY" and good else "WAIT"
+
+
+def journal_picks(calls, now):
+    from .ai import STATE as AST
+    from .calls import CALLS_LOCK, STORE
+    mdir = (AST.get("risk") or {}).get("dir")
+    day, hm = str(now.date()), now.strftime("%H:%M")
+    new = []
+    for c in calls:
+        if c.get("date") != day:
+            continue
+        d = decide(c, AUTO.get(c["id"]), mdir)
+        if d == "TAKE":
+            new.append(c)
+    if not new:
+        return 0
+    with CALLS_LOCK:
+        D = STORE.load()
+        J = D.setdefault("ailab_picks", {})
+        n = 0
+        for c in new:
+            if c["id"] in J:
+                continue
+            v = AUTO.get(c["id"]) or {}
+            J[c["id"]] = {"id": c["id"], "date": day, "time": hm, "symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"),
+                          "expiry": c.get("expiry"), "lot": c.get("lot"), "entry": c.get("ltp") or c.get("entry"), "sl": c.get("sl"),
+                          "targets": c.get("targets") or [], "source": c.get("source_label") or c.get("source"), "hist": v.get("txt"),
+                          "token": c.get("token"), "exch": c.get("exch")}
+            n += 1
+        for k in sorted(J, key=lambda k: J[k]["date"] + J[k]["time"])[:-500]:
+            J.pop(k, None)
+        if n:
+            STORE.dirty = True
+    return n
+
+
+def picks_journal(calls_by_id, picks):
+    """Journal rows + அந்த call-ன் இப்போதைய result (AI pick நேர entry-ல் இருந்து P/L)."""
+    rows = []
+    for p in sorted(picks.values(), key=lambda x: x["date"] + x["time"], reverse=True)[:200]:
+        c = calls_by_id.get(p["id"]) or {}
+        st = c.get("status") or "?"
+        px = c.get("exit") if st not in OPEN else c.get("ltp")
+        pl = round(((px or p["entry"]) - p["entry"]) * (p.get("lot") or 1)) if p.get("entry") else None
+        rows.append({**p, "status": st, "ltp": px, "pnl_lot": pl, "hits": c.get("hits") or []})
+    closed = [r for r in rows if r["status"] not in OPEN and r["pnl_lot"] is not None]
+    w = sum(r["pnl_lot"] > 0 for r in closed)
+    return {"rows": rows, "stats": {"n": len(closed), "win": round(w / len(closed) * 100) if closed else None, "net": sum(r["pnl_lot"] for r in closed)}}

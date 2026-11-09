@@ -169,3 +169,42 @@ def test_autolab_run_budget_and_cache(monkeypatch):
     n1 = len(calls_made)
     AL.autolab_run(Ag(), inst, now + pd.Timedelta(minutes=1), calls, max_fetch=2)
     assert len(AL.AUTO) == 4 and len(calls_made) == n1 + 4                     # புது 2 symbols மட்டும் fetch (cache வேலை செய்யுது)
+
+
+def test_decide_and_journal(monkeypatch):
+    from krt import calls as CL, store as SM, ai
+    from tests.test_mannan import FakeStore
+    fs = FakeStore()
+    for m in (CL, SM):
+        monkeypatch.setattr(m, "STORE", fs)
+    monkeypatch.setitem(ai.STATE, "risk", {"dir": "DOWN"})          # global-ஐ test முடிஞ்சதும் திரும்ப
+    AL.AUTO.clear()
+    day = "2026-11-09"
+    mk = lambda i, **o: {"id": f"{day}|K|{i}", "date": day, "symbol": i, "side": "PE", "status": "OPEN", "action": "ENTRY", "grade": "A", "score": 85,
+                         "entry": 10, "ltp": 10.3, "sl": 8, "targets": [12, 14, 16], "lot": 100, "strike": 100, "kind": "MOVERS", **o}
+    calls = [mk("GOODPE"), mk("BADCE", side="CE"), mk("LATEPE", action="LATE"), mk("MYPICK", kind="PICK")]
+    AL.AUTO.update({calls[0]["id"]: {"hist": "OK", "late": False}, calls[2]["id"]: {"hist": "OK", "late": False}})
+    assert AL.decide(calls[0], AL.AUTO[calls[0]["id"]], "DOWN") == "TAKE"
+    assert AL.decide(calls[1], None, "DOWN") == "SKIP"                     # market ⬇, CE
+    assert AL.decide(calls[2], AL.AUTO[calls[2]["id"]], "DOWN") == "WAIT"
+    assert AL.decide(calls[3], None, "DOWN") is None                       # My pick-ஐ judge பண்ணாது
+    assert AL.journal_picks(calls, pd.Timestamp(f"{day} 10:20")) == 1
+    J = fs.data["ailab_picks"]
+    assert list(J) == [calls[0]["id"]] and J[calls[0]["id"]]["entry"] == 10.3 and J[calls[0]["id"]]["time"] == "10:20"
+    assert AL.journal_picks(calls, pd.Timestamp(f"{day} 10:21")) == 0       # ஒருமுறை மட்டும்
+    calls[0].update(status="T2 HIT", ltp=14.3, hits=["T1 10:40", "T2 11:00"])
+    pj = AL.picks_journal({c["id"]: c for c in calls}, J)
+    assert pj["rows"][0]["pnl_lot"] == 400
+
+
+def test_oi_flow_lights():
+    calls = [{"id": "c", "symbol": "TATASTEEL", "side": "CE", "status": "OPEN", "action": "ENTRY"}]
+    f = AL.oi_flow({"Long Built Up": [{"symbol": "ASHOKLEY", "pct": 3.9, "oi": 1072, "oi_chg": 72}, {"symbol": "TATASTEEL", "pct": 2.3, "oi": 100, "oi_chg": 1}],
+                    "Short Covering": [{"symbol": "SUNPHARMA", "pct": 2.5, "oi": 1000, "oi_chg": -40}]},
+                   {"ASHOKLEY": {"vol_ratio": 2.0, "pct": 3.9}, "TATASTEEL": {"vol_ratio": 2.5}, "SUNPHARMA": {"vol_ratio": 1.6, "pct": 2.5}}, calls, "UP")
+    by = {r["symbol"]: r for r in f}
+    assert by["ASHOKLEY"]["light"] == "🟢" and "ENTRY ZONE" in by["ASHOKLEY"]["ltxt"]
+    assert by["TATASTEEL"]["call"] == "c" and "Call இருக்கு" in by["TATASTEEL"]["ltxt"]
+    assert by["SUNPHARMA"]["light"] == "🟡"                                 # short covering = குறுகிய கால
+    f2 = AL.oi_flow({"Long Built Up": [{"symbol": "ASHOKLEY", "pct": 3.9, "oi": 1072, "oi_chg": 72}]}, {"ASHOKLEY": {"vol_ratio": 2.0, "pct": 3.9}}, [], "DOWN")
+    assert f2[0]["light"] == "🔴"

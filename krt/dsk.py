@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-CFG = {"max_day": 3, "min_score": 75, "unclear_score": 85, "day_loss": -5000, "max_sl": 2, "end": "14:30", "mcx_end": "22:30",
+CFG = {"max_day": 3, "min_score": 60, "unclear_score": 70, "day_loss": -5000, "max_sl": 2, "end": "14:30", "mcx_end": "22:30",
        "retrain_sec": 1800, "min_train": 60}
 STATE = {"time": None, "picks": [], "watch": [], "notrade": [], "model": None, "risk": None, "log": []}
 MODEL = {"t": 0, "m": None, "wf": None}
