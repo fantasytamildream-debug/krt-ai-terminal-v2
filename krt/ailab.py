@@ -18,6 +18,14 @@ import pandas as pd
 from .optmath import bs, greeks_from_price, iv as _iv, years_to_expiry
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
+
+
+def _g(x):
+    """24965.65 → "24965.65" (":g" 6 digits-ல் 24965.7 ஆக்கிடும் — index level-க்கு தவறு) · 430.0 → "430"."""
+    try:
+        return ("%.2f" % float(x)).rstrip("0").rstrip(".")
+    except Exception:
+        return str(x)
 STATE = {"prebreak": {"time": None, "rows": [], "log": []}}
 
 
@@ -100,7 +108,7 @@ def best_strike(ag, inst, name, side, spot, now, ul_sl, ul_tgt, min_days=2, hold
     best = out[0] if out else None
     expl = None
     if best:
-        expl = (f"{best['moneyness']} {best['strike']:g} {side} — delta {best['delta']} (₹1 stock move = ₹{best['delta']:.2f} premium), "
+        expl = (f"{best['moneyness']} {_g(best['strike'])} {side} — delta {best['delta']} (₹1 stock move = ₹{best['delta']:.2f} premium), "
                 f"theta {best['theta_pct']}%/நாள், IV {best['iv']}%, spread {best['spread_pct']}%, RR {best['rr']} "
                 f"(target-ல் ₹{best['prem_target']} · SL-ல் ₹{best['prem_sl']}) · 1 lot risk ₹{best['risk_lot']}")
     return {"expiry": exp, "rows": out, "best": best, "explain": expl}
@@ -222,8 +230,8 @@ def analyse_level(sym, level, d1, m5, ltp=None, vr=None, ag=None, inst=None, now
     bias_txt = ("கடந்த காலத்தில் இந்த level break ஆனப்போ பெரும்பாலும் hold ஆச்சு → CE பக்கம் சாதகம்" if lean == "CE" else
                 "கடந்த காலத்தில் இந்த level-ல் பெரும்பாலும் reject ஆச்சு → PE பக்கம் சாதகம் (break confirm ஆனா மட்டும் CE)" if lean == "PE" else
                 "history தெளிவா ஒரு பக்கம் சாயல (அல்லது sample குறைவு) → confirmation candle மட்டும் follow பண்ணுங்க")
-    plan = {"ce": {"trigger": f"5-min candle {level:g}-க்கு மேல் close + volume ≥1.5×", "ul_sl": ce_sl, "ul_target": ce_t},
-            "pe": {"trigger": f"{level:g}-ஐ தொட்டு மேல் wick விட்டு கீழ் close (rejection) அல்லது {round(level - 0.1 * atr_d, 2):g}-க்கு கீழ் 5-min close",
+    plan = {"ce": {"trigger": f"5-min candle {_g(level)}-க்கு மேல் close + volume ≥1.5×", "ul_sl": ce_sl, "ul_target": ce_t},
+            "pe": {"trigger": f"{_g(level)}-ஐ தொட்டு மேல் wick விட்டு கீழ் close (rejection) அல்லது {_g(round(level - 0.1 * atr_d, 2))}-க்கு கீழ் 5-min close",
                    "ul_sl": pe_sl, "ul_target": pe_t}}
     if ag is not None and inst is not None and now is not None:
         for side, k in (("CE", "ce"), ("PE", "pe")):
@@ -236,13 +244,13 @@ def analyse_level(sym, level, d1, m5, ltp=None, vr=None, ag=None, inst=None, now
                 plan[k]["strike_err"] = str(e)[:100]
     vr_ok = vr is not None and vr >= 1.5
     if pos == "ABOVE" and vr_ok:
-        now_txt = f"✅ {level:g}-க்கு மேல் volume {vr}×-உடன் — CE trigger நடந்திருக்கலாம் (5-min close-ஐ check பண்ணுங்க)"
+        now_txt = f"✅ {_g(level)}-க்கு மேல் volume {vr}×-உடன் — CE trigger நடந்திருக்கலாம் (5-min close-ஐ check பண்ணுங்க)"
     elif pos == "ABOVE":
-        now_txt = f"⚠ {level:g}-க்கு மேல் ஆனா volume {vr or '–'}× — confirm இல்லை, fake break ஆகலாம்"
+        now_txt = f"⚠ {_g(level)}-க்கு மேல் ஆனா volume {vr or '–'}× — confirm இல்லை, fake break ஆகலாம்"
     elif pos == "AT":
-        now_txt = f"👀 {level:g}-ல் இருக்கு — அடுத்த 5-min candle தான் முடிவு (மேல் close + volume = CE · rejection = PE)"
+        now_txt = f"👀 {_g(level)}-ல் இருக்கு — அடுத்த 5-min candle தான் முடிவு (மேல் close + volume = CE · rejection = PE)"
     else:
-        now_txt = f"⏳ {level:g}-க்கு கீழ் ({(level / ltp - 1) * 100:.2f}% தூரம்) — level-க்கு வரும் வரை காத்திருங்க"
+        now_txt = f"⏳ {_g(level)}-க்கு கீழ் ({(level / ltp - 1) * 100:.2f}% தூரம்) — level-க்கு வரும் வரை காத்திருங்க"
     honest = (f"கடந்த {n_ev} தடவை இந்த level-க்கு வந்தது" + (f": {p_hold}% break hold · {p_rej}% reject/fail" if n_ev else "") +
               (" — ⚠ sample குறைவு (10-க்கு கீழ்), நம்பகம் குறைவு" if n_ev < 10 else "") +
               ". இது 'கண்டிப்பா profit' இல்லை — probability மட்டும். SL எப்போதும் கட்டாயம்.")
@@ -320,6 +328,19 @@ def prebreak_run(ag, inst, now, full=None, live=True, max_day=4):
             bu[x["symbol"]] = kind
     rows = prebreak_scan(FS.C.get("bars") or {}, FS.C.get("live_q") or {}, bu)
     P = STATE["prebreak"]
+    day = str(now.date())
+    FB = STATE.setdefault("pb_first", {})
+    for k in [k for k in FB if not k.startswith(day)]:
+        FB.pop(k, None)
+    for r in rows:                              # v92: காலையில் break ஆனதை மதியமும் "BREAKING" என்று சொல்லக்கூடாது
+        if r["status"] in ("BREAKING", "FAKE?"):
+            k = f"{day}|{r['symbol']}|{r['side']}"
+            FB.setdefault(k, now.strftime("%H:%M"))
+            r["break_time"] = FB[k]
+            mins = (now - pd.Timestamp(f"{day} {FB[k]}")).total_seconds() / 60
+            if mins > 30 or r["dist"] > 1.2:
+                r["status"] = "LATE"
+                r["why"] = [f"{FB[k]}-க்கே break ஆச்சு ({int(mins)} நிமிடம் முன்) — late, pullback / retest-க்கு காத்திருங்க"] + r["why"]
     P.update(time=now.strftime("%I:%M:%S %p"), rows=rows)
     hm, day = now.strftime("%H:%M"), str(now.date())
     if not (live and ag and "09:30" <= hm <= "14:30"):
@@ -487,6 +508,31 @@ OI_MEAN = {"Long Built Up": ("price ⬆ + OI ⬆", "புது buyers நு�
            "Long Unwinding": ("price ⬇ + OI ⬇", "buyers வெளியேறுறாங்க — bearish ஆனா குறுகிய கால", "PE")}
 
 
+OIH = {}           # symbol → [(time, oi)] — OI வேகம் (buyers / sellers கூடுறாங்களா)
+
+
+def oi_trend(sym, kind, oi, now=None):
+    import time as _t
+    now = _t.time() if now is None else now
+    H = OIH.setdefault(sym, [])
+    if not H or H[-1][1] != oi:
+        H.append((now, oi))
+    del H[:-12]
+    old = next((x for x in H if now - x[0] >= 600), None)       # ≥10 நிமிடம் பழைய point
+    if not old or not old[1]:
+        return None, "OI வேகம் — இன்னும் data சேருது (10 நிமிடம்)"
+    d = (oi - old[1]) / old[1] * 100
+    mins = int((now - old[0]) / 60)
+    who = "buyers" if kind in ("Long Built Up", "Long Unwinding") else "sellers"
+    if kind in ("Long Built Up", "Short Built Up"):
+        txt = (f"புது {who} கூடிக்கிட்டே இருக்காங்க ↑ (OI {d:+.1f}% / {mins} நிமி)" if d >= 0.5 else
+               f"{who} மெதுவா — OI நிக்குது ({d:+.1f}% / {mins} நிமி)" if d > -0.5 else f"{who} வெளியேறுறாங்க ↓ (OI {d:+.1f}% / {mins} நிமி)")
+    else:
+        txt = (f"{'sellers' if kind == 'Short Covering' else 'buyers'} வேகமா வெளியேறுறாங்க (OI {d:+.1f}% / {mins} நிமி)" if d <= -0.5 else
+               f"வெளியேற்றம் நின்னுச்சு ({d:+.1f}% / {mins} நிமி)")
+    return round(d, 2), txt
+
+
 def oi_flow(oi_buildup, live_q, calls=None, mdir=None):
     out = []
     for kind, rows in (oi_buildup or {}).items():
@@ -514,8 +560,12 @@ def oi_flow(oi_buildup, live_q, calls=None, mdir=None):
                 light, ltxt = "🔴", f"Market திசை எதிர் — {m[2]} வேண்டாம்"
             else:
                 light, ltxt = "🟡", "WATCH — volume / OI இன்னும் போதல"
+            acc, atxt = oi_trend(r["symbol"], kind, oi)
+            if light == "🟢" and acc is not None and acc <= -0.5 and kind in ("Long Built Up", "Short Built Up"):
+                light, ltxt = "🟡", ltxt + " · ஆனா OI குறையுது — momentum மெதுவாகுது"
             out.append({"symbol": r["symbol"], "kind": kind, "pattern": m[0], "meaning": m[1], "side": m[2], "pct": pct,
-                        "oi": oi, "oi_chg": ch, "oi_chg_pct": ocp, "vr": vr, "strong": strong, "light": light, "ltxt": ltxt, "call": oc["id"] if oc else None})
+                        "oi": oi, "oi_chg": ch, "oi_chg_pct": ocp, "vr": vr, "strong": strong, "light": light, "ltxt": ltxt, "call": oc["id"] if oc else None,
+                        "accel": acc, "flow": atxt})
     out.sort(key=lambda r: ({"🟢": 0, "🟡": 1, "🔴": 2}.get(r.get("light"), 3), -abs(r.get("oi_chg_pct") or 0)))
     return out[:30]
 
@@ -526,7 +576,7 @@ def report(calls, full, risk):
     from .calls import STORE
     byid = {c["id"]: c for c in calls}
     day = max((c.get("date") or "" for c in calls), default="")
-    return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
+    return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "enter": STATE.get("enter") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
             "oi": oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"), [c for c in calls if c.get("date") == day], (risk or {}).get("dir")),
             "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
 
@@ -572,7 +622,7 @@ def call_verdict(c, d1, m5, ltp, vr):
     hist = "LOW" if n < 4 else "OK" if (ph or 0) >= 55 else "BAD" if (pr or 0) >= 60 else "MIXED"
     beyond = round((ltp - level) / level * 100 * (1 if ce else -1), 2)
     late = beyond > max(1.5, 0.5 * A["atr_d"] / level * 100)
-    trig = f"{level:g} {'மேல்' if ce else 'கீழ்'} 5-min close + volume ≥1.5× ஆனா எடுங்க"
+    trig = f"{_g(level)} {'மேல்' if ce else 'கீழ்'} 5-min close + volume ≥1.5× ஆனா எடுங்க"
     txt = {"OK": f"கடந்த {n} தடவை இந்த level-ஐ {'மேல்' if ce else 'கீழ்'} உடைச்சப்போ {ph}% hold ஆச்சு ✓",
            "BAD": f"கடந்த {n} தடவை இந்த level-ல் {pr}% fail / reject ஆச்சு ✗",
            "MIXED": f"கடந்த {n} தடவை: {ph}% hold · {pr}% fail — தெளிவில்லை",
@@ -684,3 +734,250 @@ def picks_journal(calls_by_id, picks):
     closed = [r for r in rows if r["status"] not in OPEN and r["pnl_lot"] is not None]
     w = sum(r["pnl_lot"] > 0 for r in closed)
     return {"rows": rows, "stats": {"n": len(closed), "win": round(w / len(closed) * 100) if closed else None, "net": sum(r["pnl_lot"] for r in closed)}}
+
+
+# ───────────────────────── 🟢 ENTER LIST — strike + entry / SL / targets + confidence (server-side) ─────────────────────────
+ENT = {}           # day|sym|side → {strike data, first time, first entry}
+
+
+def confidence(vr, ocp, aligned, sscore, fresh, acc=None, hist_p=None):
+    """0–100 confidence SCORE (probability இல்லை) — எந்த காரணம் எவ்வளவு என்று பிரிச்சு."""
+    parts = [("Base", 45)]
+    parts.append((f"Volume {vr or 0:.1f}×", 15 if (vr or 0) >= 3 else 10 if (vr or 0) >= 2 else 4 if (vr or 0) >= 1.5 else -5))
+    if ocp is not None:
+        parts.append((f"OI {ocp:+.1f}%", 12 if abs(ocp) >= 4 else 8 if abs(ocp) >= 2 else 0))
+    if acc is not None:
+        parts.append(("OI வேகம்", 6 if acc >= 0.5 else -6 if acc <= -0.5 else 0))
+    parts.append(("Market திசை", 10 if aligned is True else -20 if aligned is False else 0))
+    parts.append((f"Strike score {sscore}", round((sscore - 50) / 5)))
+    parts.append(("Fresh" if fresh else "பழைய setup", 5 if fresh else -10))
+    if hist_p is not None:
+        parts.append((f"History {hist_p}%", round((hist_p - 50) / 3)))
+    return max(5, min(95, sum(p[1] for p in parts))), parts
+
+
+def enter_scan(ag, inst, now, full, calls, max_new=3):
+    """Pre-breakout BREAKING (fresh) + OI flow 🟢 → best strike (Greeks) → plan → confidence. நாளுக்கு ஒருமுறை strike pick, LTP ஒவ்வொரு run."""
+    from . import fullscan as FS
+    from .ai import STATE as AST
+    from .optmath import plan as _plan
+    day = str(now.date())
+    for k in [k for k in ENT if not k.startswith(day)]:
+        ENT.pop(k, None)
+    mdir = (AST.get("risk") or {}).get("dir")
+    lq = FS.C.get("live_q") or {}
+    cand = []
+    for r in (STATE.get("prebreak") or {}).get("rows") or []:
+        if r["status"] == "BREAKING" and r["score"] >= 65:
+            cand.append({"symbol": r["symbol"], "side": r["side"], "src": "🔭 Pre-breakout", "spot": r["ltp"], "ul_sl": r["ul_sl"], "ul_t": r["ul_target"],
+                         "vr": r.get("vr"), "ocp": None, "acc": None, "why": [f"Breakout {_g(r['level'])} · {r.get('break_time') or ''}"] + r["why"][1:3]})
+    for r in oi_flow((full or {}).get("oi_buildup"), lq, [c for c in calls if c.get("date") == day], mdir):
+        if r["light"] == "🟢" and not r.get("call"):
+            sp = (lq.get(r["symbol"]) or {}).get("ltp")
+            if sp:
+                ce = r["side"] == "CE"
+                cand.append({"symbol": r["symbol"], "side": r["side"], "src": f"🏦 OI flow · {r['kind']}", "spot": sp,
+                             "ul_sl": round(sp * (0.988 if ce else 1.012), 2), "ul_t": round(sp * (1.02 if ce else 0.98), 2),
+                             "vr": r.get("vr"), "ocp": r.get("oi_chg_pct"), "acc": r.get("accel"), "why": [r["ltxt"], r.get("flow") or ""]})
+    out, new, seen = [], 0, set()
+    for x in cand:
+        k = f"{day}|{x['symbol']}|{x['side']}"
+        if k in seen:
+            continue
+        seen.add(k)
+        e = ENT.get(k)
+        if e is None:
+            if not ag or new >= max_new:
+                continue
+            new += 1
+            try:
+                b = best_strike(ag, inst, x["symbol"], x["side"], x["spot"], now, x["ul_sl"], x["ul_t"], min_days=3)
+            except Exception:
+                b = {}
+            bb = (b or {}).get("best")
+            if not bb:
+                ENT[k] = {"none": True}
+                continue
+            t1 = x["ul_t"]
+            pl = _plan(bb["ltp"], x["spot"], bb["strike"], bb["expiry"], x["side"], x["ul_sl"], [t1, t1 + (t1 - x["spot"]) * 0.5, t1 + (t1 - x["spot"])],
+                       now.to_pydatetime(), bb["lot"])
+            if not pl:
+                ENT[k] = {"none": True}
+                continue
+            e = ENT[k] = {"strike": bb["strike"], "expiry": bb["expiry"], "lot": bb["lot"], "token": bb["token"], "exch": bb["exch"], "contract": bb["contract"],
+                          "moneyness": bb["moneyness"], "delta": bb["delta"], "theta_pct": bb["theta_pct"], "iv": bb["iv"], "rr": bb["rr"], "sscore": bb["score"],
+                          "entry": pl["entry"], "sl": pl["sl"], "targets": pl["targets"], "first": now.strftime("%H:%M"), "explain": b.get("explain"),
+                          "ul_sl": x["ul_sl"], "ul_t": x["ul_t"], "spot0": x["spot"]}
+        if e.get("none"):
+            continue
+        out.append((x, e))
+    toks = {}
+    for x, e in out:
+        toks.setdefault(e["exch"], []).append(e["token"])
+    qs = {}
+    if ag and toks:
+        try:
+            qs = ag.quotes(toks) or {}
+        except Exception:
+            qs = {}
+    res = []
+    for x, e in out:
+        ltp = float((qs.get(e["token"]) or {}).get("ltp") or 0) or None
+        mv = ((ltp - e["entry"]) / e["entry"] * 100) if (ltp and e["entry"]) else 0
+        fresh = (now - pd.Timestamp(f"{day} {e['first']}")).total_seconds() <= 1800
+        aligned = None if not mdir else (mdir == "UP") == (x["side"] == "CE")
+        conf, parts = confidence(x.get("vr"), x.get("ocp"), aligned, e["sscore"], fresh, x.get("acc"))
+        if ltp and ltp <= e["sl"]:
+            st, tx = "INVALID", f"LTP ₹{ltp} SL-க்கு கீழ் — வேண்டாம்"
+        elif mv > 12:
+            st, tx = "LATE", f"{mv:+.1f}% ஓடிடுச்சு — ₹{e['entry'] * 1.05:.2f}-க்கு pullback வந்தா மட்டும்"
+        elif mv < -10:
+            st, tx = "WEAK", f"Premium {mv:+.1f}% விழுந்துச்சு — setup பலவீனம்"
+        elif aligned is False:
+            st, tx = "AGAINST", "Market திசை எதிர் — வேண்டாம்"
+        else:
+            st, tx = "OK", f"✅ இப்போ entry ₹{e['entry']}–₹{e['entry'] * 1.05:.2f} (LTP ₹{ltp or e['entry']})"
+        res.append({"symbol": x["symbol"], "side": x["side"], "src": x["src"], "why": [w for w in x["why"] if w], **e, "ltp": ltp, "move": round(mv, 1),
+                    "status": st, "text": tx, "confidence": conf, "conf_parts": parts})
+    res.sort(key=lambda r: (r["status"] != "OK", -r["confidence"]))
+    STATE["enter"] = {"time": now.strftime("%I:%M %p"), "rows": res[:8]}
+    return STATE["enter"]
+
+
+# ───────────────────────── 🏦 OPTION CHAIN FLOW — எந்த strike-ல் buyers / sellers நுழையுறாங்க ─────────────────────────
+CHS = {}          # (day, token) → இன்று முதல்ல பார்த்த OI / premium (அதிலிருந்து மாற்றம்)
+
+
+def chain_tag(doi, dpx, th=3.0):
+    if doi >= th and dpx > 0:
+        return "BUYERS"              # OI ↑ + premium ↑ = புது buyers (long build)
+    if doi >= th and dpx <= 0:
+        return "WRITERS"             # OI ↑ + premium ↓ = sellers / writers நுழையுறாங்க
+    if doi <= -th and dpx > 0:
+        return "COVER"               # OI ↓ + premium ↑ = writers வெளியேறுறாங்க (short covering)
+    if doi <= -th and dpx <= 0:
+        return "UNWIND"              # OI ↓ + premium ↓ = buyers வெளியேறுறாங்க
+    return "—"
+
+
+def chain_summary(rows, spot, side=None):
+    ce = [x for x in rows if x["type"] == "CE"]
+    pe = [x for x in rows if x["type"] == "PE"]
+    if not ce or not pe:
+        return None
+    res = max(ce, key=lambda x: x["oi"])["strike"]
+    sup = max(pe, key=lambda x: x["oi"])["strike"]
+    pcr = round(sum(x["oi"] for x in pe) / max(1, sum(x["oi"] for x in ce)), 2)
+    pick = lambda L, t: sorted([x for x in L if x["tag"] == t], key=lambda x: -x["doi"])[:2]
+    cw, pw, cb, pb = pick(ce, "WRITERS"), pick(pe, "WRITERS"), pick(ce, "BUYERS"), pick(pe, "BUYERS")
+    lines = [f"Resistance (அதிக CE OI) {_g(res)} · Support (அதிக PE OI) {_g(sup)} · PCR {pcr}"]
+    if cw:
+        lines.append("🔴 CE sellers நுழையுறாங்க: " + ", ".join(f"{_g(x['strike'])} (OI {x['doi']:+.0f}%)" for x in cw) + " — மேலே தடை")
+    if pw:
+        lines.append("🟢 PE sellers நுழையுறாங்க: " + ", ".join(f"{_g(x['strike'])} (OI {x['doi']:+.0f}%)" for x in pw) + " — கீழே support உருவாகுது")
+    if cb:
+        lines.append("🟢 CE buyers நுழையுறாங்க: " + ", ".join(f"{_g(x['strike'])} (OI {x['doi']:+.0f}% · ₹ {x['dpx']:+.0f}%)" for x in cb))
+    if pb:
+        lines.append("🔴 PE buyers நுழையுறாங்க: " + ", ".join(f"{_g(x['strike'])} (OI {x['doi']:+.0f}% · ₹ {x['dpx']:+.0f}%)" for x in pb))
+    near_cw = [x for x in cw if spot <= x["strike"] <= spot * 1.02]
+    near_pw = [x for x in pw if spot * 0.98 <= x["strike"] <= spot]
+    bull = len(pw) + len(cb) - len(cw) - len(pb)
+    v = None
+    if side == "CE":
+        v = ("⛔ CE-க்கு எதிர்: மேலே " + ", ".join(f"{_g(x['strike'])}" for x in near_cw) + " CE writers — அது உடையும் வரை வேண்டாம்") if near_cw else \
+            ("✅ CE-க்கு சாதகம்: PE support + CE buyers" if bull > 0 else "😐 Chain தெளிவில்லை — price confirmation மட்டும்")
+    elif side == "PE":
+        v = ("⛔ PE-க்கு எதிர்: கீழே " + ", ".join(f"{_g(x['strike'])}" for x in near_pw) + " PE writers (support) — அது உடையும் வரை வேண்டாம்") if near_pw else \
+            ("✅ PE-க்கு சாதகம்: CE writers + PE buyers" if bull < 0 else "😐 Chain தெளிவில்லை — price confirmation மட்டும்")
+    best = None
+    want = cb if side == "CE" else pb if side == "PE" else []
+    if want:
+        best = want[0]["strike"]
+    return {"resistance": res, "support": sup, "pcr": pcr, "lines": lines, "verdict": v, "bull": bull, "buyers_strike": best}
+
+
+def chain_flow(ag, inst, sym, spot, now, side=None, steps=4):
+    from .instruments import contracts
+    exp, rows = contracts(inst, sym, 2)
+    if not rows or not spot:
+        return None
+    ks = sorted({float(r[3]) for r in rows})
+    i0 = min(range(len(ks)), key=lambda i: abs(ks[i] - spot))
+    sel = set(ks[max(0, i0 - steps): i0 + steps + 1])
+    rr = [r for r in rows if float(r[3]) in sel]
+    by = {}
+    for r in rr:
+        by.setdefault(r[6] if len(r) > 6 else "NFO", []).append(r[0])
+    qs = {}
+    for ex, toks in by.items():
+        for i in range(0, len(toks), 50):
+            try:
+                qs.update(ag.quotes({ex: toks[i:i + 50]}) or {})
+            except Exception:
+                pass
+    day, out = str(now.date()), []
+    for k in [k for k in CHS if k[0] != day]:
+        CHS.pop(k, None)
+    for r in rr:
+        q = qs.get(r[0]) or {}
+        oi, ltp = float(q.get("opnInterest") or 0), float(q.get("ltp") or 0)
+        if not ltp:
+            continue
+        f = CHS.setdefault((day, r[0]), {"oi": oi, "ltp": ltp, "t": now.strftime("%H:%M")})
+        doi = (oi - f["oi"]) / f["oi"] * 100 if f["oi"] else 0.0
+        dpx = (ltp - f["ltp"]) / f["ltp"] * 100 if f["ltp"] else 0.0
+        out.append({"strike": float(r[3]), "type": r[4], "ltp": ltp, "oi": oi, "doi": round(doi, 1), "dpx": round(dpx, 1), "tag": chain_tag(doi, dpx),
+                    "since": f["t"], "vol": int(float(q.get("tradeVolume") or 0))})
+    out.sort(key=lambda x: (x["strike"], x["type"]))
+    sm = chain_summary(out, spot, side)
+    return {"expiry": exp, "rows": out, "since": min((x["since"] for x in out), default=None), **(sm or {})}
+
+
+def enter_chains(ag, inst, now, top=4):
+    """ENTER list-ன் முதல் 4-க்கு option chain flow (1–2 quote calls / stock)."""
+    E = (STATE.get("enter") or {}).get("rows") or []
+    for r in E[:top]:
+        try:
+            r["chain"] = chain_flow(ag, inst, r["symbol"], (r.get("spot0") or 0), now, r["side"])
+        except Exception as e:
+            r["chain"] = {"err": str(e)[:80]}
+    return E
+
+
+# ───────────────────────── 📈 CHART ROOM BREAKOUT ALERT (server — browser மூடியிருந்தாலும் push) ─────────────────────────
+CHALERT = {}
+
+
+def chart_alerts(R, now, send=None):
+    """Chart call: TAKE verdict + விலை break level-ஐ கடந்தது → ஒருமுறை alert. Invalid (எதிர் level உடைஞ்சது) → exit alert."""
+    day = str(now.date())
+    for k in [k for k in CHALERT if not k.startswith(day)]:
+        CHALERT.pop(k, None)
+    out = []
+    for ch in (R or {}).get("charts") or []:
+        c, a = ch.get("call") or {}, ch.get("analysis") or {}
+        px, up, dn = a.get("px"), a.get("up_level"), a.get("dn_level")
+        if not (c.get("symbol") and px and up and dn):
+            continue
+        ce = c.get("side") != "PE"
+        trig, opp = (up, dn) if ce else (dn, up)
+        key = f"{day}|{c['symbol']}|{c.get('strike')}|{c.get('side')}"
+        brk = px > trig if ce else px < trig
+        bad = px < opp if ce else px > opp
+        if brk and (a.get("advice") or {}).get("verdict") == "TAKE" and key + "|B" not in CHALERT:
+            CHALERT[key + "|B"] = now.strftime("%H:%M")
+            msg = (f"📈 CHART BREAKOUT · BUY {c['symbol']} {c.get('strike')} {c.get('side')}\n"
+                   f"{a.get('pattern') or 'Pattern'}: {round(trig, 2)} {'மேல்' if ce else 'கீழ்'} 5-min close ✅ · Entry ₹{c.get('ltp') or c.get('entry')} · SL ₹{c.get('sl')} · "
+                   f"T1 ₹{(c.get('targets') or [None])[0]}")
+            out.append(msg)
+        elif bad and key + "|B" in CHALERT and key + "|X" not in CHALERT:
+            CHALERT[key + "|X"] = now.strftime("%H:%M")
+            out.append(f"⛔ CHART INVALID · {c['symbol']} {c.get('strike')} {c.get('side')} — {round(opp, 2)} {'கீழ்' if ce else 'மேல்'} போயிடுச்சு, exit / வேண்டாம்")
+    for m in out:
+        if send:
+            try:
+                send(m, "chart|" + m[:60], True)
+            except Exception:
+                pass
+    STATE["chart_alerts"] = [{"time": v, "key": k} for k, v in CHALERT.items()][-20:]
+    return out

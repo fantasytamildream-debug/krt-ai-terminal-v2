@@ -1484,8 +1484,8 @@ MMLIVE = {"ok": 0.05, "late": 0.12}
 
 
 def mm_live(picks, now):
-    """👑 Money Machine live நிலை: setup முதல்ல எப்போ வந்தது (நேரம் + option விலை) · call கொடுத்திருந்தா அதன் entry ·
-    இப்போ LTP அதிலிருந்து எவ்வளவு ஓடிருக்கு → ✅ ENTRY OK (+5% வரை) · ⚠ சற்று late (+12% வரை, limit order) · ⏭ LATE · ⛔ INVALID (SL கீழ்)."""
+    """👑 Money Machine live நிலை (v92): setup முதல்ல வந்த நேரம் + அந்த நேர plan (entry / SL / targets) — STRIKE-உடன் சேர்த்து.
+    Strike மாறினா புது first-seen (பழைய strike premium-ஐ புது strike-ஓட ஒப்பிடாது). Premium விழுந்தா WEAK (முன்னாடி தவறா ✅ OK சொன்னுச்சு)."""
     from .calls import STORE
     day = str(now.date())
     F = C.setdefault("mm_first", {})
@@ -1499,24 +1499,36 @@ def mm_live(picks, now):
         if not ltp:
             continue
         k = f"{day}|{p['symbol']}|{p['side']}"
-        f = F.setdefault(k, {"time": now.strftime("%H:%M"), "opt": round(float(ltp), 2), "stock": p.get("price"), "score": p.get("score"),
-                             "strike": o.get("strike")})
+        f = F.get(k)
+        moved = None
+        if f and f.get("strike") is not None and o.get("strike") is not None and f["strike"] != o.get("strike"):
+            moved = f["strike"]
+            f = None
+        if not f:
+            f = F[k] = {"time": now.strftime("%H:%M"), "opt": round(float(ltp), 2), "stock": p.get("price"), "score": p.get("score"),
+                        "strike": o.get("strike"), "sl": rp.get("sl"), "targets": list(rp.get("targets") or []), "moved_from": moved}
         c = calls.get((p["symbol"], p["side"]))
         ref = float(c["entry"]) if c else f["opt"]
-        sl = float(c["sl"]) if c else float(rp.get("sl") or 0)
+        sl = float(c["sl"]) if c else float(f.get("sl") or rp.get("sl") or 0)
+        tg = (c.get("targets") if c else f.get("targets")) or rp.get("targets") or []
         mv = (float(ltp) - ref) / ref if ref else 0
+        age = int((now - pd.Timestamp(f"{day} {f['time']}")).total_seconds() // 60)
         if c and c.get("status") not in ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT"):
             st, tx = "DONE", f"Call முடிந்தது — {c.get('status')} · ₹{c.get('pnl_lot') or 0:+,.0f}/lot"
         elif sl and ltp <= sl:
-            st, tx = "INVALID", f"LTP ₹{ltp} SL ₹{sl}-க்கு கீழ் — இந்த setup முடிஞ்சது, வேண்டாம்"
+            st, tx = "INVALID", f"LTP ₹{ltp} SL ₹{sl:g}-க்கு கீழ் — இந்த setup முடிஞ்சது, வேண்டாம்"
+        elif mv <= -0.10:
+            st, tx = "WEAK", f"Premium {mv * 100:+.1f}% விழுந்துச்சு (₹{ref:g} → ₹{ltp}) — setup பலவீனம், இப்போ வேண்டாம் (SL ₹{sl:g} அருகில்)"
         elif mv <= MMLIVE["ok"]:
             st, tx = "OK", f"Entry zone ₹{ref:g}–₹{ref * (1 + MMLIVE['ok']):.2f} — இப்போ ₹{ltp} ({mv * 100:+.1f}%) ✅ எடுக்கலாம் (SL ₹{sl:g})"
         elif mv <= MMLIVE["late"]:
             st, tx = "SLIGHT", f"₹{ref:g}-ல் இருந்து {mv * 100:+.1f}% ஓடிருக்கு — limit order ₹{ref * 1.03:.2f}-ல் போடுங்க, chase வேண்டாம்"
         else:
             st, tx = "LATE", f"{mv * 100:+.1f}% ஓடிடுச்சு (₹{ref:g} → ₹{ltp}) — late, இப்போ வேண்டாம். ₹{ref * 1.05:.2f}-க்கு pullback வந்தா மட்டும்"
+        if f.get("moved_from") is not None:
+            tx += f" · (strike {f['moved_from']:g} → {f['strike']:g} மாறிச்சு — {f['time']} முதல் புது strike)"
         p["live"] = {"first_time": f["time"], "first_opt": f["opt"], "first_stock": f["stock"], "ref": round(ref, 2), "ltp": round(float(ltp), 2),
-                     "move": round(mv * 100, 1), "status": st, "text": tx,
+                     "move": round(mv * 100, 1), "status": st, "text": tx, "sl": round(sl, 2), "targets": tg, "strike": f.get("strike"), "age": age,
                      "call": {"id": c["id"], "time": c.get("time"), "entry": c.get("entry"), "status": c.get("status")} if c else None}
 
 

@@ -1914,7 +1914,11 @@ function aiHTML(f){
      <div class="hint">${(r.why||[]).map(esc).join("<br>")}</div>
      <button class="pickbtn pp" onclick="paperFromAI(${i})">📝 Paper</button></div>`).join("")}</div>`:`<div class="hint" style="margin-top:6px">இப்போ candidate இல்லை.</div>`}
    ${(A.top_feats||[]).length?`<details class="tech"><summary>🧠 AI கத்துக்கிட்டது — எது win, எது SL</summary><div class="chk">${A.top_feats.map(([k,v,n,w])=>`<span class="up">▲ ${esc(k)}=${esc(v)} ${w}% (${n})</span>`).join("")}${(A.worst_feats||[]).map(([k,v,n,w])=>`<span class="dn">▼ ${esc(k)}=${esc(v)} ${w}% (${n})</span>`).join("")}</div></details>`:""}
-   ${AP.length?`<details class="tech" ${AP.some(c=>OPEN_ST.includes(c.status))?"open":""}><summary>📋 AI picks — result (${AP.length})</summary>${simpleTbl(AP,[["Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["AI %",c=>c.ai_p!=null?Math.round(c.ai_p*100)+"%":"learn"],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls)}</details>`:""}
+   ${(()=>{ const L=bestPicks(LAST_S||{}).filter(x=>String(x.src||"").startsWith("🤖")), top=L.find(x=>x.k==="TAKE")||L.find(x=>x.k==="WAIT");
+      if(!top) return `<div class="ntbox" style="border-color:var(--line);background:transparent"><b>🏆 TOP 1 இப்போ:</b> AI picks-ல் எடுக்கக்கூடியது இல்லை — எல்லாம் 🔴 (market திசை / AI % குறைவு). WAIT.</div>`;
+      return `<div class="${top.k==="TAKE"?"okbox":"ntbox"}" style="${top.k==="WAIT"?"border-color:#f59e0b;background:rgba(245,158,11,.10)":""}"><b style="font-size:16px">🏆 TOP 1 இப்போ: ${top.light} <span class="${top.side==='CE'?'up':'dn'}">${esc(top.symbol)} ${top.strike?n2(top.strike):""} ${top.side}</span></b>
+        ${top.entry?`<div class="num">Entry ₹${n2(top.entry)} · SL ₹${n2(top.sl)} · T ${(top.targets||[]).map(n2).join(" / ")}</div>`:""}<div class="hint">${top.k==="TAKE"?"✅ இப்போ எடுக்கலாம்":"⏳ "+esc((top.why||[])[0]||"confirmation-க்கு காத்திருங்க")}</div></div>`; })()}
+   ${AP.length?`<details class="tech" open><summary>📋 AI picks — result (${AP.length})</summary>${simpleTbl(AP,[["Time",c=>sDate(c.date,c.time)],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b>`],["AI %",c=>c.ai_p!=null?Math.round(c.ai_p*100)+"%":"learn"],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>c.targets.map(n2).join(" / ")],["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Status",statusCell],["",pbtn]],callCls)}</details>`:""}
    <div class="hint" style="margin-top:6px">⚠ இது உங்க data-வில் இருந்து statistics — LLM / guarantee இல்லை. 80% target-ஐ நோக்கி: AI win % இங்கே நேர்மையா காட்டப்படும்; 70%-க்கு கீழ் போனா threshold-ஐ உயர்த்தலாம்.</div></div>`;
 }
 let RISKLAST=null;
@@ -2052,6 +2056,11 @@ function bestPicks(s){
       entry:rp.entry,sl:rp.sl,targets:rp.targets,lot:o.lot,why:k==="TAKE"?["AI pick ready"]:k==="WAIT"?[`score ${r.score} · AI ${r.p!=null?Math.round(r.p*100)+"%":"–"} — confirmation-க்கு காத்திருங்க`]:(r.why_not||[]).slice(0,2),
       o:o.token?{symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch||"NFO",lot:o.lot,ltp:o.ltp||rp.entry,sl:rp.sl}:null}); });
   (((s.dsk||{}).picks)||[]).forEach(r=>add(r.symbol+r.side,{light:"🟢",k:"TAKE",rank:320+r.score,symbol:r.symbol,side:r.side,strike:r.strike,src:"🎯 DSK "+r.score,entry:r.entry,sl:r.sl,targets:r.targets,lot:r.lot,why:["DSK CONFIRMED"],callId:r.id}));
+  ((((s.lab||{}).enter)||{}).rows||[]).forEach(e=>{ let k=e.status==="OK"&&e.confidence>=60?"TAKE":["INVALID","AGAINST"].includes(e.status)?"SKIP":"WAIT";
+    const cv=((e.chain||{}).verdict)||""; if(k==="TAKE"&&cv.startsWith("⛔")) k="WAIT";      /* v92: option chain-ல் எதிர் sellers இருந்தா 🟢 இல்லை */
+    add(e.symbol+e.side,{light:{TAKE:"🟢",WAIT:"🟡",SKIP:"🔴"}[k],k,rank:{TAKE:330,WAIT:210,SKIP:60}[k]+e.confidence,symbol:e.symbol,side:e.side,strike:e.strike,src:e.src+` · ${e.moneyness||""} · δ ${e.delta??"–"}`,time:e.first,
+      entry:e.entry,sl:e.sl,targets:e.targets,lot:e.lot,conf:e.confidence,confParts:e.conf_parts,why:[e.text,...(e.why||[]).slice(0,2)],chain:e.chain,
+      o:{symbol:e.symbol,side:e.side,strike:e.strike,expiry:e.expiry,contract:e.contract,token:e.token,exch:e.exch,lot:e.lot,ltp:e.ltp||e.entry,sl:e.sl}}); });
   ((((s.lab||{}).prebreak)||{}).rows||[]).filter(r=>["BREAKING","NEAR"].includes(r.status)).forEach(r=>{ const al=!D||(D==="UP")===(r.side==="CE"), k=r.status==="BREAKING"&&al&&r.score>=70?"TAKE":al?"WAIT":"SKIP";
     add(r.symbol+r.side,{light:lightOf(k),k,rank:{TAKE:250,WAIT:150,SKIP:50}[k]+r.score/2,symbol:r.symbol,side:r.side,src:"🔭 Pre-breakout",level:r.level,why:[`${r.status} · level ${n2(r.level)} · LTP ${n2(r.ltp)}`+(k==="WAIT"?` — ${n2(r.level)} ${r.side==="CE"?"மேல்":"கீழ்"} 5-min close + volume ≥1.5× ஆனா`:"")]}); });
   (((s.lab||{}).oi)||[]).filter(r=>r.light==="🟢"&&!r.call).forEach(r=>add(r.symbol+r.side,{light:"🟢",k:"TAKE",rank:240+Math.abs(r.oi_chg_pct||0),symbol:r.symbol,side:r.side,src:"🏦 OI flow · "+r.kind,why:[r.ltxt],level:null}));
@@ -2059,10 +2068,14 @@ function bestPicks(s){
 }
 function bestPicksHTML(s,compact){
   BPL=[]; const L=bestPicks(s), G_=L.filter(x=>x.k==="TAKE"), W=L.filter(x=>x.k==="WAIT"), K=L.filter(x=>x.k==="SKIP"), rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const chainBox=ch=>ch&&ch.lines?`<div class="hint" style="margin-top:3px"><b>🏦 Option chain:</b> ${ch.verdict?`<b>${esc(ch.verdict)}</b>`:""}${ch.buyers_strike?` · buyers strike <b>${n2(ch.buyers_strike)}</b>`:""}</div>
+     <details class="tech"><summary>buyers / sellers strike-wise (${esc(ch.since||"")} முதல் மாற்றம்)</summary>${ch.lines.map(l=>`<div class="hint">${esc(l)}</div>`).join("")}
+     ${simpleTbl((ch.rows||[]).filter(r=>r.tag!=="—"),[["Strike",r=>`${n2(r.strike)} ${r.type}`],["Premium",r=>`₹${n2(r.ltp)} <small>(${r.dpx>=0?"+":""}${r.dpx}%)</small>`],["OI chg",r=>`${r.doi>=0?"+":""}${r.doi}%`],["யார்",r=>({BUYERS:"🟢 buyers நுழையுறாங்க",WRITERS:"🔴 sellers நுழையுறாங்க",COVER:"↗ sellers வெளியேறுறாங்க",UNWIND:"↘ buyers வெளியேறுறாங்க"})[r.tag]]])}</details>`:"";
   const row=x=>{ const i=BPL.push(x)-1; return `<div class="rrow" style="border-color:${x.k==="TAKE"?"var(--ce)":x.k==="WAIT"?"#f59e0b":"var(--pe)"}${x.k==="TAKE"?";box-shadow:0 0 16px rgba(34,197,94,.35)":""}">
      <div class="ctop"><b style="font-size:16px">${x.light} <span class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)}${x.strike?" "+n2(x.strike):""} ${x.side}</span></b><span class="hint">${esc(x.src||"")}${x.time?" · "+esc(ampm(x.time)):""}</span></div>
      ${x.entry?`<div class="crow num"><span>Entry <b>₹${n2(x.entry)}</b></span><span>SL <b class="dn">₹${n2(x.sl)}</b></span>${(x.targets||[]).length?`<span>T ${x.targets.map(n2).join(" / ")}${x.lot&&x.entry?` <small class="up">(${x.targets.map(t=>rs((t-x.entry)*x.lot)).join(" / ")})</small>`:""}</span>`:""}</div>`:""}
-     <div class="hint">${(x.why||[]).map(esc).join(" · ")}</div>
+     ${x.conf!=null?`<div style="margin:3px 0"><b class="${x.conf>=70?'up':x.conf>=55?'':'dn'}">Confidence ${x.conf}/100</b> <span class="hint">(score — probability இல்லை) · ${(x.confParts||[]).filter(p=>p[1]).map(p=>`${esc(p[0])} ${p[1]>0?"+":""}${p[1]}`).join(" · ")}</span></div>`:""}
+     <div class="hint">${(x.why||[]).map(esc).join(" · ")}</div>${chainBox(x.chain)}
      ${x.k!=="SKIP"?`<button class="pickbtn pp" onclick="paperFromBPL(${i})">${x.callId||x.o?"📝 Paper":"📍 Strike / Lab"}</button>`:""}</div>`; };
   return `<div class="labbox" style="border:2px solid var(--ce)"><h2>🏆 BEST PICK LIST — இப்போ <small class="hint">${G_.length} 🟢 · ${W.length} 🟡 · ${K.length} 🔴 · calls + AI picks + DSK + pre-breakout + OI flow ஒரே இடத்தில்</small></h2>
     <div class="hint">🟢 ENTER = இப்போ எடுக்கலாம் (entry zone + history / market சரி) · 🟡 WAIT = எழுதியிருக்கும் level / confirmation வந்தா · 🔴 SKIP = வேண்டாம் (காரணம் கீழே). Paper மட்டும்.</div>
@@ -2161,6 +2174,7 @@ function labHTML(s){
        · 5-min (25 நாள்): ${R.hist.m5.n} touch → ${R.hist.m5.held} held · ${R.hist.m5.failed} failed · ${R.hist.m5.reject} rejected · ${R.hist.m5.stall} stall</div>
      ${R.strong_up&&R.strong_up.n?`<div class="hint">🚀 கடந்த strong-up நாட்கள் (≥+3%, volume 1.5×): ${R.strong_up.n} · அடுத்த நாள் ஏறியது ${R.strong_up.next_up}% · avg ${R.strong_up.next_avg}%</div>`:""}
      <div class="hint" style="color:#fbbf24">⚠ ${esc(R.honest)}</div>
+     ${R.chain&&R.chain.lines?`<div class="rrow"><b>🏦 Option chain — யார் நுழையுறாங்க</b>${R.chain.verdict?`<div><b>${esc(R.chain.verdict)}</b></div>`:""}${R.chain.lines.map(l=>`<div class="hint">${esc(l)}</div>`).join("")}<div class="hint">(இன்று ${esc(R.chain.since||"")} முதல் OI / premium மாற்றம் — முதல் run-ல் 0%, நிமிடங்கள் போக போக தெரியும்)</div></div>`:""}
      ${planBox("CE",R.plan.ce)}${planBox("PE",R.plan.pe)}</div>`:R&&R.loading?'<div class="hint">⏳ Angel-ல் இருந்து 400 நாள் daily + 25 நாள் 5-min data எடுத்து analyse பண்ணுது…</div>':R&&R.err?`<div class="cwarn">${esc(R.err)}</div>`:"";
   const AU=Object.values(((A.auto||{}).rows)||{}), TT=(((s.full||{}).tracking||{}).today||[]).filter(c=>OPEN_ST.includes(c.status));
   const autoRows=TT.filter(c=>c.kind!=="PICK").map(c=>({c,d:aiDecision(c,s),h:(((A.auto||{}).rows)||{})[c.id]})).filter(x=>x.d).sort((a,b)=>({TAKE:0,WAIT:1,SKIP:2}[a.d.k])-({TAKE:0,WAIT:1,SKIP:2}[b.d.k]));
@@ -2186,7 +2200,7 @@ function labHTML(s){
      ${(LE.tips||[]).map(t=>`<div class="hint" style="font-size:14px">${esc(t)}</div>`).join("")||'<div class="hint">10+ முடிந்த calls உள்ள condition வந்ததும் வரும்.</div>'}</div>
    <div class="labbox"><h2>🏦 Institutional OI Flow Tracker</h2>
      <div class="hint">🟢 = இப்போ entry zone (fresh buildup + OI ≥2% + volume ≥1.5× + price ≥1% + market திசை சரி) · 🟡 = watch / குறுகிய கால · 🔴 = market எதிர்</div>
-     ${OI.length?simpleTbl(OI,[["இப்போ",r=>`<b style="font-size:16px">${r.light||""}</b><div class="hint" style="max-width:260px;white-space:normal">${esc(r.ltxt||"")}</div>`],["Stock",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)}</b>`],["Buildup",r=>`<b>${esc(r.kind)}</b><div class="hint">${esc(r.pattern)}</div>`],["Price",r=>`${r.pct>=0?"+":""}${n2(r.pct)}%`],["OI chg",r=>r.oi_chg_pct!=null?`${r.oi_chg_pct>=0?"+":""}${r.oi_chg_pct}%`:n2(r.oi_chg)],["Volume",r=>r.vr?n2(r.vr)+"×":"–"],["அர்த்தம்",r=>`<span class="hint">${esc(r.meaning)}${r.strong?" · 🔥 volume-உடன்":""}</span>`]]):'<div class="hint">Deep scan-ல் futures OI buildup வந்ததும் வரும்.</div>'}</div>`; }
+     ${OI.length?simpleTbl(OI,[["இப்போ",r=>`<b style="font-size:16px">${r.light||""}</b><div class="hint" style="max-width:260px;white-space:normal">${esc(r.ltxt||"")}</div>`],["Buyers / sellers வேகம்",r=>`<span class="${(r.accel||0)>=0.5?'up':(r.accel||0)<=-0.5?'dn':''}" style="white-space:normal">${esc(r.flow||"–")}</span>`],["Stock",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)}</b>`],["Buildup",r=>`<b>${esc(r.kind)}</b><div class="hint">${esc(r.pattern)}</div>`],["Price",r=>`${r.pct>=0?"+":""}${n2(r.pct)}%`],["OI chg",r=>r.oi_chg_pct!=null?`${r.oi_chg_pct>=0?"+":""}${r.oi_chg_pct}%`:n2(r.oi_chg)],["Volume",r=>r.vr?n2(r.vr)+"×":"–"],["அர்த்தம்",r=>`<span class="hint">${esc(r.meaning)}${r.strong?" · 🔥 volume-உடன்":""}</span>`]]):'<div class="hint">Deep scan-ல் futures OI buildup வந்ததும் வரும்.</div>'}</div>`; }
 
 /* 🚦 4 STAGES — SETUP FOUND → WAITING FOR CONFIRMATION → ENTRY CONFIRMED → INVALIDATED / AVOID */
 function stageOfCall(c,s){
@@ -2353,9 +2367,12 @@ let MMP=[];
 function paperFromMM(i){ const r=MMP[i]; if(!r||!(r.option||{}).token){ alert("Strike இன்னும் வரல"); return; } const o=r.option;
   paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"👑 Money Machine",src_modules:["Money Machine"]}); }
 function mmList(L,cols){ return (L&&L.length)?simpleTbl(L,cols):`<div class="hint">இப்போ இல்லை.</div>`; }
-function mmLiveHTML(L){ const cls={OK:"ENTRY",SLIGHT:"WAIT",LATE:"WAIT",INVALID:"EXIT",DONE:"WAIT"}[L.status]||"WAIT";
-  const head={OK:"✅ இப்போ ENTRY எடுக்கலாம்",SLIGHT:"⚠ சற்று late — limit order",LATE:"⏭ LATE — இப்போ வேண்டாம்",INVALID:"⛔ INVALID — வேண்டாம்",DONE:"✔ Call முடிந்தது"}[L.status]||L.status;
+function mmLiveHTML(L){ const cls={OK:"ENTRY",SLIGHT:"WAIT",LATE:"WAIT",WEAK:"EXIT",INVALID:"EXIT",DONE:"WAIT"}[L.status]||"WAIT";
+  const head={OK:"✅ இப்போ ENTRY எடுக்கலாம்",SLIGHT:"⚠ சற்று late — limit order",LATE:"⏭ LATE — இப்போ வேண்டாம்",WEAK:"🔻 WEAK — premium விழுது, வேண்டாம்",INVALID:"⛔ INVALID — வேண்டாம்",DONE:"✔ Call முடிந்தது"}[L.status]||L.status;
   return `<div class="mcact ${cls}" style="font-size:13px"><b>${head}</b><div class="hint" style="font-weight:400">⏱ முதல்ல வந்தது <b>${esc(ampm(L.first_time))}</b> @ ₹${n2(L.first_opt)}${L.first_stock?` (stock ${n2(L.first_stock)})`:""}${L.call?` · 📢 Call ${esc(ampm(L.call.time))} @ ₹${n2(L.call.entry)}`:""} · இப்போ ₹${n2(L.ltp)} (${L.move>=0?"+":""}${L.move}%)</div><div class="hint" style="font-weight:400">👉 ${esc(L.text)}</div></div>`; }
+function mmLatestHTML(M){ const P=(M.picks||[]).filter(x=>x.live).sort((a,b)=>String(b.live.first_time).localeCompare(String(a.live.first_time)));
+  if(!P.length) return ""; const L={OK:"🟢",SLIGHT:"🟡",LATE:"🟡",WEAK:"🔴",INVALID:"🔴",DONE:"✔"};
+  return `<div class="labbox" style="border-color:#f59e0b"><h2>🆕 Latest picks — புதுசு முதல் (இப்போ எடுக்கலாமா?)</h2>${simpleTbl(P.slice(0,12),[["",x=>`<b style="font-size:16px">${L[x.live.status]||""}</b>`],["முதல்ல வந்தது",x=>esc(ampm(x.live.first_time))+`<div class="hint">${x.live.age} நிமி முன்</div>`],["Call",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2(x.live.strike)} ${x.side}</b><div class="hint">score ${x.score}</div>`],["Entry → இப்போ",x=>`₹${n2(x.live.ref)} → ₹${n2(x.live.ltp)} <b class="${x.live.move>=0?'up':'dn'}">(${x.live.move>=0?"+":""}${x.live.move}%)</b>`],["SL / T1",x=>`<span class="dn">₹${n2(x.live.sl)}</span> / <span class="up">₹${n2((x.live.targets||[])[0])}</span>`],["என்ன பண்ணலாம்",x=>`<span class="hint" style="white-space:normal">${esc(x.live.text)}</span>`],["",x=>`<button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(x)})">📝</button>`]],x=>x.live.status==="OK"?"uprow":["WEAK","INVALID"].includes(x.live.status)?"slrow":"")}</div>`; }
 function mmHTML(f){
   const M=f.money; if(!M) return `<div class="cempty">👑 Money Machine market நேரத்தில் ~30 sec-க்கு ஒருமுறை update ஆகும்.</div>`;
   MMP=M.picks||[]; const J=M.jackpot, pc=v=>`<b class="${v>=0?'up':'dn'}">${v>0?"+":""}${n2(v)}%</b>`;
@@ -2364,7 +2381,8 @@ function mmHTML(f){
   const pick=(r,i)=>{const o=r.option||{},p=r.rp;return `<div class="earlycard ${r.score>=75?'stg':''}"><div class="ctop"><b style="font-size:16px">${esc(r.symbol)} <span class="${r.side==='CE'?'up':'dn'}">${r.side}</span></b><span class="crate">confidence <b>${r.score}%</b></span></div>
      <div class="hint">${esc(r.sector||"")} · ${r.pct>0?"+":""}${n2(r.pct)}% · ${r.score>=80?'<b class="up">HIGH</b>':r.score>=65?'<b style="color:#facc15">MEDIUM</b>':'LOW'}</div>
      ${o.strike?`<div class="mvstrike">👉 BUY <b>${esc(r.symbol)} ${n2(o.strike)} ${r.side}</b><div class="hint">${esc(o.expiry||"")} · lot ${o.lot} · LTP ₹${n2(o.ltp)}</div></div>`:`<div class="hint">Strike தேடுது…</div>`}
-     ${p?`<div class="crow num"><span>Entry <b>₹${n2(r.live?r.live.ref:p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span></div><div class="ctg num">${p.targets.map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">+₹${n2(p.t_rs[j])}</b></span>`).join("")}</div>`:""}
+     ${p?(()=>{ const L=r.live, en=L?L.ref:p.entry, sl=L?L.sl:p.sl, tg=(L&&L.targets&&L.targets.length)?L.targets:p.targets, lot=(o.lot||0);
+        return `<div class="crow num"><span>Entry <b>₹${n2(en)}</b></span><span>SL <b class="dn">₹${n2(sl)}</b></span></div><div class="ctg num">${tg.map((t,j)=>`<span>T${j+1} ${n2(t)}${lot?` <b class="up">+₹${n2(Math.round((t-en)*lot))}</b>`:""}</span>`).join("")}</div>`; })():""}
      ${r.live?mmLiveHTML(r.live):""}
      <div class="chk">${(r.why||[]).map(t=>`<span class="up">✓ ${esc(t)}</span>`).join("")}</div>
      ${o.token?`<button class="pickbtn pp" onclick="paperFromMM(${i})">📝 Paper</button>`:""}</div>`;};
@@ -2376,6 +2394,7 @@ function mmHTML(f){
     <div class="cb-stats" style="margin-top:6px"><span class="cb-stat up">↑ ${M.breadth.up}</span><span class="cb-stat dn">↓ ${M.breadth.down}</span>${M.oi.bull_pct!=null?`<span class="cb-stat up">OI Bullish ${M.oi.bull_pct}%</span><span class="cb-stat dn">OI Bearish ${M.oi.bear_pct}%</span>`:""}<span class="cb-stat">Money calls ${MC.length} · win ${cl.length?Math.round(w/cl.length*100)+"%":"–"}</span></div></div>
    ${[M.jackpot_ce,M.jackpot_pe].filter(Boolean).map(x=>`<div class="jpbanner" style="border-color:${x.side==='CE'?'#22c55e':'#ef4444'};background:${x.side==='CE'?'rgba(34,197,94,.14)':'rgba(239,68,68,.14)'}">👑 <b>${x.side} JACKPOT ALERT</b> · confidence <b>${x.score}%</b> ${x.score>=80?"(HIGH)":"(MEDIUM)"} — <b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2((x.option||{}).strike)} ${x.side}</b> · Entry ₹${n2(x.live?x.live.ref:x.rp.entry)} · SL ₹${n2(x.rp.sl)} · T ${x.rp.targets.map(n2).join(" / ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(x)})">📝 Paper</button>${x.live?mmLiveHTML(x.live):""}<div class="hint">${(x.why||[]).map(esc).join(" · ")}</div></div>`).join("")}
    ${J&&false?`<div class="jpbanner" style="border-color:#facc15;background:rgba(250,204,21,.14)">👑 <b>JACKPOT:</b> <b class="${J.side==='CE'?'up':'dn'}">${esc(J.symbol)} ${n2((J.option||{}).strike)} ${J.side}</b> · Entry ₹${n2(J.rp.entry)} · SL ₹${n2(J.rp.sl)} · T1/T2/T3 ${J.rp.targets.map(n2).join(" / ")} · score <b>${J.score}</b> — ${(J.why||[]).slice(0,4).map(esc).join(" · ")} <button class="pickbtn pp" onclick="paperFromMM(${MMP.indexOf(J)})">📝 Paper</button></div>`:`<div class="hint" style="margin:8px 0">👑 Jackpot (score ≥75) இப்போ இல்லை.</div>`}
+   ${mmLatestHTML(M)}
    <h2 class="sec up">📈 CE setups (row)</h2><div class="mmrow">${MMP.filter(r=>r.side==="CE").map(r=>pick(r,MMP.indexOf(r))).join("")||'<div class="hint">CE setup இல்லை</div>'}</div>
    <h2 class="sec dn">📉 PE setups (row)</h2><div class="mmrow">${MMP.filter(r=>r.side==="PE").map(r=>pick(r,MMP.indexOf(r))).join("")||'<div class="hint">PE setup இல்லை</div>'}</div>
    <div class="mmgrid"><div><h2 class="sec up">📈 Strong CE list</h2>${sideTbl(M.ce,"CE")}</div><div><h2 class="sec dn">📉 Strong PE list</h2>${sideTbl(M.pe,"PE")}</div></div>
@@ -2504,6 +2523,36 @@ function aiGuide(c, ch, s){
   return {k,t,sc,why:[...plus.map(x=>"✓ "+x),...minus.map(x=>"✗ "+x)]};
 }
 function aiGuideHTML(G){ return `<div class="aiguide ${G.k}"><div>🤖 AI guide</div><div class="big">${esc(G.t)}</div><div class="hint">guide score ${G.sc}/100</div><ul>${G.why.map(w=>`<li class="${w.startsWith("✓")?"up":"dn"}">${esc(w)}</li>`).join("")}</ul></div>`; }
+/* 📈 V92 Chart Room — எளிய முடிவு table + இன்றைய chart results + breakout அருகில் / உடைஞ்சது voice alert */
+function chartTopHTML(R,s){
+  const CH=R.charts||[], day=String(s.now||"").slice(0,10);
+  const rows=CH.map(ch=>{ const c=ch.call||{}, a=ch.analysis||{}, ST=stageOfChart(ch,s), G=c.strike?aiGuide(c,ch,s):null, ce=c.side!=="PE", lvl=ce?a.up_level:a.dn_level;
+    const k=ST.k===3?"🟢":ST.k===4?"🔴":(G&&(G.k==="avoid"))?"🔴":"🟡";
+    const dist=a.px&&lvl?((ce?lvl-a.px:a.px-lvl)/a.px*100):null;
+    return {c,a,ST,G,k,lvl,dist,p:ch.pred||{}}; });
+  const today=(R.preds||[]).filter(p=>p.date===day);
+  const sum={n:today.length,brk:today.filter(p=>/BROKE|TARGET|FAILED/.test(p.status)).length,ok:today.filter(p=>p.status==="TARGET ✓").length,fail:today.filter(p=>p.status==="FAILED").length};
+  return `<div class="labbox" style="border-color:var(--ce)"><h2>🧭 இப்போ என்ன பண்ணலாம் — chart முடிவு</h2>
+    ${simpleTbl(rows,[["",x=>`<b style="font-size:17px">${x.k}</b>`],["Chart / Strike",x=>`<b class="${x.c.side==='CE'?'up':'dn'}">${esc(x.c.symbol)} ${x.c.strike?n2(x.c.strike):""} ${esc(x.c.side||"")}</b><div class="hint">${esc(x.a.pattern||"")}</div>`],
+      ["முடிவு",x=>`<b>${esc(["","SETUP","WAIT","ENTRY ✅","AVOID"][x.ST.k])}</b><div class="hint" style="white-space:normal">${esc(x.ST.t)}</div>`],
+      ["Break level",x=>x.lvl?`${n2(x.lvl)}${x.dist!=null?`<div class="hint">${x.dist>0?x.dist.toFixed(2)+"% தூரம்":"தாண்டியாச்சு"}</div>`:""}`:"–"],
+      ["Entry / SL / T1",x=>x.c.entry?`₹${n2(x.c.entry)} / <span class="dn">₹${n2(x.c.sl)}</span> / <span class="up">₹${n2((x.c.targets||[])[0])}</span>`:"–"],
+      ["AI",x=>x.G?esc(x.G.t):"–"]],x=>x.k==="🟢"?"uprow":x.k==="🔴"?"slrow":"")}
+    <h3 class="sec">📋 இன்றைய chart signals — result (${sum.n} · break ${sum.brk} · target ✓ ${sum.ok} · fail ${sum.fail})</h3>
+    ${today.length?simpleTbl(today.slice(0,20),[["நேரம்",p=>esc(ampm(p.time))],["Chart",p=>`<b>${esc(p.symbol)}</b><div class="hint">${esc(p.pattern||"")} · ${p.bias==="UP"?"⬆":p.bias==="DOWN"?"⬇":"↔"}</div>`],["Levels",p=>`⬆ ${n2(p.up_level)} · ⬇ ${n2(p.dn_level)}`],
+      ["Result",p=>`<b class="${p.status==="TARGET ✓"?"up":p.status==="FAILED"?"dn":""}">${esc(p.status)}</b>${p.break_time?`<div class="hint">break ${esc(ampm(p.break_time))}${p.end_time?" · முடிவு "+esc(ampm(p.end_time)):""}</div>`:""}`],
+      ["சரியா?",p=>p.correct===true?'<b class="up">✓ direction சரி</b>':p.correct===false?'<b class="dn">✗ எதிர்</b>':"–"]],p=>p.status==="TARGET ✓"?"uprow":p.status==="FAILED"?"slrow":""):'<div class="hint">இன்னும் இல்லை.</div>'}</div>`; }
+const CHA={};
+function chartAlerts(s){ const R=s.chart||{}, day=String(s.now||"").slice(0,10);
+  (R.charts||[]).forEach(ch=>{ const c=ch.call||{}, a=ch.analysis||{}; if(!a.px) return;
+    ["up","dn"].forEach(d=>{ const lvl=d==="up"?a.up_level:a.dn_level; if(!lvl) return; const dist=Math.abs(a.px-lvl)/a.px*100, key=`${day}|${c.symbol}|${d}|${lvl}`;
+      if(dist<=0.12&&!CHA[key]){ CHA[key]=1; const t=`${c.symbol} breakout அருகில் — ${n2(lvl)} ${d==="up"?"மேல்":"கீழ்"} 5-min close ஆனா ${d==="up"?"CE":"PE"} (volume பாருங்க)`;
+        toast(`<b>⚡ ${esc(t)}</b>`,""); speak(`Get ready. ${c.symbol} near ${d==="up"?"breakout":"breakdown"} level ${Math.round(lvl)}. Wait for five minute close with volume.`); } }); });
+  (R.preds||[]).filter(p=>p.date===day).forEach(p=>{ const key=`${day}|${p.symbol}|${p.time}|${p.status}`; if(CHA[key]) return; CHA[key]=1;
+    if(!CHA.__init) return;
+    if(/BROKE/.test(p.status)) speak(`${p.symbol} ${p.status==="BROKE UP"?"breakout":"breakdown"} confirmed at ${Math.round(p.break_px||0)}. ${p.correct?"Chart direction correct.":""}`,true);
+    if(p.status==="TARGET ✓") speak(`${p.symbol} chart target hit.`); if(p.status==="FAILED") speak(`${p.symbol} breakout failed. Exit.`); });
+  CHA.__init=1; }
 let CRC=[];
 function paperFromChart(i){ const c=CRC[i]; if(!c||!c.token){ alert("Option token இல்லை"); return; }
   paperGo({symbol:c.symbol,side:c.side,strike:c.strike,expiry:c.expiry,contract:c.contract,token:c.token,exch:c.exch||"NFO",lot:c.lot,ltp:c.ltp,sl:c.sl,from_src:"📈 Chart Room",src_modules:["Chart Room"]}); }
@@ -2536,7 +2585,7 @@ function crHTML(s){
      ${trapLine(a.trap)}
      <div style="margin-top:4px">🎯 Prediction (${esc(ampm(p.time||""))}): <b>${esc(p.status||"")}</b>${p.break_time?` · break ${esc(p.break_time)} @ ${n2(p.break_px)}`:""}${p.correct!=null?(p.correct?' · <b class="up">✓ direction சரி</b>':' · <b class="dn">✗ எதிர் பக்கம்</b>'):""}</div></div></div><div>${G?aiGuideHTML(G):'<div class="aiguide"><div>🤖 AI guide</div><div class="hint">Index chart — option call வந்ததும் guide வரும்</div></div>'}</div></div></div>`;}).join("");
   const by=Object.entries(R.by_pattern||{});
-  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2>${journalHTML(s.journal)}<div class="hint" style="color:#f9a8d4"><b>V13:</b> 🚦 4 stages (Setup → Waiting → Entry confirmed → Invalidated) · 🧭 Regime (Trending / Sideways / Volatile) · 🏦 Liquidity trap tracker · 📒 Verified journal. <b>V10:</b> புது call chart மேலே · ஒவ்வொரு option call-க்கும் பக்கத்தில் 🤖 AI guide — 🏆 MUST TRY · 👍 Looking good · ⚠ Don't take · ⛔ Avoid (chart verdict + MTF + call quality + strategy win % + market திசை + late / SL அருகில்)</div>
+  return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2>${chartTopHTML(R,s)}${journalHTML(s.journal)}<div class="hint" style="color:#f9a8d4"><b>V13:</b> 🚦 4 stages (Setup → Waiting → Entry confirmed → Invalidated) · 🧭 Regime (Trending / Sideways / Volatile) · 🏦 Liquidity trap tracker · 📒 Verified journal. <b>V10:</b> புது call chart மேலே · ஒவ்வொரு option call-க்கும் பக்கத்தில் 🤖 AI guide — 🏆 MUST TRY · 👍 Looking good · ⚠ Don't take · ⛔ Avoid (chart verdict + MTF + call quality + strategy win % + market திசை + late / SL அருகில்)</div>
     <div class="hint"><b>NIFTY · BANKNIFTY · FINNIFTY · SENSEX எப்போதும்</b> + top 2 open calls — 5-min chart · 5 engines: 🏗 Market Structure (HH/HL/LH/LL, BOS/CHOCH) · 💧 Liquidity (equal highs/lows, sweeps, supply/demand zones, FVG) · 🧭 Multi-timeframe (5m/15m/1H/4H) · 🎯 Smart Entry (confluence → entry/SL/T1-T3) · 📊 Accuracy + 📐 Fibonacci · 🕯 Candlestick · 🔊 Volume · · auto-draw: S/R (pivot clusters), trendlines, VWAP, EMA20, volume · pattern (triangle / wedge / channel / range / double top-bottom / head & shoulders / flag) · call side-ஓட ஒப்பிட்டு ✅ TAKE / ⛔ AVOID / ⏳ WAIT · open call 2-க்கு குறைவுன்னா Money Machine / Strong / Movers top setup chart · ⬆⬇ break level + measured-move target · ஒவ்வொரு prediction-ம் track → accuracy. 5 நிமிடத்துக்கு ஒருமுறை (NSE + MCX நேரம்). ${esc(ampm(R.time||""))} ${R.err?`<span class="dn">${esc(R.err)}</span>`:""}</div>
     <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Predictions ${A.total??0}</span><span class="cb-stat">Break ஆனது ${A.broke??0}</span><span class="cb-stat up">Direction சரி ${pct(A.dir_ok||0,A.dir_n||0)} (${A.dir_ok??0}/${A.dir_n??0})</span><span class="cb-stat up">Target ✓ ${A.target??0}</span><span class="cb-stat dn">Failed ${A.failed??0}</span><span class="cb-stat">No break ${A.nobreak??0}</span><button class="pickbtn" onclick="chartScan()">🔄 இப்போ analyse</button></div></div>
    ${cards||`<div class="cempty">Open calls வந்ததும் top 2 chart இங்கே வரும் (NSE 9:20–3:30 · MCX இரவு வரை).</div>`}
@@ -2558,7 +2607,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v91";
+const APPV="v92";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -2642,7 +2691,7 @@ function render(s){
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
   const _seen=new Set(), _TT=_T.filter(c=>!_seen.has(c.id)&&_seen.add(c.id));
-  announceNew({tracking:{today:_TT}}); voiceTrack(_TT); riskVoice(s.full); radarVoice(s); decisionVoice(_TT,s); }catch(e){ console.error(e); }
+  announceNew({tracking:{today:_TT}}); voiceTrack(_TT); riskVoice(s.full); radarVoice(s); decisionVoice(_TT,s); chartAlerts(s); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }

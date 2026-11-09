@@ -209,6 +209,13 @@ def chart_loop():
                 continue
             done = t
             chart_once(t)
+            try:                                     # 📈 breakout / invalid → phone push + Telegram (browser மூடியிருந்தாலும்)
+                from krt import ailab as AL
+                from krt.chartroom import STATE as CRS
+                from krt.notify import both
+                AL.chart_alerts(CRS, t, both)
+            except Exception:
+                traceback.print_exc()
         except Exception as e:
             __import__("krt.chartroom", fromlist=["STATE"]).STATE["err"] = str(e)[:200]
             traceback.print_exc()
@@ -421,7 +428,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v91"
+APP_VERSION = "v92"
 LAB = {"t": 0, "d": None}
 
 
@@ -485,6 +492,8 @@ def prebreak_loop():
             try:                                     # 🤖 ஒவ்வொரு call-க்கும் தானா history verdict
                 from krt.calls import STORE as _S0
                 AL.autolab_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), STATE.get("full") or {})
+                AL.enter_scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {}, list((_S0.load().get("calls") or {}).values()))
+                AL.enter_chains(ANGEL, load_inst(ROOT / "data" / "cache"), t)      # 🏦 option chain buyers / sellers
                 LAB["t"] = 0
             except Exception:
                 traceback.print_exc()
@@ -847,6 +856,11 @@ class H(BaseHTTPRequestHandler):
                     return self._send(200, _json({"ok": False, "msg": "Symbol + level கொடுங்க (eg: VBL 430)"}))
                 q = (FS.C.get("live_q") or {}).get(sym) or {}
                 r = AL.level_lab(ag_, load_inst(ROOT / "data" / "cache"), sym, lvl, now_ist(), q.get("ltp"), q.get("vol_ratio"))
+                try:
+                    if not r.get("err"):
+                        r["chain"] = AL.chain_flow(ag_, load_inst(ROOT / "data" / "cache"), sym, r.get("ltp") or lvl, now_ist(), r.get("lean"))
+                except Exception:
+                    pass
                 return self._send(200, _json({"ok": not r.get("err"), "msg": r.get("err"), "lab": r}))
             except Exception as e:
                 traceback.print_exc()

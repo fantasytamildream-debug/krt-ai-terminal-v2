@@ -209,13 +209,13 @@ def notrade(calls, now, risk, regime):
     """🛑 இன்று புது DSK entry வேண்டாம் என்பதற்கான காரணங்கள்."""
     day, hm = str(now.date()), now.strftime("%H:%M")
     today = [c for c in calls if c.get("date") == day and not c.get("shadow") and c.get("kind") != "PICK"]
-    closed = [c for c in today if c.get("status") not in OPEN]
-    net = sum(_net(c) for c in closed)
     dsk = [c for c in today if c.get("kind") == "DSK"]
+    closed = [c for c in dsk if c.get("status") not in OPEN]          # v92: DSK-ன் சொந்த calls மட்டும் (எல்லா module paper நஷ்டம் இல்லை)
+    net = sum(_net(c) for c in closed)
     dsl = [c for c in dsk if c.get("status") == "SL HIT"]
     out = []
     if net <= CFG["day_loss"]:
-        out.append(f"இன்றைய paper நஷ்டம் ₹{net:,.0f} ≤ ₹{CFG['day_loss']:,} — நிறுத்துங்க (revenge trade வேண்டாம்)")
+        out.append(f"இன்றைய DSK நஷ்டம் ₹{net:,.0f} ≤ ₹{CFG['day_loss']:,} — நிறுத்துங்க (revenge trade வேண்டாம்)")
     if len(dsl) >= CFG["max_sl"]:
         out.append(f"DSK-ல் இன்று {len(dsl)} SL — நாள் முடிஞ்சது")
     if regime == "VOLATILE" and abs((risk or {}).get("vel") or 0) >= 0.3:
@@ -291,6 +291,13 @@ def run(calls, full, now, risk=None, brain=None, live=True):
         if r["status"] in ("NEAR", "BREAKING") and r["score"] >= 70 and not any(x["symbol"] == r["symbol"] for x in rows):
             rows.append({"symbol": r["symbol"], "side": r["side"], "source": "🔭 Pre-Breakout", "score": r["score"], "stage": "EARLY WATCH",
                          "parts": [("🔭 Pre-breakout", r["score"], " · ".join(r["why"][:3]))], "level": r["level"], "ltp": r["ltp"], "time": hm})
+    for e in ((LAB.get("enter") or {}).get("rows") or []):          # v92: 🟢 ENTER list (strike + plan உள்ளது) → DSK candidate
+        if any(x["symbol"] == e["symbol"] for x in rows):
+            continue
+        st = "CONFIRMED" if e["status"] == "OK" and e["confidence"] >= 70 else "EARLY WATCH"
+        rows.append({"symbol": e["symbol"], "side": e["side"], "strike": e["strike"], "expiry": e["expiry"], "source": e["src"], "entry": e["entry"],
+                     "sl": e["sl"], "targets": e["targets"], "ltp": e["ltp"], "lot": e["lot"], "time": e["first"], "score": e["confidence"], "p": None,
+                     "parts": [(n, v, "") for n, v in e["conf_parts"]], "stage": st, "token": e["token"], "exch": e["exch"], "enter": e})
     rows.sort(key=lambda r: (r["stage"] != "CONFIRMED", -r["score"]))
     made = []
     late_day = hm >= CFG["end"]
@@ -301,6 +308,22 @@ def run(calls, full, now, risk=None, brain=None, live=True):
             mine = [c for c in D["calls"].values() if c.get("date") == day and c.get("kind") == "DSK"]
             for r in [r for r in rows if r["stage"] == "CONFIRMED"]:
                 if len(mine) >= CFG["max_day"] or any(x["symbol"] == r["symbol"] for x in mine):
+                    continue
+                if r.get("enter"):                          # ENTER list item → நேரடி DSK call (strike + plan ஏற்கனவே)
+                    e = r["enter"]
+                    ltp_ = e.get("ltp") or e["entry"]
+                    cid = f"{day}|DSK|{e['symbol']}|{e['contract']}"
+                    D["calls"][cid] = {"id": cid, "date": day, "time": now.strftime("%H:%M"), "signal_time": str(now)[:19], "kind": "DSK", "source": "🎯 DSK",
+                                       "source_label": "🎯 DSK", "symbol": e["symbol"], "side": e["side"], "strike": e["strike"], "expiry": e["expiry"],
+                                       "lot": e["lot"], "token": e["token"], "exch": e["exch"], "contract": e["contract"], "entry": round(float(ltp_), 2),
+                                       "sl": e["sl"], "sl0": e["sl"], "targets": e["targets"], "ltp": ltp_, "status": "OPEN", "hits": [], "pnl_lot": 0,
+                                       "intraday": True, "ul_price": e.get("spot0"), "grade": "A", "score": r["score"],
+                                       "reasons": [e["src"]] + e.get("why", [])[:2] + [e.get("explain") or ""],
+                                       "dsk": {"score": r["score"], "p": None, "from": "ENTER", "from_src": e["src"], "parts": r["parts"]}}
+                    STORE.dirty = True
+                    mine.append(D["calls"][cid])
+                    made.append(cid)
+                    STATE["log"].insert(0, {"time": hm, "symbol": r["symbol"], "result": f"✅ DSK CALL (ENTER · confidence {r['score']})"})
                     continue
                 base = D["calls"].get(r["id"])
                 if not base or not base.get("ltp"):
