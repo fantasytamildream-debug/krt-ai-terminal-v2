@@ -428,7 +428,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v96"
+APP_VERSION = "v97"
 EVC = {"t": 0, "d": None}
 
 
@@ -496,6 +496,19 @@ def store_state():
             "calls": len((_S.data or {}).get("calls") or {}), "dirty": _S.dirty}
 
 
+FPC = {"t": 0, "d": None}
+
+
+def fp_state():
+    if time.time() - FPC["t"] > 8:
+        try:
+            from krt import footprint as FPM
+            FPC.update(t=time.time(), d=FPM.report())
+        except Exception as e:
+            FPC.update(t=time.time(), d={"err": str(e)[:200]})
+    return FPC["d"]
+
+
 DSKC = {"t": 0, "d": None}
 
 
@@ -555,6 +568,9 @@ def prebreak_loop():
                 from krt import daypicks as DP
                 from krt.notify import both as _both
                 DP.run(ANGEL, t, list((_S0.load().get("calls") or {}).values()), _both)   # 🔥 Call of the Day + 🏆 Top 5
+                from krt import footprint as FPM
+                from krt.ai import STATE as _AST
+                FPM.scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), (_AST.get("risk") or {}).get("dir"))
                 EVC["t"] = 0
                 LAB["t"] = 0
             except Exception:
@@ -621,7 +637,19 @@ def tick_loop():
                     if f:
                         req.setdefault("MCX", []).append(f[0])
                         names[f[0]] = n
+            if nse:                                  # 👣 footprint universe tokens — அதே request-ல் (extra API call இல்லை)
+                try:
+                    from krt import footprint as FPM
+                    for ex, tks in FPM.tokens().items():
+                        req.setdefault(ex, []).extend(tks)
+                except Exception:
+                    pass
             qs = ANGEL.quotes(req) if req else {}
+            if nse:
+                try:
+                    FPM.feed(qs, t)
+                except Exception:
+                    pass
             for tok, q in qs.items():
                 n = names.get(tok)
                 if n and q.get("ltp"):
@@ -877,7 +905,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),

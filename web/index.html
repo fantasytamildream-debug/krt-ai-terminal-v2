@@ -376,6 +376,11 @@ header{position:relative}
 .copilot .pipe span{flex:1}.copilot .pipe b{display:block;font-size:15px}
 .copilot .pbar{height:6px;border-radius:4px;background:#2c2420;position:relative;margin:6px 0}
 .copilot .pbar i{position:absolute;top:-3px;width:4px;height:12px;background:#fb923c;border-radius:2px}
+.fpl{border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.fpl td{padding:1px 6px;border-bottom:1px solid #1f2937;text-align:right}
+.fpl td.bi{background:rgba(34,197,94,.35);font-weight:800}.fpl td.si{background:rgba(239,68,68,.35);font-weight:800}
+.fpl tr.poc td{outline:1px solid #f59e0b}
+.fpgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
 .labbox{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.02)}
 .labbox h2{margin:0 0 6px}.labin{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .labin input{background:var(--panel);color:var(--fg,#e5e7eb);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;width:130px}
@@ -462,6 +467,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="dsk">🎯 DSK <span id="dskCount"></span></button>
+    <button role="tab" data-p="ofp">👣 Footprint <span id="fpCount"></span></button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -497,6 +503,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-mn" hidden></section>
   <section class="pane" id="p-lab" hidden></section>
   <section class="pane" id="p-dsk" hidden></section>
+  <section class="pane" id="p-ofp" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
@@ -2596,6 +2603,40 @@ function aiGuide(c, ch, s){
   return {k,t,sc,why:[...plus.map(x=>"✓ "+x),...minus.map(x=>"✗ "+x)]};
 }
 function aiGuideHTML(G){ return `<div class="aiguide ${G.k}"><div>🤖 AI guide</div><div class="big">${esc(G.t)}</div><div class="hint">guide score ${G.sc}/100</div><ul>${G.why.map(w=>`<li class="${w.startsWith("✓")?"up":"dn"}">${esc(w)}</li>`).join("")}</ul></div>`; }
+/* 👣 V97 FOOTPRINT ORDER-FLOW — 1M / 3M · RVOL · stacked imbalance · option filters · checklist */
+function fpLadder(sym,tf,x){ if(!x) return ""; const a=x.an, L=(a.levels||[]).slice(0,14), poc=a.poc;
+  return `<div class="cpbox" style="background:var(--panel)"><div class="cprow"><b>${esc(sym)} · ${tf}M ${esc(x.bar.t)}</b><span class="${a.delta>=0?"up":"dn"}">Δ ${a.delta>=0?"+":""}${a.delta_pct}%</span></div>
+   <div class="hint">RVOL <b>${x.rvol??"–"}</b>× · buy stack <b class="up">${a.buy_stack}</b> · sell stack <b class="dn">${a.sell_stack}</b> · O ${n2(x.bar.o)} C ${n2(x.bar.c)}</div>
+   <table class="fpl"><tr><td class="hint">Price</td><td class="hint">Bid (sell)</td><td class="hint">Ask (buy)</td></tr>${L.map(l=>`<tr class="${l.p===poc?"poc":""}"><td>${n2(l.p)}</td><td class="${l.si?"si":""}">${n2(l.s)}</td><td class="${l.bi?"bi":""}">${n2(l.b)}</td></tr>`).join("")}</table></div>`; }
+function fpHTML(s){
+  const F=s.footprint||{}, C=F.cfg||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0))), today=String(s.now||"").slice(0,10);
+  const cnt=$("fpCount"); const ot=(F.calls||[]).filter(c=>c.date===today&&OPEN_ST.includes(c.status)).length; if(cnt) cnt.innerHTML=ot?`<b class="up">${ot}</b>`:"";
+  const P=[["Footprint TF",(C.tfs||[]).map(x=>x+"M").join(" / ")],["Relative volume",`≥ ${C.rvol}× baseline (கடைசி 20 bars)`],["Stacked imbalance",`≥ ${C.stack} consecutive levels`],["Imbalance ratio",`≥ ${C.ratio}:1 (diagonal)`],
+    ["Option delta",`${C.delta_lo}–${C.delta_hi}`],["Bid/ask spread",`≤ ${C.spread_pct}% of mid · அல்லது ≤ ${C.spread_ticks} ticks (tick-size exception)`],["Minimum RR",`1:${C.rr}`],["Max risk",`₹${n2(C.max_risk)} / lot`],["நேரம்",`${C.start}–${C.end} · நாளைக்கு max ${C.max_day}`]];
+  const B=F.bars||{}, ladders=Object.entries(B).map(([sym,tfs])=>Object.entries(tfs).map(([tf,x])=>fpLadder(sym,tf,x)).join("")).join("");
+  const sig=F.signals||[];
+  const ckHTML=c=>`<details><summary>${c.pass?'<b class="up">✅ PASS</b>':'<b class="dn">✗</b>'} ${c.score}/${c.of}</summary>${(c.items||[]).map(i=>`<div class="hint">${i.ok?"✅":"❌"} ${esc(i.name)} — ${esc(i.txt)}</div>`).join("")}</details>`;
+  const T=F.tune||{}, St=F.stats||{};
+  return `<div class="labbox" style="border:2px solid #22c55e"><h2>👣 Footprint Order-Flow Strategy <small class="hint">${esc(F.time||"market நேரத்தில் 60 sec-க்கு ஒருமுறை")} · universe: ${(F.universe||[]).map(esc).join(", ")||"–"}</small></h2>
+    <div class="hint">⚠ நேர்மை: உண்மையான footprint-க்கு exchange tick-by-tick trades வேணும் — Angel API அதை தராது. இங்கே ஒவ்வொரு 2 sec quote-ல் புது volume-ஐ LTP ≥ ask = BUY / ≤ bid = SELL (tick rule) என்று பிரிச்சு 1M / 3M footprint கட்டுறோம் — <b>approximation</b>. Index-க்கு futures footprint, call = அதன் option.</div>
+    ${simpleTbl(P,[["Parameter",x=>`<b>${esc(x[0])}</b>`],["Initial value (testing)",x=>esc(x[1])]])}
+    <div class="hint">இவை initial testing values — கீழே உள்ள tuning table உண்மையான signals-ல் இருந்து எந்த stack / RVOL combination நல்லது என்று காட்டும்.</div></div>
+   <div class="labbox"><h2>✅ Entry confirmation checklist</h2>
+    <div class="hint"><b class="up">CE (bullish):</b> ★ ${C.stack}+ stacked BUY imbalance (ask ≥ ${C.ratio}× கீழ் level bid) · ★ RVOL ≥ ${C.rvol}× · ★ எதிர் sell stack இல்லை · ★ நேரம் ${C.start}–${C.end} · + இவற்றில் 2+: bar delta + · close bar மேல் பாதி · price VWAP மேல் · NIFTY திசை எதிர் இல்லை</div>
+    <div class="hint"><b class="dn">PE (bearish):</b> அதே mirror — stacked SELL imbalance · delta − · close கீழ் பாதி · VWAP கீழ்</div>
+    <div class="hint">Pass ஆனா → option: delta ${C.delta_lo}–${C.delta_hi} · spread filter · SL = imbalance zone-க்கு கீழ் 1 step · T1/T2/T3 = 2R / 3R / 4R · risk ≤ ₹${n2(C.max_risk)} — எல்லாம் சரியான strike மட்டும் call.</div></div>
+   <div class="labbox"><h2>📊 Live footprint (கடைசி முடிந்த bars)</h2>${ladders?`<div class="fpgrid">${ladders}</div>`:'<div class="hint">Market நேரத்தில் 2 sec quotes வந்ததும் bars உருவாகும் (முதல் 5 bars-க்கு பிறகு RVOL).</div>'}
+    <div class="hint">🟩 = buy imbalance · 🟥 = sell imbalance · மஞ்சள் கோடு = POC (அதிக volume level)</div></div>
+   <div class="labbox"><h2>👣 Footprint calls — date · time · result <small class="hint">${St.n||0} முடிந்த · win ${St.win??"–"}% · ${rs(St.net)}</small></h2>
+    ${(F.calls||[]).length?simpleTbl(F.calls.slice(0,40),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><div class="hint">${(c.fp||{}).tf||""}M · stack ${(c.fp||{}).stack||"–"} · RVOL ${(c.fp||{}).rvol||"–"}</div>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls):'<div class="hint">இன்னும் footprint call இல்லை — checklist முழுசா pass ஆனதும் வரும் (phone notification + voice).</div>'}</div>
+   <div class="labbox"><h2>📡 Signals — இன்று (call ஆகாதவையும்)</h2>
+    ${sig.length?simpleTbl(sig,[["நேரம்",x=>`${esc(ampm(x.time))}<div class="hint">bar ${esc(x.bar)}</div>`],["Signal",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${x.side}</b> <small>${x.tf}M</small>`],["Stack",x=>x.stack],["RVOL",x=>x.rvol??"–"],["Δ",x=>`${x.delta_pct>=0?"+":""}${x.delta_pct}%`],["Checklist",x=>ckHTML(x.check)],
+      ["Call",x=>x.call?`<b>${n2(x.call.strike)} ${x.side}</b> ₹${n2(x.call.entry)} · SL ₹${n2(x.call.sl)}`:(x.why_no||[]).length?`<span class="hint">${x.why_no.map(esc).join(" · ")}</span>`:"–"],["15 நிமிடம் கழிச்சு",x=>x.result==null?'<span class="hint">pending</span>':`<b class="${x.result>=0?"up":"dn"}">${x.result>=0?"+":""}${x.result}%</b>`]],x=>x.call?"uprow":"")
+      :'<div class="hint">இன்னும் signal இல்லை.</div>'}</div>
+   <div class="labbox"><h2>🔧 Parameter tuning <small class="hint">${T.n||0} signals-க்கு 15-min result</small></h2>
+    ${(T.rows||[]).length?simpleTbl(T.rows,[["Stack ≥",r=>r.stack],["RVOL ≥",r=>r.rvol],["Signals",r=>r.n],["Win (15 min ≥0.15%)",r=>`<b>${r.win}%</b>`],["Avg move",r=>`${r.avg_mv>=0?"+":""}${r.avg_mv}%`],["",r=>r.stack===C.stack&&r.rvol===C.rvol?"⬅ இப்போ":""]],r=>T.best&&r===T.best?"uprow":""):`<div class="hint">${esc(T.why||"Signals வந்ததும் வரும்")}</div>`}
+    <div class="hint">Sample சின்னதா இருக்கும்போது "best" மாறிக்கிட்டே இருக்கும் — 50+ signals ஆன பிறகு தான் parameters மாத்துங்க.</div></div>`; }
+
 /* 🔮 V96 LIVE COPILOT — projected path + TP / SL zones + market scan + Detect → Validate → Risk → Execute (paper மட்டும்) */
 let COPSEL=null;
 function cpEMA(c,n){ const k=2/(n+1); let e=null; return c.map(x=>e=e==null?x:x*k+e*(1-k)); }
@@ -2796,7 +2837,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v96";
+const APPV="v97";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -2878,6 +2919,7 @@ function render(s){
   try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
+  try{ $("p-ofp").innerHTML = SX("fpHTML",()=>fpHTML(s)); }catch(e){ console.error(e); }      /* "fp" = பழைய 🐘 OI Footprint tab — இது ofp */
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
   const _seen=new Set(), _TT=_T.filter(c=>!_seen.has(c.id)&&_seen.add(c.id));
