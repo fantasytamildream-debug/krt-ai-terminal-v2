@@ -104,3 +104,19 @@ def test_run_once_charts_all_calls_and_table(monkeypatch):
     assert r["mscore"] is not None and r["verdict"] in ("TAKE", "WAIT", "AVOID") and r["now"]["k"] in ("ENTER", "WAIT", "SKIP", "LATE")
     p = next(iter(fs.data["chart_preds"].values()))
     assert p.get("votes") and len(p["votes"]) == 15
+
+
+def test_forecast_path_and_real_history_confidence():
+    df = _df("up")
+    a = CR.analyse(df)
+    a["methods"] = MT.run_all(df, a, "CE")
+    v = a["methods"]["votes"]
+    hist = [{"status": "TARGET ✓", "broke": "UP", "votes": v, "pattern": "x"} for _ in range(12)] + \
+           [{"status": "FAILED", "broke": "UP", "votes": {k: -x for k, x in v.items()}, "pattern": "x"} for _ in range(30)]
+    f = MT.forecast(a, "CE", hist, k=20)
+    assert f["tp"] > f["px"] > f["sl"] and f["path"][0]["y"] == f["px"] and f["path"][-1]["y"] == f["tp"] and f["path"][-1]["w"] > f["path"][1]["w"]
+    assert f["matches"] == 20 and f["hits"] == 12 and f["conf"] == 60 and "15-method" in f["how"]     # nearest = similar votes முதலில்
+    f2 = MT.forecast(a, "CE", [], k=20)
+    assert f2["matches"] == 0 and f2["conf"] is None and f2["small"]                                 # history இல்லைன்னா fake % இல்லை
+    pe = MT.forecast(a, "PE", hist)
+    assert pe["tp"] < pe["px"] < pe["sl"]

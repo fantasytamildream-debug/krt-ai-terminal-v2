@@ -361,3 +361,48 @@ def run_all(df, a, side, ctx=None, stats=None):
     return {"regime": reg, "score": conf, "verdict": verdict, "rows": rows, "pro": [x["name"] for x in pro[:5]], "con": [x["name"] for x in con[:4]],
             "focus": [x["name"] for x in top], "votes": {x["key"]: x["vote"] for x in rows},
             "txt": (f"{len(pro)}/15 methods {side} பக்கம் · {len(con)} எதிர் · regime {reg} → இன்று முக்கியம்: {', '.join(x['name'].split(' —')[0].split(' (')[0] for x in top[:3])}")}
+
+
+# ───────────────────────── 🔮 LIVE COPILOT FORECAST — projected path + TP / SL + historical matches ─────────────────────────
+DONE_ST = ("TARGET ✓", "FAILED", "NO BREAK")
+
+
+def _cos(a, b):
+    ks = [k for k in FN if k in a and k in b]
+    if not ks:
+        return 0.0
+    x, y = np.array([a[k] for k in ks]), np.array([b[k] for k in ks])
+    d = float(np.linalg.norm(x) * np.linalg.norm(y))
+    return float(x @ y / d) if d else 0.0
+
+
+def forecast(a, side, hist, k=40):
+    """Copilot: entry / TP / SL (underlying) · projected path + cone · இதே மாதிரி பழைய setups-ல் எத்தனை target அடிச்சது (உண்மையான history)."""
+    sm, ce = a.get("smart") or {}, side != "PE"
+    px, atr = float(a["px"]), float(a.get("atr") or a["px"] * 0.003)
+    entry, sl, tg = sm.get("entry"), sm.get("sl"), (sm.get("targets") or [None])[0]
+    if not (entry and sl and tg) or (ce and not (tg > px > sl)) or ((not ce) and not (tg < px < sl)):
+        entry = a["up_level"] if ce else a["dn_level"]
+        tg = a["up_target"] if ce else a["dn_target"]
+        sl = a["dn_level"] if ce else a["up_level"]
+    dist = abs(tg - px)
+    bars = int(min(24, max(4, dist / (0.5 * atr))))
+    path = [{"i": i, "y": round(px + (tg - px) * i / bars, 2), "w": round(atr * 0.6 * np.sqrt(i), 2)} for i in range(bars + 1)]
+    want = "UP" if ce else "DOWN"
+    done = [p for p in hist or [] if p.get("status") in DONE_ST]
+    v = (a.get("methods") or {}).get("votes")
+    pool, how = [], None
+    vp = [p for p in done if p.get("votes")]
+    if v and len(vp) >= 15:
+        pool = sorted(vp, key=lambda p: -_cos(v, p["votes"]))[:k]
+        how = "15-method votes-ல் இதே மாதிரி இருந்த பழைய setups"
+    if not pool:
+        pool = [p for p in done if p.get("pattern") == a.get("pattern")]
+        how = f"இதே pattern ({a.get('pattern')}) பழைய setups"
+    hit = [p for p in pool if p.get("status") == "TARGET ✓" and (p.get("broke") or ("UP" if p.get("status") == "TARGET ✓" and p.get("bias") == "UP" else "DOWN")) == want]
+    n = len(pool)
+    conf = round(len(hit) / n * 100) if n else None
+    return {"side": side, "entry": round(float(entry), 2), "tp": round(float(tg), 2), "sl": round(float(sl), 2), "px": round(px, 2),
+            "tp_pct": round((tg / px - 1) * 100, 2), "sl_pct": round((sl / px - 1) * 100, 2), "bars": bars, "path": path,
+            "matches": n, "hits": len(hit), "conf": conf, "how": how, "small": n < 10,
+            "rr": round(abs(tg - entry) / abs(entry - sl), 2) if entry != sl else None}

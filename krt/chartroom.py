@@ -532,6 +532,8 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
             pv = a["advice"]["verdict"]
             fv = ("TAKE" if M["verdict"] == "TAKE" and pv != "AVOID" else "AVOID" if M["verdict"] == "AVOID" or (pv == "AVOID" and M["verdict"] != "TAKE") else "WAIT")
             a["advice_pattern"] = dict(a["advice"])
+            from .methods import forecast as _fc
+            a["forecast"] = _fc(a, c.get("side") or "CE", hist + list(P.values()))      # 🔮 Copilot projected path + historical matches
             a["advice"] = {"verdict": fv, "text": ({"TAKE": "✅ எடுக்கலாம் — ", "AVOID": "⛔ வேண்டாம் — ", "WAIT": "⏳ காத்திருங்க — "}[fv]
                                                     + f"15 methods confluence {M['score']}/100 · {M['txt']}. " + a["advice"]["text"])}
         except Exception as e:
