@@ -2582,6 +2582,33 @@ function aiGuide(c, ch, s){
   return {k,t,sc,why:[...plus.map(x=>"✓ "+x),...minus.map(x=>"✗ "+x)]};
 }
 function aiGuideHTML(G){ return `<div class="aiguide ${G.k}"><div>🤖 AI guide</div><div class="big">${esc(G.t)}</div><div class="hint">guide score ${G.sc}/100</div><ul>${G.why.map(w=>`<li class="${w.startsWith("✓")?"up":"dn"}">${esc(w)}</li>`).join("")}</ul></div>`; }
+/* 🧠 V95 Chart Room — 15 methods confluence · இன்றைய எல்லா calls table · method accuracy (கத்துக்கும்) */
+let CRP=[];
+function paperFromCR(i){ const c=CRP[i]; if(c&&c.token) paperGo({symbol:c.symbol,side:c.side,strike:c.strike,expiry:c.expiry,contract:c.contract,token:c.token,exch:c.exch||"NFO",lot:c.lot,ltp:c.ltp||c.entry,sl:c.sl,from_src:"📈 Chart Room",src_modules:["📈 Chart Room"]}); }
+function nowChip(n){ if(!n) return "–"; const L={ENTER:"🟢 ENTRY NOW",WAIT:"🟡 WAIT",LATE:"⏭ LATE",SKIP:"🔴 SKIP",HOLD:"🔵 HOLD / TRAIL",DONE:"✔ DONE"}[n.k]||n.k;
+  return `<b class="${n.k==="ENTER"?"up":n.k==="SKIP"?"dn":""}">${L}</b><div class="hint" style="white-space:normal;max-width:280px">${esc(n.txt||"")}</div>`; }
+function chartCallsHTML(R,s){
+  CRP=[]; const T=R.calls_table||[], rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  if(!T.length) return `<div class="labbox"><h2>📋 இன்றைய எல்லா calls — chart analysis</h2><div class="hint">இன்னும் calls இல்லை (market நேரத்தில் 5 நிமிடத்துக்கு ஒருமுறை).</div></div>`;
+  const vd=r=>r.verdict?`<b class="${r.verdict==="TAKE"?"up":r.verdict==="AVOID"?"dn":""}">${{TAKE:"✅ OK — TAKE",WAIT:"⏳ WAIT",AVOID:"⛔ NOT OK"}[r.verdict]}</b>${r.mscore!=null?`<div class="hint">confluence ${r.mscore}/100</div>`:""}`:'<span class="hint">chart queue</span>';
+  const enterN=T.filter(r=>r.now&&r.now.k==="ENTER").length;
+  return `<div class="labbox" style="border:2px solid #22d3ee"><h2>📋 இன்றைய எல்லா calls — 15 methods chart analysis <small class="hint">${T.length} calls · 🟢 இப்போ entry ${enterN} · stock / index / commodity எல்லாம் · ${esc(R.time||"")}</small></h2>
+    ${simpleTbl(T,[["வந்த நேரம்",r=>esc(ampm(r.time))],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${r.strike?n2(r.strike):""} ${esc(r.side||"")}</b><div class="hint">${esc(r.source_label||r.source||r.kind||"")}${r.exch==="MCX"?" · 🛢 MCX":""}</div>`],
+      ["Entry / SL",r=>`₹${n2(r.entry)} / <span class="dn">₹${n2(r.sl)}</span>`],["T1 / T2 / T3",r=>(r.targets||[]).map((t,j)=>`${n2(t)}${(r.hits||[]).some(h=>h.startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")+(r.lot&&r.entry?`<div class="hint up">${(r.targets||[]).map(t=>rs((t-r.entry)*r.lot)).join(" / ")}</div>`:"")],
+      ["LTP / Exit",r=>n2(r.exit??r.ltp)],["P/L lot",r=>`<b class="${(r.pnl_lot||0)>=0?'up':'dn'}">${rs(r.pnl_lot)}</b>`],["Chart",vd],
+      ["Methods",r=>r.pro?`<span class="hint up">✓ ${(r.pro||[]).slice(0,3).map(x=>esc(x.split(" —")[0].split(" (")[0])).join(", ")}</span>${(r.con||[]).length?`<div class="hint dn">✗ ${r.con.slice(0,2).map(x=>esc(x.split(" —")[0].split(" (")[0])).join(", ")}</div>`:""}`:"–"],
+      ["இப்போ",r=>nowChip(r.now)],["",r=>r.now&&["ENTER","WAIT"].includes(r.now.k)&&r.token?`<button class="pickbtn pp" onclick="paperFromCR(${CRP.push(r)-1})">📝</button>`:""]],
+      r=>r.now&&r.now.k==="ENTER"?"uprow":r.now&&(r.now.k==="SKIP"||(r.now.k==="DONE"&&(r.pnl_lot||0)<0))?"slrow":"")}
+    <div class="hint">✅ OK = 15 methods-ல் 6+ call பக்கம் + confluence 65+ + பெரிய எதிர் இல்லை · 🟢 ENTRY NOW = OK + LTP entry zone-க்குள் (+5% வரை) · ⏭ LATE = ஓடிடுச்சு · Paper மட்டும்.</div></div>`; }
+function methodsHTML(M){ if(!M) return "";
+  const arrow=v=>v>0.2?'<b class="up">⬆</b>':v<-0.2?'<b class="dn">⬇</b>':"↔";
+  return `<details class="tech"><summary>🧠 15 methods — confluence <b>${M.score}/100</b> · ${esc(M.verdict)} · regime ${esc(M.regime)} · ${M.pro.length} பக்கம் / ${M.con.length} எதிர்</summary>
+    <div class="hint">🎯 இன்று இந்த market-க்கு முக்கியம்: <b>${M.focus.map(x=>esc(x.split(" —")[0].split(" (")[0])).join(" · ")}</b></div>
+    ${simpleTbl(M.rows,[["Method",r=>`<b>${esc(r.name)}</b> <small class="hint">⭐${r.rating}</small>`],["Vote",r=>arrow(r.vote)],["Call-க்கு",r=>r.agree>0.2?'<span class="up">✓</span>':r.agree<-0.2?'<span class="dn">✗</span>':"–"],["Weight",r=>r.weight],["History",r=>r.acc!=null?`${r.acc}% (${r.n})`:`<span class="hint">${r.n||0}</span>`],["ஏன்",r=>`<span class="hint" style="white-space:normal">${esc(r.txt)}</span>`]],r=>r.agree>0.2?"uprow":r.agree<-0.2?"slrow":"")}</details>`; }
+function methodAccHTML(R){ const S=R.method_stats||{}, L=Object.entries(S).filter(([k,v])=>v.n).sort((a,b)=>(b[1].acc||0)-(a[1].acc||0));
+  return `<details class="tech"><summary>📊 Method accuracy — எந்த method உண்மையில் சரியா வேலை செய்யுது (கத்துக்கும் weight)</summary>
+    ${L.length?simpleTbl(L,[["Method",x=>esc(x[0].toUpperCase())],["சரி",x=>`${x[1].acc}% (${x[1].ok}/${x[1].n})`],["Weight மாற்றம்",x=>x[1].n>=15?`×${x[1].mult}`:'<span class="hint">15 results வேணும்</span>']]):'<div class="hint">Chart predictions break ஆனதும் ஒவ்வொரு method-ன் vote சரியா தப்பா என்று இங்கே — 15+ results-க்கு பிறகு weight தானா மாறும்.</div>'}</details>`; }
+
 /* 📈 V92 Chart Room — எளிய முடிவு table + இன்றைய chart results + breakout அருகில் / உடைஞ்சது voice alert */
 function chartTopHTML(R,s){
   const CH=R.charts||[], day=String(s.now||"").slice(0,10);
@@ -2591,7 +2618,7 @@ function chartTopHTML(R,s){
     return {c,a,ST,G,k,lvl,dist,p:ch.pred||{}}; });
   const today=(R.preds||[]).filter(p=>p.date===day);
   const sum={n:today.length,brk:today.filter(p=>/BROKE|TARGET|FAILED/.test(p.status)).length,ok:today.filter(p=>p.status==="TARGET ✓").length,fail:today.filter(p=>p.status==="FAILED").length};
-  return `<div class="labbox" style="border-color:var(--ce)"><h2>🧭 இப்போ என்ன பண்ணலாம் — chart முடிவு</h2>
+  return chartCallsHTML(R,s)+methodAccHTML(R)+`<div class="labbox" style="border-color:var(--ce)"><h2>🧭 இப்போ என்ன பண்ணலாம் — chart முடிவு</h2>
     ${simpleTbl(rows,[["",x=>`<b style="font-size:17px">${x.k}</b>`],["Chart / Strike",x=>`<b class="${x.c.side==='CE'?'up':'dn'}">${esc(x.c.symbol)} ${x.c.strike?n2(x.c.strike):""} ${esc(x.c.side||"")}</b><div class="hint">${esc(x.a.pattern||"")}</div>`],
       ["முடிவு",x=>`<b>${esc(["","SETUP","WAIT","ENTRY ✅","AVOID"][x.ST.k])}</b><div class="hint" style="white-space:normal">${esc(x.ST.t)}</div>`],
       ["Break level",x=>x.lvl?`${n2(x.lvl)}${x.dist!=null?`<div class="hint">${x.dist>0?x.dist.toFixed(2)+"% தூரம்":"தாண்டியாச்சு"}</div>`:""}`:"–"],
@@ -2642,6 +2669,8 @@ function crHTML(s){
      ${c.token?`<button class="pickbtn pp" onclick="paperFromChart(${ci})">📝 Paper</button>`:""}
      <div class="crai">🤖 <b>Chart analysis:</b> ${esc(a.text||"")}<div class="hint">${(a.why||[]).map(esc).join(" · ")} · ATR ${a.atr} · <span style="color:#a78bfa">— VWAP</span> · <span style="color:#fbbf24">- - EMA20</span> · <span class="dn">red line = resistance trend</span> · <span class="up">green = support trend</span></div>
      ${trapLine(a.trap)}
+     ${ch.entry_now?`<div class="crai">🎯 <b>இப்போ:</b> ${nowChip(ch.entry_now)}</div>`:""}
+     ${methodsHTML(a.methods)}
      <div style="margin-top:4px">🎯 Prediction (${esc(ampm(p.time||""))}): <b>${esc(p.status||"")}</b>${p.break_time?` · break ${esc(p.break_time)} @ ${n2(p.break_px)}`:""}${p.correct!=null?(p.correct?' · <b class="up">✓ direction சரி</b>':' · <b class="dn">✗ எதிர் பக்கம்</b>'):""}</div></div></div><div>${G?aiGuideHTML(G):'<div class="aiguide"><div>🤖 AI guide</div><div class="hint">Index chart — option call வந்ததும் guide வரும்</div></div>'}</div></div></div>`;}).join("");
   const by=Object.entries(R.by_pattern||{});
   return `<div class="gkhead" style="border-color:#38bdf8;background:linear-gradient(180deg,rgba(56,189,248,.14),rgba(56,189,248,.02))"><h2 style="color:#38bdf8">📈 CHART ROOM</h2>${chartTopHTML(R,s)}${journalHTML(s.journal)}<div class="hint" style="color:#f9a8d4"><b>V13:</b> 🚦 4 stages (Setup → Waiting → Entry confirmed → Invalidated) · 🧭 Regime (Trending / Sideways / Volatile) · 🏦 Liquidity trap tracker · 📒 Verified journal. <b>V10:</b> புது call chart மேலே · ஒவ்வொரு option call-க்கும் பக்கத்தில் 🤖 AI guide — 🏆 MUST TRY · 👍 Looking good · ⚠ Don't take · ⛔ Avoid (chart verdict + MTF + call quality + strategy win % + market திசை + late / SL அருகில்)</div>
@@ -2666,7 +2695,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v94";
+const APPV="v95";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

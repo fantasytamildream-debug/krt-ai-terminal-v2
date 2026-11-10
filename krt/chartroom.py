@@ -376,6 +376,46 @@ def _underlying(inst, c):
     return ("NSE", t) if t else None
 
 
+def pick_calls(calls, day, n=12):
+    """v95: Chart Room-க்கு இன்றைய எல்லா open calls (stock · index · MCX) — pink / DSK / grade A / புதுசு முதலில், symbol-க்கு ஒன்று, max 12."""
+    op = [c for c in calls if c["date"] == day and c["status"] in ("OPEN", "T1 HIT", "T2 HIT") and not c.get("shadow") and c["kind"] != "PICK"]
+    op.sort(key=lambda c: (bool(c.get("pink")), c.get("kind") == "DSK", c.get("grade") == "A", str(c.get("signal_time") or c.get("time") or "")), reverse=True)
+    seen, out = set(), []
+    for c in op:
+        if c["symbol"] in seen:
+            continue
+        seen.add(c["symbol"])
+        out.append(c)
+        if len(out) >= n:
+            break
+    return out
+
+
+def entry_now(c, verdict, a=None):
+    """இப்போ entry பண்ணலாமா? — call status + LTP vs entry zone + chart verdict."""
+    st = c.get("status")
+    if st not in ("OPEN", "T1 HIT", "T2 HIT"):
+        return {"k": "DONE", "txt": f"முடிந்தது — {st}"}
+    e, sl, ltp = float(c.get("entry") or 0), float(c.get("sl") or 0), float(c.get("ltp") or 0)
+    if not (e and ltp):
+        return {"k": "WAIT", "txt": "LTP வரல"}
+    if (c.get("hits") or []):
+        return {"k": "HOLD", "txt": f"Target hit ஆச்சு — புது entry வேண்டாம், இருக்கறவங்க trail (SL ₹{sl:g})"}
+    if sl and ltp <= sl:
+        return {"k": "SKIP", "txt": "SL கீழ் — invalid"}
+    if verdict == "AVOID":                     # chart எதிர்னா pullback-க்கு கூட காத்திருக்க சொல்லக்கூடாது
+        return {"k": "SKIP", "txt": "⛔ Chart analysis எதிர் — skip"}
+    mv = (ltp - e) / e * 100
+    if mv > 5:
+        return {"k": "LATE", "txt": f"₹{e:g}-ல் இருந்து {mv:+.1f}% ஓடிடுச்சு — late, ₹{e * 1.03:.2f} அருகில் pullback வந்தா மட்டும்"}
+    if verdict == "TAKE":
+        return {"k": "ENTER", "txt": f"✅ இப்போ entry பண்ணலாம் — ₹{e * 0.98:.2f}–₹{e * 1.05:.2f} (LTP ₹{ltp:g}) · SL ₹{sl:g}"}
+    if verdict == "AVOID":
+        return {"k": "SKIP", "txt": "⛔ Chart analysis எதிர் — skip"}
+    lv = (a or {}).get("up_level" if c.get("side") != "PE" else "dn_level")
+    return {"k": "WAIT", "txt": f"⏳ Chart confirm இல்லை — underlying {lv} {'மேல்' if c.get('side') != 'PE' else 'கீழ்'} 5-min close வந்தா" if lv else "⏳ confirmation-க்கு காத்திருங்க"}
+
+
 def pick_top2(calls, day):
     op = [c for c in calls if c["date"] == day and c["status"] in ("OPEN", "T1 HIT", "T2 HIT") and not c.get("shadow") and c["kind"] != "PICK"]
     op.sort(key=lambda c: (c.get("grade") == "A", c.get("ai_p") or 0, str(c.get("signal_time") or "")), reverse=True)
@@ -400,9 +440,9 @@ def track(preds, sym, df, now):
     t = now.strftime("%H:%M")
     if p["status"] == "WATCH":
         if c > p["up_level"]:
-            p.update(status="BROKE UP", break_time=t, break_px=round(c, 2), correct=(p["bias"] == "UP") if p["bias"] else None)
+            p.update(status="BROKE UP", break_time=t, break_px=round(c, 2), correct=(p["bias"] == "UP") if p["bias"] else None, broke="UP")
         elif c < p["dn_level"]:
-            p.update(status="BROKE DOWN", break_time=t, break_px=round(c, 2), correct=(p["bias"] == "DOWN") if p["bias"] else None)
+            p.update(status="BROKE DOWN", break_time=t, break_px=round(c, 2), correct=(p["bias"] == "DOWN") if p["bias"] else None, broke="DOWN")
         elif (now - pd.Timestamp(p["time_full"])).total_seconds() > 3 * 3600:
             p.update(status="NO BREAK", end_time=t)
     elif p["status"] == "BROKE UP":
@@ -453,7 +493,7 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
     P = d.setdefault("chart_preds", {})
     hist = d.setdefault("chart_hist", [])
     isy = {x["symbol"] for x in indices or []}
-    top = list(indices or []) + [c for c in pick_top2([c for c in (d.get("calls") or {}).values() if c["symbol"] not in isy], day)]
+    top = list(indices or []) + [c for c in pick_calls([c for c in (d.get("calls") or {}).values() if c["symbol"] not in isy], day)]
     n_idx = len(indices or [])
     for x in extra or []:                     # open calls 2-க்கு குறைவுன்னா — Money Machine / Strong / Movers top setups
         if len(top) >= n_idx + 2:
@@ -461,6 +501,8 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
         if x.get("symbol") and x["symbol"] not in {c["symbol"] for c in top}:
             top.append(x)
     charts = []
+    from .methods import run_all as _methods, method_stats as _mstats
+    ctx_n = {}
     for c in top:
         u = _underlying(inst, c)
         if not u:
@@ -474,6 +516,8 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
         if df is None or len(df) < 30:
             continue
         a = analyse(df)
+        if c["symbol"] == "NIFTY" and len(df) > 25:
+            ctx_n["nifty_ret"] = float(df["close"].iloc[-1] / df["close"].iloc[-25] - 1) * 100
         if c.get("is_index"):
             c["side"] = a["smart"]["opt_side"]
             o_ = (c.get("chain_opts") or {}).get(c["side"])
@@ -482,6 +526,16 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
                          exch=o_["exch"], contract=o_["contract"], lot=o_["lot"], expiry=o_["expiry"])
         a["advice"] = advice(a, c.get("side") or "CE")
         a["pattern_rel"] = pattern_gate(a, STATE.get("by_pattern") or {})      # v93: pattern history-ஐ வச்சு TAKE-ஐ கட்டுப்படுத்து
+        try:                                                                    # v95: 🧠 15 methods confluence → final verdict
+            M = _methods(df, a, c.get("side") or "CE", {**ctx_n, "is_index": c["symbol"] in INDEX_SPOT}, STATE.get("method_stats") or {})
+            a["methods"] = M
+            pv = a["advice"]["verdict"]
+            fv = ("TAKE" if M["verdict"] == "TAKE" and pv != "AVOID" else "AVOID" if M["verdict"] == "AVOID" or (pv == "AVOID" and M["verdict"] != "TAKE") else "WAIT")
+            a["advice_pattern"] = dict(a["advice"])
+            a["advice"] = {"verdict": fv, "text": ({"TAKE": "✅ எடுக்கலாம் — ", "AVOID": "⛔ வேண்டாம் — ", "WAIT": "⏳ காத்திருங்க — "}[fv]
+                                                    + f"15 methods confluence {M['score']}/100 · {M['txt']}. " + a["advice"]["text"])}
+        except Exception as e:
+            STATE["err"] = f"methods: {e}"[:120]
         if c.get("is_index") and c.get("token") and a["smart"]["score"] >= 75 and a["advice"]["verdict"] == "TAKE":
             try:
                 from .calls import add_simple
@@ -504,19 +558,38 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
                       "dn_target": a["dn_target"], "atr": a["atr"], "status": "WATCH", "px": a["px"], "call": f"{c['symbol']} {c.get('strike') or ''} {c.get('side')}",
                       "call_id": c.get("id"), "side": c.get("side"), "verdict": a["advice"]["verdict"], "smart": a["smart"]["score"],
                       "smart_side": a["smart"]["side"], "mtf": a["mtf"]["aligned"],
-                      "opt": {k: c.get(k) for k in ("entry", "sl", "targets")}}
+                      "opt": {k: c.get(k) for k in ("entry", "sl", "targets")}, "votes": (a.get("methods") or {}).get("votes"),
+                      "mscore": (a.get("methods") or {}).get("score")}
         tail = df.tail(80)
         charts.append({"is_index": bool(c.get("is_index")),
                        "call": {k: c.get(k) for k in ("id", "symbol", "strike", "side", "entry", "sl", "targets", "ltp", "status", "source", "time",
                                                        "expiry", "lot", "pnl_lot", "token", "exch", "contract")},
                        "candles": [[str(i)[11:16], round(float(r.open), 2), round(float(r.high), 2), round(float(r.low), 2), round(float(r.close), 2), float(r.volume)]
                                    for i, r in tail.iterrows()],
-                       "offset": len(df) - len(tail), "analysis": a, "pred": P.get(key)})
+                       "offset": len(df) - len(tail), "analysis": a, "pred": P.get(key),
+                       "entry_now": entry_now(c, a["advice"]["verdict"], a) if not c.get("is_index") or c.get("token") else None})
     for k in [k for k in P if not k.startswith(day)]:
         hist.append(P.pop(k))
     del hist[:-300]
     store.dirty = True
     allp = hist + list(P.values())
+    STATE["method_stats"] = _mstats(allp)
+    vmap = {}
+    for ch in charts:
+        cc = ch.get("call") or {}
+        vmap[cc.get("id") or cc.get("symbol")] = ch
+        vmap[cc.get("symbol")] = vmap.get(cc.get("symbol")) or ch
+    ctab = []
+    for c in sorted([c for c in (d.get("calls") or {}).values() if c.get("date") == day and not c.get("shadow") and c.get("kind") != "PICK"],
+                    key=lambda c: str(c.get("signal_time") or c.get("time") or ""), reverse=True)[:60]:
+        ch = vmap.get(c["id"]) or vmap.get(c["symbol"])
+        a_ = (ch or {}).get("analysis") or {}
+        M_ = a_.get("methods") or {}
+        vd = (a_.get("advice") or {}).get("verdict")
+        ctab.append({k: c.get(k) for k in ("id", "symbol", "strike", "side", "entry", "sl", "targets", "ltp", "exit", "status", "time", "source", "source_label",
+                                           "kind", "lot", "pnl_lot", "hits", "exch", "token", "expiry", "contract")} |
+                    {"verdict": vd, "mscore": M_.get("score"), "pro": M_.get("pro"), "con": M_.get("con"), "charted": bool(ch),
+                     "now": entry_now(c, vd, a_) if ch else entry_now(c, None)})
     res_ = [p for p in allp if p["status"] in ("TARGET ✓", "FAILED", "BROKE UP", "BROKE DOWN")]
     dirk = [p for p in res_ if p.get("correct") is not None]
     acc = {"total": len(allp), "broke": len(res_), "dir_ok": sum(1 for p in dirk if p["correct"]), "dir_n": len(dirk),
@@ -540,6 +613,6 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
         if p.get("correct") is not None:
             b["dir_n"] += 1
             b["dir_ok"] += bool(p["correct"])
-    STATE.update(time=now.strftime("%H:%M:%S"), charts=charts, acc=acc, by_pattern=by, by_symbol=bysym,
+    STATE.update(time=now.strftime("%H:%M:%S"), charts=charts, acc=acc, by_pattern=by, by_symbol=bysym, calls_table=ctab,
                  preds=sorted(allp, key=lambda p: p.get("time_full", ""), reverse=True)[:60], err=None)
     return STATE
