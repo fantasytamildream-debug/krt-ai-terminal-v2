@@ -966,7 +966,8 @@ def chart_alerts(R, now, send=None):
         bad = px < opp if ce else px > opp
         if brk and (a.get("advice") or {}).get("verdict") == "TAKE" and key + "|B" not in CHALERT:
             CHALERT[key + "|B"] = now.strftime("%H:%M")
-            msg = (f"📈 CHART BREAKOUT · BUY {c['symbol']} {c.get('strike')} {c.get('side')}\n"
+            pr = (a.get("pattern_rel") or {}).get("txt") or ""
+            msg = (f"📈 CHART BREAKOUT · BUY {c['symbol']} {c.get('strike')} {c.get('side')}" + (f" · {pr}" if pr else "") + "\n"
                    f"{a.get('pattern') or 'Pattern'}: {round(trig, 2)} {'மேல்' if ce else 'கீழ்'} 5-min close ✅ · Entry ₹{c.get('ltp') or c.get('entry')} · SL ₹{c.get('sl')} · "
                    f"T1 ₹{(c.get('targets') or [None])[0]}")
             out.append(msg)

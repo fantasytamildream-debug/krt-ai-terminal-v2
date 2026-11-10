@@ -357,6 +357,11 @@ header{position:relative}
 .okbox{border:2px solid var(--ce);border-radius:12px;padding:10px 12px;margin:8px 0;background:rgba(34,197,94,.10)}
 .dskcard{border:2px solid #22d3ee;border-radius:14px;padding:10px 12px;margin:8px 0;background:var(--panel)}
 .layer{display:inline-block;margin:3px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:12px}
+.purplebox{border:2px solid #a855f7;border-radius:12px;padding:8px 12px;margin-top:6px;background:linear-gradient(90deg,rgba(168,85,247,.22),rgba(168,85,247,.06));box-shadow:0 0 14px rgba(168,85,247,.35)}
+.cotd{border:3px solid #f97316;border-radius:16px;padding:12px 14px;margin:10px 0;background:linear-gradient(180deg,rgba(249,115,22,.16),rgba(249,115,22,.03));box-shadow:0 0 22px rgba(249,115,22,.35)}
+.cotd h2{margin:0 0 6px;color:#fdba74}
+.diary .drow{border-left:4px solid var(--line);padding:6px 10px;margin:6px 0;background:var(--panel);border-radius:8px}
+.diary .drow.d0,.diary .drow.d1{border-left-color:#f97316}
 .labbox{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.02)}
 .labbox h2{margin:0 0 6px}.labin{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .labin input{background:var(--panel);color:var(--fg,#e5e7eb);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;width:130px}
@@ -1299,6 +1304,7 @@ function renderCalls(s){
       <span class="cb-stat ${net>=0?'up':'dn'}">இன்று மொத்தம் ${net>=0?"+":"−"}₹${n2(Math.abs(net))}</span><span class="cb-stat">✔ முடிந்தது ${closed.length}</span></div>
       <div class="cb-tools">${fb("all","எல்லாம் "+active.length)}${fb("pink","🩷 Pink "+nPink)}${fb("yes","✅ எடுக்கலாம் "+nYes)}${fb("pw","🟣 Strong "+nPw)}<button id="sndBtn" onclick="toggleSound()">${soundOn()?"🔔 ON":"🔕 OFF"}</button><button onclick="goTab('tr')">முழு விவரம்</button></div></div>
     ${pushBar()}
+    ${preopenHTML(s)}${cotdHTML(s,true)}${diaryHTML(s,true)}
     ${(()=>{ const L=bestPicks(s).filter(x=>x.k==="TAKE"); return L.length?`<div class="okbox"><b>🏆 இப்போ ENTER: ${L.slice(0,4).map(x=>`${x.light} ${esc(x.symbol)}${x.strike?" "+n2(x.strike):""} ${x.side}`).join(" · ")}</b> <a href="#" onclick="goTab('lab');return false">முழு list →</a></div>`:""; })()}
     ${(()=>{ const P=s.pink_hist||{}, T=P.total||{}; if(!T.calls) return `<div class="pinkhist"><b>🩷 PINK CALLS — date-wise result</b> <span class="hint">இன்னும் pink call இல்லை. Strategy win ≥75% + லாபம் ஆன module-ன் call வந்ததும் இங்கே date-ஓட save ஆகும்.</span></div>`;
       const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
@@ -1889,7 +1895,7 @@ function trendTopCall(s){
   else if(C.length){ const c=C[0];
     h=`👀 <b>WATCH — top ${side} call:</b> <b class="${side==='CE'?'up':'dn'}">${esc(c.symbol)} ${esc(c.strike)} ${side}</b> · Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2(c.targets[0])} · ${esc(c.source_label||c.source)} ${pbtn(c)}`; }
   else h=`👀 <b>WATCH — ${side}:</b> <span class="hint">இப்போ ${side} side-ல் நல்ல live call இல்லை.</span>`;
-  box.innerHTML=h;
+  box.innerHTML=`<div class="purplebox">${h}</div>`;
 }
 /* ===== 🤖 AI PICKS + 🚨 risk voice ===== */
 let AICANDS=[];
@@ -2041,6 +2047,51 @@ function decisionVoice(T,s){ const fresh=!DECINIT; T.forEach(c=>{ const d=aiDeci
     if(!fresh&&old&&old!==d.k){ if(d.k==="TAKE") speak(`A I take signal. Buy ${vName(c)}. Entry around ${c.ltp||c.entry}. Stop loss ${c.sl}.`,true);
       else if(d.k==="SKIP"&&old==="TAKE") speak(`A I says skip ${vName(c)} now. ${String((d.why||[])[0]||"").replace(/[^A-Za-z0-9 .%]/g," ")}`); } }); DECINIT=true; }
 
+/* 🔥 V93 CALL OF THE DAY + 🏆 TOP 5 · 📅 RESULTS DIARY · 🌅 PRE-OPEN */
+let DPK=[];
+function paperFromDP(i){ const r=DPK[i]; if(r) paperGo({symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,contract:r.contract,token:r.token,exch:r.exch||"NFO",lot:r.lot,ltp:r.ltp||r.entry,sl:r.sl,from_src:"🔥 Call of the Day",src_modules:["🔥 Call of the Day"]}); }
+function cotdHTML(s,compact){
+  DPK=[]; const E=s.events||{}, D=E.day||{}, T=D.today||[], rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0))), C=T.find(r=>r.cotd);
+  const st=r=>`<b class="${OPEN_ST.includes(r.status)||r.status==="OPEN"?"":(r.pnl_lot||0)>0?"up":"dn"}">${esc(r.status)}</b>${(r.hits||[]).length?` <small>(${r.hits.map(esc).join(", ")})</small>`:""}`;
+  const big=C?(()=>{ const i=DPK.push(C)-1; return `<div class="rrow" style="border-color:#f97316"><div class="ctop"><b style="font-size:19px" class="${C.side==='CE'?'up':'dn'}">🔥 BUY ${esc(C.symbol)} ${n2(C.strike)} ${C.side}</b><span>confidence <b>${C.conf}</b>/100 · ${esc(ampm(C.time))}</span></div>
+     <div class="crow num"><span>Entry <b>₹${n2(C.entry)}</b></span><span>SL <b class="dn">₹${n2(C.sl)}</b></span><span>LTP <b>₹${n2(C.exit??C.ltp)}</b></span><span>P/L <b class="${(C.pnl_lot||0)>=0?'up':'dn'}">${rs(C.pnl_lot)}</b></span></div>
+     <div class="ctg num">${(C.targets||[]).map((t,j)=>`<span>T${j+1} ${n2(t)} <b class="up">${rs((t-C.entry)*(C.lot||1))}</b>${(C.hits||[]).some(h=>h.startsWith("T"+(j+1)+" "))?" ✅":""}</span>`).join("")}</div>
+     <div class="hint">${esc(C.src||"")} · exp ${esc(C.expiry||"")} · lot ${C.lot} · ${st(C)}</div><div class="hint">${(C.why||[]).map(esc).join(" · ")}</div>
+     ${OPEN_ST.includes(C.status)||C.status==="OPEN"?`<button class="pickbtn pp" onclick="paperFromDP(${i})">📝 Paper</button>`:""}</div>`; })()
+     :`<div class="cempty">இன்னும் Call of the Day இல்லை — 9:30–2:15-க்குள் confidence 80+ · market திசை சரி · option chain எதிர் இல்லாத முதல் setup lock ஆகும் (push + voice).</div>`;
+  const top=T.filter(r=>!r.cotd);
+  const tbl=X=>simpleTbl(X,[["#",r=>r.cotd?"🔥":r.rank],["நேரம்",r=>esc(ampm(r.time))],["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><div class="hint">${esc(r.src||"")}</div>`],["Conf",r=>r.conf],["Entry / SL",r=>`₹${n2(r.entry)} / <span class="dn">₹${n2(r.sl)}</span>`],["T1 / T2 / T3",r=>(r.targets||[]).map(n2).join(" / ")],["LTP / Exit",r=>n2(r.exit??r.ltp)],["P/L lot",r=>`<b class="${(r.pnl_lot||0)>=0?'up':'dn'}">${rs(r.pnl_lot)}</b>`],["Result",st],["",r=>(OPEN_ST.includes(r.status)||r.status==="OPEN")?`<button class="pickbtn pp" onclick="paperFromDP(${DPK.push(r)-1})">📝</button>`:""]],r=>r.status==="OPEN"||OPEN_ST.includes(r.status)?"":(r.pnl_lot||0)>0?"uprow":"slrow");
+  const A=D.all||{}, CO=D.cotd||{};
+  return `<div class="cotd"><h2>🔥 CALL OF THE DAY + 🏆 TOP 5 <small class="hint">site-ல் உள்ள எல்லா engines-ல் இருந்து · நாளைக்கு max 5 · confidence 80+ மட்டும்</small></h2>${big}
+    ${!compact&&top.length?`<h3 class="sec">🏆 இன்றைய Top picks (${T.length}/5)</h3>${tbl(T)}`:compact&&top.length?`<div class="hint">🏆 மற்ற picks: ${top.map(r=>`${esc(r.symbol)} ${n2(r.strike)} ${r.side} (${esc(r.status)})`).join(" · ")}</div>`:""}
+    <div class="hint">📊 உண்மையான result: Call of the Day ${CO.n||0} முடிந்த · win ${CO.win??"–"}% · ${rs(CO.net)} · எல்லா Top picks ${A.n||0} · win ${A.win??"–"}% · ${rs(A.net)}</div>
+    ${!compact&&(D.days||[]).length?`<details class="tech"><summary>📅 நாள் வாரியா history (Call of the Day + result)</summary>${simpleTbl(D.days,[["Date",d=>sDate(d.date,"")],["Call of the Day",d=>d.cotd?`<b>${esc(d.cotd.symbol)} ${n2(d.cotd.strike)} ${d.cotd.side}</b> <small>${esc(ampm(d.cotd.time))}</small> → ${esc(d.cotd.status)} <b class="${(d.cotd.pnl_lot||0)>=0?'up':'dn'}">${rs(d.cotd.pnl_lot)}</b>`:"–"],["Picks",d=>d.n],["Win",d=>d.closed?`${d.win}/${d.closed}`:"–"],["Net",d=>`<b class="${d.net>=0?'up':'dn'}">${rs(d.net)}</b>`]])}</details>`:""}</div>`; }
+async function resultsAdd(){ const sy=($("rdSym")||{}).value||"", dt=($("rdDate")||{}).value||""; const j=await post("/api/results/add",{symbol:sy,date:dt}); alert(j.msg||""); load(); }
+function strikeFor(E,date,sym,side){ const k=((E.strikes||{})[`${date}|${sym}|${side}`]); return k&&k.strike?k:null; }
+function diaryHTML(s,compact){
+  const E=s.events||{}, R=(E.results||[]).filter(r=>!compact||r.days>=-1&&r.days<=3), today=String(s.now||"").slice(0,10);
+  const lab=d=>d===0?"🔴 TODAY":d===1?"🟠 TOMORROW":d>1?`in ${d} days`:d===-1?"நேற்று":`${-d} நாள் முன்`;
+  const row=r=>{ const sk=r.setup&&r.setup.side?strikeFor(E,today,r.symbol,r.setup.side):null;
+    return `<div class="drow d${Math.max(0,r.days)}"><div class="ctop"><b>${lab(r.days)} · ${esc(r.symbol)}</b><span class="hint">${esc(r.date)} · ${esc(r.src||"")}</span></div>
+     <div class="hint">${r.spot?`LTP ${n2(r.spot)} · `:""}${r.r20!=null?`20 நாள் ${r.r20>=0?"+":""}${r.r20}% · `:""}${r.near_high?"🔝 52w high அருகில் · ":""}${r.oi?`OI ${esc(r.oi)} · `:""}${r.implied?`<b>Options எதிர்பார்க்கும் move ±${r.implied.pct}%</b> (ATM ${n2(r.implied.strike)} straddle ₹${n2(r.implied.straddle)})`:""}${r.reaction!=null?` · <b class="${r.reaction>=0?'up':'dn'}">Result reaction ${r.reaction>=0?"+":""}${r.reaction}%</b>`:""}</div>
+     <div class="hint">👉 ${esc(r.plan||"")}</div>
+     ${r.setup?`<div><b class="${r.setup.side==="CE"?"up":r.setup.side==="PE"?"dn":""}">${esc(r.setup.txt)}</b>${sk?` · 🎯 <b>${esc(r.symbol)} ${n2(sk.strike)} ${r.setup.side}</b> (${esc(sk.moneyness||"")}) LTP ₹${n2(sk.ltp)} · SL ₹${n2(sk.prem_sl)} · T ₹${n2(sk.prem_target)}`:""}</div>`:""}</div>`; };
+  return `<div class="labbox diary"><h2>📅 Results Diary — முன்கூட்டியே தெரிஞ்சுக்க</h2>
+    ${E.nse_err?`<div class="hint">⚠ ${esc(E.nse_err)}</div>`:""}
+    ${R.length?R.map(row).join(""):'<div class="hint">இன்னும் results தேதி இல்லை — NSE / news-ல் வந்ததும் வரும், அல்லது கீழே சேர்க்கலாம்.</div>'}
+    ${compact?"":`<div class="labin" style="margin-top:6px"><input id="rdSym" placeholder="HAL"><input id="rdDate" type="date"><button class="pickbtn" onclick="resultsAdd()">➕ Results தேதி சேர்</button></div>`}
+    <div class="hint">Results-க்கு முன் naked overnight option வேண்டாம் (gap + IV crush). Result நாள் 9:15–9:30 high / low உடைஞ்ச பக்கம் volume-உடன் மட்டும்.</div></div>`; }
+function preopenHTML(s){
+  const E=s.events||{}, P=E.preopen||{}, today=String(s.now||"").slice(0,10); if(P.date!==today||!(P.rows||[]).length) return P.err?`<div class="labbox"><b>🌅 Pre-open</b> <span class="hint">${esc(P.err)}</span></div>`:"";
+  return `<div class="labbox" style="border-color:#facc15"><h2>🌅 Pre-open watchlist <small class="hint">${esc(P.src||"")} · ${esc(P.time||"")} · gap 1–4% + OI / news பக்கம்</small></h2>
+    ${simpleTbl(P.rows,[["Stock",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${r.side}</b>`],["Gap",r=>`<b class="${r.gap>=0?'up':'dn'}">${r.gap>=0?"+":""}${n2(r.gap)}%</b>`],["Score",r=>r.score],["OI / news",r=>`${esc(r.oi||"–")}${r.news?` · news ${r.news>0?"+":""}${r.news}`:""}`],["Strike",r=>{ const k=strikeFor(E,today,r.symbol,r.side); return k?`<b>${n2(k.strike)} ${r.side}</b> ₹${n2(k.ltp)}<div class="hint">SL ₹${n2(k.prem_sl)} · T ₹${n2(k.prem_target)}</div>`:'<span class="hint">9:16-க்கு வரும்</span>'; }],["எப்போ",r=>`<span class="hint" style="white-space:normal">${esc(r.plan)}</span>`]])}</div>`; }
+const COTDV=new Set(); let COTDI=false;
+function cotdVoice(s){ const T=(((s.events||{}).day||{}).today)||[]; T.forEach(r=>{ const k=r.date+r.symbol; if(COTDV.has(k)) return; COTDV.add(k);
+    if(COTDI) speak(`${r.cotd?"Call of the day":"Top pick number "+r.rank}. Buy ${r.symbol} ${r.strike} ${r.side==="CE"?"call":"put"}. Entry ${r.entry}. Stop loss ${r.sl}. Confidence ${r.conf}.`,true); }); COTDI=true; }
+const BPV=new Set(); let BPI=false;
+function bplVoice(s){ let n=0; bestPicks(s).filter(x=>x.k==="TAKE").forEach(x=>{ const k=x.symbol+x.side; if(BPV.has(k)) return; BPV.add(k);
+    if(BPI&&n<2){ n++; speak(`Good setup. ${x.symbol} ${x.strike||""} ${x.side==="CE"?"call":"put"}. ${x.entry?"Entry "+x.entry+". Stop loss "+x.sl+".":""} ${x.conf?"Confidence "+x.conf+".":""}`); } }); BPI=true; }
+
 /* 🏆 V91 BEST PICK LIST — calls + AI picks + DSK + pre-breakout + OI flow → ஒரே list · 🟢 ENTER / 🟡 WAIT / 🔴 SKIP */
 let BPL=[];
 function paperFromBPL(i){ const x=BPL[i]; if(!x) return; if(x.callId){ paperFromCall(x.callId); return; } if(x.o&&x.o.token) paperGo({...x.o,from_src:x.src,src_modules:[x.src]}); else { LABSYM=x.symbol; LABLVL=String(x.level||""); goTab("lab"); if(LABLVL) labRun(); } }
@@ -2124,8 +2175,13 @@ function dskHTML(s){
       <div>${dskParts(d.parts)}</div>
       <div class="hint">${done?`🚪 EXIT: ${statusCell(live)}`:`👉 ${esc(live.guide||"T1 hit → SL entry · T2 → SL T1 · 3:20 exit")}`}</div>
       ${!done&&live.token?`<button class="pickbtn pp" onclick="paperFromDSK(${i})">📝 Paper</button>`:""}</div>`; };
+  const ENT=((((s.lab||{}).enter)||{}).rows)||[], OIF=((s.lab||{}).oi)||[];
+  const flowOf=r=>{ const e=ENT.find(x=>x.symbol===r.symbol&&x.side===r.side), o=OIF.find(x=>x.symbol===r.symbol); const L=[];
+    if(o) L.push(`🏦 ${o.kind} · OI ${o.oi_chg_pct!=null?(o.oi_chg_pct>=0?"+":"")+o.oi_chg_pct+"%":"–"} · ${o.flow||o.meaning||""}`);
+    if(e&&e.chain&&e.chain.verdict) L.push(`🏦 Option chain: ${e.chain.verdict}${e.chain.buyers_strike?` · buyers strike ${n2(e.chain.buyers_strike)}`:""}`);
+    return L.length?`<div class="hint">${L.map(esc).join("<br>")}</div>`:""; };
   const cand=r=>`<div class="rrow"><div class="ctop"><b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${r.strike?n2(r.strike)+" ":""}${r.side}</b><span><b>${r.score}</b>/100 · ${esc(r.stage)}</span></div>
-      <div class="hint">${esc(r.source||"")}${r.time?" · "+esc(ampm(r.time)):""}${r.level?` · level ${n2(r.level)} · LTP ${n2(r.ltp)}`:""}${r.p!=null?` · ML ${Math.round(r.p*100)}%`:""}</div><div>${dskParts(r.parts)}</div></div>`;
+      <div class="hint">${esc(r.source||"")}${r.time?" · "+esc(ampm(r.time)):""}${r.level?` · level ${n2(r.level)} · LTP ${n2(r.ltp)}`:""}${r.p!=null?` · ML ${Math.round(r.p*100)}%`:""}</div><div>${dskParts(r.parts)}</div>${flowOf(r)}</div>`;
   return `<div class="dskhead"><h2>🎯 DSK — Daily Select Kit</h2>
      <div class="hint">ஒரு நாளைக்கு <b>1–3 high-quality opportunities மட்டும்</b> · <b>👀 Early Watch → ✅ Confirmed Entry → 🚪 Exit</b>. 90% success என்று பொய்யான promise இல்லை — strong signals மட்டும் select பண்ணி, paper trading + walk-forward testing மூலம் எந்த combination உண்மையில் net profit தருது என்று கண்டுபிடிக்கும். Accuracy-க்காக trade எண்ணிக்கை குறையும் — அது தான் சரியான trade-off.</div>
      <div style="margin-top:6px"><span class="layer">🏦 Institutional Activity</span><span class="layer">🧠 Regime + Sector Strength</span><span class="layer">📈 Order Flow + Futures OI</span><span class="layer">🤖 Boosted-stumps + Logistic ensemble</span><span class="layer">🎯 Meta-label filter (walk-forward)</span><span class="layer">💰 Option premium</span><span class="layer">🛑 Adaptive risk + No-Trade</span></div>
@@ -2134,7 +2190,7 @@ function dskHTML(s){
      :`<div class="okbox"><b>✅ Trading allowed</b> · ${esc(R.txt||"1 lot · SL ≤ ₹2,500/lot")}${R.day_net!=null?` · இன்று ${rs(R.day_net)}`:""}</div>`}
    ${!TD.length&&(D.watch||[]).length?(()=>{ const w=D.watch[0], neg=(w.parts||[]).filter(p=>p[1]<=0).map(p=>`${p[0]} ${p[1]} (${p[2]||""})`);
       return `<div class="ntbox" style="border-color:#f59e0b;background:rgba(245,158,11,.10)"><b>❓ ஏன் இன்னும் DSK call வரல?</b><div class="hint">Best candidate <b>${esc(w.symbol)} ${w.side}</b> score <b>${w.score}</b> — call-க்கு <b>${D.need||60}</b> வேணும் + call stage ENTRY வேணும்.</div><div class="hint">குறைஞ்ச இடம்: ${neg.map(esc).join(" · ")||"–"}</div></div>`; })():""}
-   ${bestPicksHTML(s,true)}
+   ${cotdHTML(s,true)}${bestPicksHTML(s,true)}
    <h3 class="sec">🎯 இன்றைய DSK calls (${TD.length} / ${(D.cfg||{}).max_day||3})</h3>${TD.length?TD.map(card).join(""):'<div class="cempty">இன்னும் DSK call இல்லை — CONFIRMED setup வந்ததும் இங்கே (phone notification + voice-உம் வரும்).</div>'}
    ${(D.picks||[]).length?`<h3 class="sec">✅ CONFIRMED candidates</h3>${D.picks.map(cand).join("")}`:""}
    <h3 class="sec">👀 EARLY WATCH</h3>${(D.watch||[]).length?D.watch.map(cand).join(""):'<div class="hint">இப்போ watch candidate இல்லை.</div>'}
@@ -2184,7 +2240,7 @@ function labHTML(s){
   const PJ=A.picks||{}, PJs=PJ.stats||{};
   const pjHTML=`<div class="labbox"><h2>📒 AI Lab picks journal <small class="hint">🟢 TAKE ஆன ஒவ்வொரு call-ம் date / time / targets-உடன் save · ${PJs.n||0} முடிந்த · win ${PJs.win??"–"}% · ${PJs.net!=null?rs(PJs.net):"–"}</small></h2>
     ${(PJ.rows||[]).length?simpleTbl(PJ.rows.slice(0,60),[["Date / Time",x=>`${sDate(x.date,"")} ${esc(ampm(x.time))}`],["Call",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2(x.strike)} ${x.side}</b><div class="hint">${esc(x.source||"")}</div>`],["Entry (AI நேரம்)",x=>n2(x.entry)],["SL",x=>n2(x.sl)],["T1 / T2 / T3",x=>(x.targets||[]).map(n2).join(" / ")],["LTP / Exit",x=>n2(x.ltp)],["P/L lot",x=>x.pnl_lot!=null?`<b class="${x.pnl_lot>=0?'up':'dn'}">${rs(x.pnl_lot)}</b>`:"–"],["Hit",x=>tkCell(x)],["Result",x=>esc(x.status)],["History",x=>`<span class="hint">${esc(x.hist||"")}</span>`]],x=>OPEN_ST.includes(x.status)?"":x.pnl_lot>0?"uprow":"slrow"):'<div class="hint">AI 🟢 TAKE சொன்ன calls இங்கே நிரந்தரமா வரும் (result-உடன்).</div>'}</div>`;
-  return bestPicksHTML(s,false)+autoHTML+pjHTML+`<div class="labbox"><h2>📍 Level Lab — "இந்த level break ஆனா profit வருமா?"</h2>
+  return cotdHTML(s,false)+preopenHTML(s)+bestPicksHTML(s,false)+diaryHTML(s,false)+autoHTML+pjHTML+`<div class="labbox"><h2>📍 Level Lab — "இந்த level break ஆனா profit வருமா?"</h2>
      <div class="labin"><input id="labSym" placeholder="VBL" value="${esc(LABSYM)}" autocapitalize="characters"><input id="labLvl" placeholder="430" inputmode="decimal" value="${esc(LABLVL)}"><button class="pickbtn pp" onclick="labRun()">🔍 Analyse</button>
      <span class="hint">கடந்த 400 நாள் + 25 நாள் 5-min-ல் அந்த level-ல் என்ன நடந்தது → CE / PE plan + best strike (Greeks)</span></div>${lvl}</div>
    <div class="labbox"><h2>🧠 Market Regime Brain</h2><div><b style="font-size:16px">${esc(BR.txt||"Market நேரத்தில் வரும்")}</b></div>
@@ -2565,7 +2621,7 @@ function crHTML(s){
   CRC=CH.map(ch=>ch.call);
   const cards=CH.map((ch,ci)=>{const c=ch.call, a=ch.analysis, p=ch.pred||{}, adv=a.advice||{}, G=c.strike?aiGuide(c,ch,s):null;
     const ST=stageOfChart(ch,s);
-    return `<div class="crcard ${G&&G.k==="must"?"pink2":""}">${stagesHTML(ST)}<div style="margin:2px 0 4px">${rgChip(a.regime)}</div><div class="crcardwrap"><div><div class="ctop"><b style="font-size:17px">${esc(c.symbol)} <span class="${c.side==='CE'?'up':'dn'}">${esc(c.strike)} ${esc(c.side)}</span></b><span class="hint">${esc(c.source||"")} · ${esc(ampm(c.time||""))} · ${esc(c.status||"")}</span></div>
+    return `<div class="crcard ${G&&G.k==="must"?"pink2":""}">${stagesHTML(ST)}<div style="margin:2px 0 4px">${rgChip(a.regime)} ${a.pattern_rel?`<span class="rgchip ${a.pattern_rel.tag==="PROVEN"?"TU":a.pattern_rel.tag==="WEAK"?"TD":""}">📊 ${esc(a.pattern_rel.txt)}</span>`:""}</div><div class="crcardwrap"><div><div class="ctop"><b style="font-size:17px">${esc(c.symbol)} <span class="${c.side==='CE'?'up':'dn'}">${esc(c.strike)} ${esc(c.side)}</span></b><span class="hint">${esc(c.source||"")} · ${esc(ampm(c.time||""))} · ${esc(c.status||"")}</span></div>
      <div class="mvstrike">👉 <b>${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b> ${c.expiry?`· exp ${esc(c.expiry)}`:""}${c.lot?` · lot ${c.lot}`:""}
        <div class="crow num"><span>Entry <b>₹${n2(c.entry)}</b></span><span>SL <b class="dn">₹${n2(c.sl)}</b></span><span>LTP <b>₹${n2(crLive(c).ltp)}</b></span></div>
        <div class="ctg num">${(c.targets||[]).map((t,j)=>`<span>T${j+1} ${n2(t)}${c.entry&&c.lot?` <b class="up">+₹${n2(Math.round((t-c.entry)*c.lot))}</b>`:""}</span>`).join("")}</div></div>
@@ -2607,7 +2663,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v92";
+const APPV="v93";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -2642,8 +2698,9 @@ function predHTML(s){
    <div class="predbar"><i style="width:${P.dir==="UP"?P.prob:100-P.prob}%;background:#22c55e"></i><i style="flex:1;background:#ef4444"></i></div>
    <div class="chk" style="margin-top:4px">${(P.signals||[]).map(x=>`<span class="${x.pts>0?'up':x.pts<0?'dn':''}">${x.pts>0?'▲':x.pts<0?'▼':'•'} ${esc(x.name)}: ${esc(x.txt)}</span>`).join("")}</div>
    ${PRJ.length?`<div class="predjp">👑 <b>INDEX JACKPOT SETUP</b> (${P.prob}%) — ${PRJ.map((j,i)=>`<span class="jpchip" onclick="paperFromPred(${i})"><b class="${j.side==='CE'?'up':'dn'}">${esc(j.index)} ${n2(j.strike)} ${j.side}</b> · exp ${esc(j.expiry||"")} · Entry ₹${n2(j.entry)} · SL ₹${n2(j.sl)} · T ${j.targets.map(n2).join("/")} <small>(+₹${n2(j.t_rs[0])} / +₹${n2(j.t_rs[1])} / +₹${n2(j.t_rs[2])})</small></span>`).join("")}<span class="hint"> click = 📝 Paper · 75%+ ஆனா auto call</span></div>`:""}
-   <div class="hint" style="margin-top:4px">🎯 Prediction accuracy (45 நிமிடம் கழிச்சு check): மொத்தம் ${A.all||"–"}${A.all_pct!=null?` (${A.all_pct}%)`:""} · இன்று ${A.today||"–"} · 70%+ predictions ${A.hi_pct!=null?A.hi_pct+"%":"–"} (${A.hi_n||0}) · ⚠ rule-based estimate, guarantee இல்லை</div>
-   ${(A.recent||[]).length?`<details class="tech"><summary>📋 Prediction history</summary>${simpleTbl(A.recent,[["Time",p=>`${esc(p.date)} ${esc(p.time)}`],["NIFTY",p=>n2(p.spot)],["Prediction",p=>`${p.dir==="UP"?'<b class="up">⬆</b>':p.dir==="DOWN"?'<b class="dn">⬇</b>':"↔"} ${p.prob}%`],["45 நிமிடம் கழிச்சு",p=>p.move!=null?`${p.move>0?"+":""}${p.move}%`:"–"],["Result",p=>p.status==="✓"?'<b class="up">✓ சரி</b>':p.status==="✗"?'<b class="dn">✗ தப்பு</b>':esc(p.status)]])}</details>`:""}</div>`;
+   <div class="hint" style="margin-top:4px">🎯 Prediction accuracy (45 நிமிடம் கழிச்சு check): மொத்தம் ${A.all||"–"}${A.all_pct!=null?` (${A.all_pct}%)`:""} · இன்று ${A.today||"–"} · 70%+ predictions ${A.hi_pct!=null?A.hi_pct+"%":"–"} (${A.hi_n||0}) · ⬆⬇ direction மட்டும் ${A.dir_pct!=null?A.dir_pct+"%":"–"} · ⚠ guarantee இல்லை</div>
+    <div class="hint">🧠 ${P.src==="learned"?"<b class=\"up\">கத்துக்கிட்ட weights ON</b> — ":""}${esc(((A.learned||{}).why)||"Signals save ஆகுது — 40 predictions வந்ததும் mistakes-ல் இருந்து weights கத்துக்கும்")}</div>
+   ${(A.recent||[]).length?`<details class="tech"><summary>📋 Prediction history</summary>${simpleTbl(A.recent,[["Time",p=>`${esc(p.date)} ${esc(p.time)}`],["NIFTY",p=>n2(p.spot)],["Prediction",p=>`${p.dir==="UP"?'<b class="up">⬆</b>':p.dir==="DOWN"?'<b class="dn">⬇</b>':"↔"} ${p.prob!=null?p.prob+"%":"தெளிவில்லை"}${p.src==="learned"?" 🧠":""}`],["45 நிமிடம் கழிச்சு",p=>p.move!=null?`${p.move>0?"+":""}${p.move}%`:"–"],["Result",p=>p.status==="✓"?'<b class="up">✓ சரி</b>':p.status==="✗"?'<b class="dn">✗ தப்பு</b>':esc(p.status)]])}</details>`:""}</div>`;
   const key=P.dir+"|"+(P.prob>=70);
   if(PRLAST!==null && key!==PRLAST && P.dir!=="RANGE" && P.prob>=70 && voiceOn()){
     const j=PRJ[0]; speak(`Market prediction. Nifty likely to go ${P.dir==="UP"?"up":"down"}. ${P.prob} percent.${j?` Jackpot setup: ${j.index} ${j.strike} ${j.side==="CE"?"call":"put"}, entry ${j.entry}.`:""}`);
@@ -2691,7 +2748,7 @@ function render(s){
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
   const _seen=new Set(), _TT=_T.filter(c=>!_seen.has(c.id)&&_seen.add(c.id));
-  announceNew({tracking:{today:_TT}}); voiceTrack(_TT); riskVoice(s.full); radarVoice(s); decisionVoice(_TT,s); chartAlerts(s); }catch(e){ console.error(e); }
+  announceNew({tracking:{today:_TT}}); voiceTrack(_TT); riskVoice(s.full); radarVoice(s); decisionVoice(_TT,s); cotdVoice(s); bplVoice(s); chartAlerts(s); }catch(e){ console.error(e); }
   try{ renderCalls(s); }catch(e){ console.error(e); $("callboard").innerHTML='<div class="cempty">Calls காட்ட முடியவில்லை: '+esc(e.message)+'</div>'; }
 
   for (const side of ["ce","pe"]) { const rows=r?.[side]||[]; $(side).innerHTML = rows.length? rows.map(rowHTML).join("") : `<div class="empty">${s.error?esc(s.error):"Chartink scan இன்னும் run ஆகவில்லை / setup இல்லை."}</div>`; }

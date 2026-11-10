@@ -428,7 +428,65 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v92"
+APP_VERSION = "v93"
+EVC = {"t": 0, "d": None}
+
+
+def events_loop():
+    """📅 Results diary + 🌅 Pre-open + strike — weekdays 9:05–15:30, 60 sec-க்கு ஒருமுறை."""
+    last_cal = 0
+    while True:
+        time.sleep(60)
+        try:
+            t = now_ist()
+            hm = t.strftime("%H:%M")
+            if t.weekday() >= 5 or not ("09:05" <= hm <= "15:30") or not angel_configured():
+                continue
+            from krt import events as EV
+            from krt import fullscan as FS
+            from krt import ailab as AL
+            from krt.calls import STORE as _S
+            from krt.instruments import load as load_inst
+            ag, inst = get_angel(), load_inst(ROOT / "data" / "cache")
+            if time.time() - last_cal > 600:
+                last_cal = time.time()
+                EV.refresh_calendar(_S, set((FS.C.get("bars") or {}).keys()), NEWS.get("items") or [], t.date())
+            EV.diary(_S, ag, inst, t, STATE.get("full") or {}, live=market_open(t))
+            P = EV.preopen(t, STATE.get("full") or {}, NEWS.get("items") or [])
+            K = EV.STATE.setdefault("strikes", {})
+            want = [(r["symbol"], r["side"], r.get("iep")) for r in (P.get("rows") or [])[:6] if P.get("date") == str(t.date())]
+            want += [(r["symbol"], r["setup"]["side"], r.get("spot")) for r in EV.STATE.get("results") or [] if (r.get("setup") or {}).get("side")]
+            n = 0
+            for sym, side, spot in want:
+                k = f"{t.date()}|{sym}|{side}"
+                if k in K or not spot or n >= 3 or not market_open(t):
+                    continue
+                n += 1
+                ce = side == "CE"
+                try:
+                    b = AL.best_strike(ag, inst, sym, side, float(spot), t, spot * (0.99 if ce else 1.01), spot * (1.02 if ce else 0.98), min_days=3)
+                    K[k] = {x: (b.get("best") or {}).get(x) for x in ("strike", "expiry", "lot", "token", "exch", "contract", "ltp", "prem_sl", "prem_target", "rr", "delta", "score", "moneyness")}
+                    K[k]["explain"] = b.get("explain")
+                except Exception:
+                    K[k] = None
+        except Exception:
+            traceback.print_exc()
+
+
+def events_state():
+    if time.time() - EVC["t"] > 30:
+        try:
+            from krt import events as EV
+            from krt import daypicks as DP
+            from krt.calls import STORE as _S
+            t = now_ist()
+            if not EV.STATE.get("results"):
+                EV.diary(_S, None, {}, t, STATE.get("full") or {}, live=False)
+            EVC.update(t=time.time(), d={"results": EV.STATE.get("results") or [], "preopen": EV.STATE.get("preopen"), "nse_err": EV.STATE.get("nse_err"),
+                                          "strikes": EV.STATE.get("strikes") or {}, "day": DP.report(_S.load(), str(t.date()))})
+        except Exception as e:
+            EVC.update(t=time.time(), d={"err": str(e)[:200]})
+    return EVC["d"]
 LAB = {"t": 0, "d": None}
 
 
@@ -494,6 +552,10 @@ def prebreak_loop():
                 AL.autolab_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), STATE.get("full") or {})
                 AL.enter_scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {}, list((_S0.load().get("calls") or {}).values()))
                 AL.enter_chains(ANGEL, load_inst(ROOT / "data" / "cache"), t)      # 🏦 option chain buyers / sellers
+                from krt import daypicks as DP
+                from krt.notify import both as _both
+                DP.run(ANGEL, t, list((_S0.load().get("calls") or {}).values()), _both)   # 🔥 Call of the Day + 🏆 Top 5
+                EVC["t"] = 0
                 LAB["t"] = 0
             except Exception:
                 traceback.print_exc()
@@ -815,7 +877,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -865,6 +927,19 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"ok": False, "msg": f"Level Lab பிழை: {e}"}))
+        if self.path == "/api/results/add":
+            try:
+                from krt import events as EV
+                from krt.calls import STORE as _S
+                sym = str(d.get("symbol") or "").upper().strip()
+                if not sym or not d.get("date"):
+                    return self._send(200, _json({"ok": False, "msg": "Symbol + date கொடுங்க (eg: HAL · 2026-11-12)"}))
+                dd = EV.add_manual(_S, sym, d["date"])
+                EV.STATE["results"] = []
+                EVC["t"] = 0
+                return self._send(200, _json({"ok": True, "msg": f"✅ {sym} results {dd} diary-ல் சேர்த்தாச்சு"}))
+            except Exception as e:
+                return self._send(200, _json({"ok": False, "msg": f"பிழை: {e}"}))
         if self.path == "/api/push/subscribe":
             try:
                 from krt import notify as NT
@@ -1059,6 +1134,7 @@ if __name__ == "__main__":
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=prebreak_loop, daemon=True).start()
+    threading.Thread(target=events_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
         threading.Thread(target=do_full, daemon=True).start()
     host = "0.0.0.0" if HOSTED else "127.0.0.1"

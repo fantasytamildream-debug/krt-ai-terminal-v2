@@ -417,6 +417,24 @@ def track(preds, sym, df, now):
             p.update(status="FAILED", end_time=t, end_px=round(c, 2))
 
 
+def pattern_gate(a, by, min_n=5):
+    """📊 Pattern accuracy-ல் இருந்து கத்துக்கும்: direction சரி <50% (5+ results) → TAKE இல்லை (WAIT) · ≥75% (8+) → ✓ proven.
+    (05-11 data: Head & shoulders 0/4, Falling channel 0/7 — இவை இனி TAKE ஆகாது; Double bottom 60/62, Rising channel 88/97 — proven.)"""
+    b = by.get(a.get("pattern")) or {}
+    n, ok = b.get("dir_n") or 0, b.get("dir_ok") or 0
+    if n < min_n:
+        return {"tag": "NEW", "n": n, "acc": None, "txt": f"{a.get('pattern')} — history குறைவு ({n})"}
+    acc = round(ok / n * 100)
+    adv = a.get("advice") or {}
+    if acc < 50:
+        if adv.get("verdict") == "TAKE":
+            a["advice"] = {"verdict": "WAIT", "text": f"⚠ {a.get('pattern')} — இந்த chart-ல் history {acc}% ({ok}/{n}) தான் சரி. நம்பகம் இல்லை → skip / பெரிய confirmation (2 candle close + volume) வந்தா மட்டும்."}
+        return {"tag": "WEAK", "n": n, "acc": acc, "txt": f"⚠ {a.get('pattern')} history {acc}% ({ok}/{n}) — நம்பகம் இல்லை"}
+    if acc >= 75 and n >= 8:
+        return {"tag": "PROVEN", "n": n, "acc": acc, "txt": f"✓ {a.get('pattern')} proven {acc}% ({ok}/{n})"}
+    return {"tag": "OK", "n": n, "acc": acc, "txt": f"{a.get('pattern')} history {acc}% ({ok}/{n})"}
+
+
 def advice(a, side):
     """Chart pattern vs call side → எடுக்கலாமா?"""
     want = "UP" if side == "CE" else "DOWN"
@@ -463,6 +481,7 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
                 c.update(strike=o_["strike"], entry=o_["entry"], sl=o_["sl"], targets=o_["targets"], ltp=o_["ltp"], token=o_["token"],
                          exch=o_["exch"], contract=o_["contract"], lot=o_["lot"], expiry=o_["expiry"])
         a["advice"] = advice(a, c.get("side") or "CE")
+        a["pattern_rel"] = pattern_gate(a, STATE.get("by_pattern") or {})      # v93: pattern history-ஐ வச்சு TAKE-ஐ கட்டுப்படுத்து
         if c.get("is_index") and c.get("token") and a["smart"]["score"] >= 75 and a["advice"]["verdict"] == "TAKE":
             try:
                 from .calls import add_simple
