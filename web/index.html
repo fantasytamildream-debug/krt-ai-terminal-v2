@@ -1053,7 +1053,7 @@ function renderFull(s){
   try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
-  try{ $("aiTop").innerHTML = SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  try{ $("aiTop").innerHTML = SX("fableBox",()=>fableBox(s)) + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -2614,6 +2614,44 @@ function uiZoom(d){ let z=0.9; try{ z=parseFloat(localStorage.getItem("krt_zoom"
   document.documentElement.style.zoom=z; }
 try{ uiZoom(0); }catch(e){}
 
+/* 🧠 V102 FABLE PICKS — Claude Fable 5.2 picks the best 0-3 setups (English) */
+let FB_SEEN=null;
+async function fableRun(){ const b=document.getElementById("fbRun"); if(b){ b.disabled=true; b.textContent="🧠 Fable is thinking… (up to 2 min)"; }
+  try{ const j=await post("/api/fable/run",{}); alert((j.ok?"✅ ":"⚠ ")+(j.msg||"")); }catch(e){ alert("⚠ "+e); } await load(); }
+async function fableAsk(){ const i=document.getElementById("fbQ"), q=(i&&i.value||"").trim(); if(!q) return;
+  const o=document.getElementById("fbA"); if(o) o.innerHTML='<div class="hint">🧠 Fable is reading all the setups… (up to 1–2 min)</div>';
+  try{ const j=await post("/api/fable/ask",{q}); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(j.answer||"No answer")}</div>`; }catch(e){ if(o) o.innerHTML="⚠ "+esc(String(e)); } }
+function fableBox(s){
+  const F=s.fable||{}, C=F.cfg||{}, L=F.last||{}, T=F.today||[], H=F.history||[], St=F.stats||{}, A=St.all||{}, G=St.gold||{}, U=F.usage||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const ids=T.map(p=>p.id).join(","); if(FB_SEEN!==null&&ids!==FB_SEEN){ const nw=T.find(p=>!FB_SEEN.includes(p.id)); if(nw){ try{ speak(`Fable ${nw.grade==="GOLD"?"gold":""} pick. ${nw.symbol} ${nw.strike} ${nw.side==="CE"?"C E":"P E"}. Confidence ${nw.confidence}.`); }catch(e){} } } FB_SEEN=ids;
+  if(!C.key) return `<div class="labbox" style="border:2px solid #a855f7;font-size:13px"><h2>🧠 FABLE PICKS — Claude Fable 5.2 picks your best setups</h2>
+    <div><b>Not connected yet.</b> To switch it on:</div>
+    <div class="hint">1. Go to <b>platform.claude.com</b> → API keys → create a key (needs a card / credits).<br>2. Render → your service <b>krt-ai-terminal-v2</b> → Environment → add <b>ANTHROPIC_API_KEY</b> = your key → Save (it redeploys).<br>3. Optional: <b>FABLE_MAX_RUNS</b> (auto checks per day, default 12) · <b>FABLE_EFFORT</b> (low / medium / high, default medium) · <b>FABLE_AUTO_PAPER</b> (1 = Fable puts its picks in Paper Trade).</div>
+    <div class="hint">💰 Cost: Fable 5.2 is $8 per million input tokens and $40 per million output tokens. One check reads about 10k tokens and writes 2–4k, so roughly <b>$0.15–0.30 per check</b> (estimate) — 12 checks ≈ $2–3.5 a day. Lower FABLE_MAX_RUNS or use FABLE_EFFORT=low to spend less.</div>
+    <div class="hint">⚠ Fable is a very strong reasoner, but nobody can guarantee profit. Its picks are tracked with real results so you can judge it.</div></div>`;
+  const card=p=>{ const gold=p.grade==="GOLD", open=p.status==="OPEN";
+    return `<div class="rrow" style="border:2px solid ${gold?"#fbbf24":"#a855f7"};${gold?"box-shadow:0 0 18px rgba(251,191,36,.5);background:linear-gradient(135deg,rgba(251,191,36,.14),transparent)":"box-shadow:0 0 12px rgba(168,85,247,.3)"}">
+      <div class="ctop"><b style="font-size:16px">${gold?"🪙 GOLD · ":"🧠 "}<span class="${p.side==='CE'?'up':'dn'}">BUY ${esc(p.symbol)} ${n2(p.strike)} ${p.side}</span></b><span class="hint">grade <b>${esc(p.grade)}</b> · confidence <b>${p.confidence}</b>/100 · picked ${esc(ampm(p.time))}</span></div>
+      <div class="cprow" style="margin:5px 0;font-size:14px"><span>Buy <b>₹${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>T1 <b class="up">₹${n2(p.t1)}</b></span><span>T2 <b class="up">₹${n2(p.t2)}</b></span><span>T3 <b class="up">₹${n2(p.t3)}</b></span></div>
+      <div class="cprow"><span class="hint">LTP ₹${n2(p.ltp)} · <b>${esc(p.status)}</b>${(p.hits||[]).length?" · "+p.hits.map(esc).join(", "):""}</span><b class="${(p.pnl||0)>=0?"up":"dn"}">${rs(p.pnl)} / lot</b></div>
+      <div style="margin-top:4px">${(p.why||[]).map(w=>`<div>✓ ${esc(w)}</div>`).join("")}</div>
+      ${p.risk_note?`<div class="hint">⚠ ${esc(p.risk_note)}</div>`:""}${p.invalidate_if?`<div class="hint">❌ Exit / skip if: ${esc(p.invalidate_if)}</div>`:""}
+      <div class="hint">${esc(p.module||"")}${open&&!C.auto_paper?" · use 📝 Paper on the call card to paper-trade":" · auto-added to Paper Trade"}</div></div>`; };
+  const symOf=id=>{ const c=(typeof CALLMAP!=="undefined"&&CALLMAP.get)?CALLMAP.get(id):null; return c?`${c.symbol} ${n2(c.strike)} ${c.side}`:String(id).split("|").slice(-2).join(" "); };
+  return `<div class="labbox" style="border:3px solid #a855f7;font-size:13px"><div class="ctop"><h2>🧠 FABLE PICKS — the best setups right now</h2>
+      <button id="fbRun" class="pickbtn" onclick="fableRun()" ${F.busy?"disabled":""}>${F.busy?"🧠 Fable is thinking…":"🧠 Ask Fable now"}</button></div>
+    <div class="hint">${esc(C.model)} · effort ${esc(C.effort)} · checks today ${F.runs||0}/${C.max_runs} (auto ${esc(C.start)}–${esc(C.end)}, when setups change) · cost so far ≈ $${(U.usd||0).toFixed(2)} · last check ${esc(L.time||"–")}${F.err?` · <span class="dn">⚠ ${esc(F.err)}</span>`:""}</div>
+    ${L.market_view?`<div style="margin:6px 0"><b>Market:</b> ${esc(L.market_view)}</div>`:""}
+    ${T.length?`<div class="cards">${T.map(card).join("")}</div>`:`<div class="okbox"><b>🧠 Fable: ${L.time?"no clean trade right now.":"waiting for the first check."}</b> ${esc(L.no_trade_reason||"")} <div class="hint">No pick is a good answer — it protects your money on messy days.</div></div>`}
+    ${(L.avoid||[]).length?`<details><summary>⛔ Fable says avoid (${L.avoid.length})</summary>${L.avoid.map(a=>`<div class="hint">• <b>${esc(symOf(a.id))}</b> — ${esc(a.reason||"")}</div>`).join("")}</details>`:""}
+    ${L.lesson?`<div class="hint">📘 Lesson from past picks: ${esc(L.lesson)}</div>`:""}
+    <details><summary><b>📋 Fable results — all days</b> · ${A.n||0} closed · win ${A.win??"–"}% · ${rs(A.net)} · 🪙 gold ${G.n||0} · win ${G.win??"–"}% · ${rs(G.net)}</summary>
+      ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.grade==="GOLD"?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Grade · conf",p=>`${esc(p.grade)} · ${p.confidence}`],["Buy zone / SL",p=>`₹${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>[p.t1,p.t2,p.t3].map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)))?" ✅":""}`).join(" / ")],["P/L lot",p=>`<b class="${(p.pnl||0)>=0?'up':'dn'}">${rs(p.pnl)}</b>`],["Result",p=>esc(p.status)]],p=>p.status==="OPEN"?"":(p.pnl||0)>0?"uprow":"slrow"):'<div class="hint">Results appear here as Fable picks close.</div>'}</details>
+    <details><summary><b>💬 Ask Fable</b> — e.g. "Which call should I take now?" / "Is SBIN CE still OK?"</summary>
+      <div style="display:flex;gap:6px;margin:6px 0"><input id="fbQ" style="flex:1" placeholder="Ask in English or Tamil…" onkeydown="if(event.key==='Enter')fableAsk()"><button class="pickbtn" onclick="fableAsk()">Ask</button></div>
+      <div id="fbA"></div>${(F.chat||[]).map(c=>`<div class="hint" style="margin-top:6px"><b>Q ${esc(c.time)}:</b> ${esc(c.q)}<br><b>Fable:</b> ${esc(c.a)}</div>`).join("")}</details>
+    <div class="hint">⚠ Fable is a strong AI, not a guarantee. Paper-trade its picks for 2–3 weeks and trust the results table, not the confidence number.</div></div>`; }
+
 /* 🤖 V101 AI BEST PICKS + 🪙 GOLDEN CALLS (English) */
 let BP_SEEN=null;
 function histTxt(h){ if(!h) return ""; const a=h.all||{}, k=h.strike||{};
@@ -2963,7 +3001,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v101";
+const APPV="v102";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

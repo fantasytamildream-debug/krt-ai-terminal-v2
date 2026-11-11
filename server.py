@@ -436,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v101"
+APP_VERSION = "v102"
 EVC = {"t": 0, "d": None}
 
 
@@ -531,6 +531,120 @@ def bp_run(t):
         if new:
             _S.dirty = True
     BPC["t"] = 0
+
+
+def fable_pre():
+    """⚠ CALLS_LOCK is NOT reentrant: sniper_state / lab_report / journal may take it — compute them BEFORE locking (deadlock otherwise)."""
+    return {"srows": (sniper_state() or {}).get("rows") or [], "brain": (lab_report() or {}).get("brain") or {}, "jr": journal() or {}}
+
+
+def fable_ctx(D, t, pre):
+    """Everything Fable needs: market, real module stats, and per-call analysis (best picks · sniper · chart · footprint · lab · history).
+    Called UNDER CALLS_LOCK — must not call anything that takes the lock (use `pre`)."""
+    from krt import bestpicks as BP, crash as CRH
+    from krt.ai import STATE as _AST
+    from krt.chartroom import STATE as CRS
+    risk = _AST.get("risk") or {}
+    full = STATE.get("full") or {}
+    nifty = next((x for x in full.get("index") or [] if x.get("index") == "NIFTY"), {})
+    brain = pre["brain"]
+    cr = CRH.report()
+    jr = pre["jr"]
+    mods = {m["module"]: {k: m.get(k) for k in ("n", "win_rate", "exp", "net", "mdd")} for m in (jr.get("mods") or [])}
+    ct, lab, lv, lq, gd, pv = bp_inputs(D, t)
+    ctm = {r["id"]: r for r in ct}
+    live = {r["id"]: r for r in (BP.STATE.get("rows") or [])}
+    sq = {r["id"]: r for r in pre["srows"]}
+    charts = {(x.get("call") or {}).get("symbol"): x.get("analysis") or {} for x in CRS.get("charts") or []}
+    calls = list(D["calls"].values())
+    extra = {}
+    for c in calls:
+        if c.get("date") != str(t.date()) or c.get("status") not in BP.OPEN:
+            continue
+        a = charts.get(c["symbol"]) or {}
+        g = gd.get(c["symbol"]) or {}
+        b, q, r = live.get(c["id"]) or {}, sq.get(c["id"]) or {}, ctm.get(c["id"]) or {}
+        extra[c["id"]] = {"score": b.get("score"), "best_pick_why": b.get("why"), "entry_state": b.get("state"), "level_breaks": b.get("breaks"),
+                          "sniper": {"score": q.get("score"), "tier": q.get("tier"), "parts": q.get("parts"), "mtf_aligned": q.get("aligned")},
+                          "chart": {"verdict": r.get("verdict"), "methods_score": r.get("mscore"), "for": r.get("pro"), "against": r.get("con"),
+                                    "pattern": a.get("pattern"), "candles": [x.get("name") for x in (a.get("candles") or [])][:3],
+                                    "trend": (a.get("structure") or {}).get("trend"), "regime": (a.get("regime") or {}).get("kind")},
+                          "footprint": g.get("head") if g.get("side") else None, "ai_lab": (lab.get(c["id"]) or {}).get("verdict"),
+                          "history": BP.strike_history(calls, c["symbol"], c.get("side"), c.get("strike")), "sl_widened": c.get("sl_widened")}
+    market = {"nifty_pct": nifty.get("pct"), "direction": risk.get("dir"), "breadth_up_pct": risk.get("up"), "breadth_down_pct": risk.get("dn"),
+              "regime": brain.get("kind"), "crash_radar": {"level": cr.get("level"), "side": cr.get("side"), "signals": cr.get("signals")}}
+    return {"market": market, "module_stats": mods, "extra": extra}
+
+
+FBC = {"t": 0, "d": None}
+
+
+def fable_once(t, force=False):
+    from krt import fable as FB
+    from krt.calls import STORE as _S, CALLS_LOCK, add_pick
+    from krt.notify import both as _b
+    pre = fable_pre()                                       # outside the lock
+    with CALLS_LOCK:
+        D = _S.load()
+        if D.get("fable_picks"):
+            FB.track(D, t)
+            _S.dirty = True
+        if not FB.cfg()["key"]:
+            return []
+        ctx = fable_ctx(D, t, pre)
+        cands, prompt = FB.prepare(D, t, ctx)
+    if not FB.should_run(t, cands, force):
+        return []
+    try:
+        out = FB.ask_model(prompt)                          # slow part — outside the lock
+    except Exception as e:
+        FB.STATE["err"] = str(e)[:200]
+        return []
+    with CALLS_LOCK:
+        D = _S.load()
+        new = FB.apply(D, t, out, cands)
+        if new:
+            _S.dirty = True
+        calls = dict(D["calls"])
+    FBC["t"] = 0
+    for p in new:
+        try:
+            _b(f"{'🪙 FABLE GOLD' if p['grade'] == 'GOLD' else '🧠 FABLE PICK'} · {p['symbol']} {p['strike']:g} {p['side']}\n"
+               f"Buy ₹{p['entry_zone'][0]}–{p['entry_zone'][1]} · SL ₹{p['sl']} · T1 ₹{p['t1']} · T2 ₹{p['t2']} · T3 ₹{p['t3']}\n"
+               f"Confidence {p['confidence']}/100 · " + " · ".join(p.get("why") or [])[:150], f"fable|{p['id']}", True)
+        except Exception:
+            pass
+        if FB.cfg()["auto_paper"]:                          # Fable trades it itself — on PAPER only
+            c = calls.get(p["id"]) or {}
+            try:
+                add_pick({**{k: c.get(k) for k in ("symbol", "side", "strike", "expiry", "contract", "token", "exch", "lot")}, "sl": p["sl"],
+                          "from_src": "🧠 Fable", "src_modules": ["🧠 Fable"]}, c.get("ltp"), t, 1)
+            except Exception:
+                pass
+    return new
+
+
+def fable_loop():
+    while True:
+        time.sleep(60)
+        try:
+            t = now_ist()
+            if market_open(t) or str(t.time()) < "23:00":
+                fable_once(t)
+        except Exception:
+            traceback.print_exc()
+
+
+def fable_state():
+    if time.time() - FBC["t"] > 5:
+        try:
+            from krt import fable as FB
+            from krt.calls import STORE as _S
+            t = now_ist()
+            FBC.update(t=time.time(), d=FB.report(_S.load(), str(t.date())))
+        except Exception as e:
+            FBC.update(t=time.time(), d={"err": str(e)[:200]})
+    return FBC["d"]
 
 
 BPC = {"t": 0, "d": None}
@@ -1085,7 +1199,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -1163,6 +1277,22 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4/settings":
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
+        if self.path == "/api/fable/run":
+            new = fable_once(now_ist(), force=True)
+            from krt import fable as FB
+            return self._send(200, _json({"ok": not FB.STATE.get("err"), "new": len(new), "msg": FB.STATE.get("err") or f"Fable checked — {len(new)} new pick(s)"}))
+        if self.path == "/api/fable/ask":
+            from krt import fable as FB
+            from krt.calls import STORE as _S, CALLS_LOCK
+            t = now_ist()
+            pre = fable_pre()
+            with CALLS_LOCK:
+                D = _S.load()
+                ctx = fable_ctx(D, t, pre)
+                Dsnap = json.loads(json.dumps({"calls": D["calls"], "fable_picks": D.get("fable_picks") or {}}, default=str))
+            ans = FB.ask(Dsnap, t, d.get("q") or "", ctx)
+            FBC["t"] = 0
+            return self._send(200, _json({"ok": True, "answer": ans}))
         if self.path == "/api/pick":
             global ANGEL
             from krt.calls import add_pick
@@ -1341,6 +1471,7 @@ if __name__ == "__main__":
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
+    threading.Thread(target=fable_loop, daemon=True).start()
     threading.Thread(target=prebreak_loop, daemon=True).start()
     threading.Thread(target=events_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan
