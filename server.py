@@ -436,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v100"
+APP_VERSION = "v101"
 EVC = {"t": 0, "d": None}
 
 
@@ -502,6 +502,62 @@ def store_state():
     from krt.calls import STORE as _S
     return {"remote": _S.remote, "error": _S.error, "load_failed": bool(getattr(_S, "load_failed", False)),
             "calls": len((_S.data or {}).get("calls") or {}), "dirty": _S.dirty}
+
+
+def bp_inputs(D, t):
+    from krt import fullscan as FSm, footprint as FPM
+    from krt.ailab import STATE as LAB, decide
+    from krt.ai import STATE as _AST
+    from krt.chartroom import STATE as CRS
+    from krt.calls import proven_sources
+    mdir = (_AST.get("risk") or {}).get("dir")
+    auto = ((LAB.get("auto") or {}).get("rows")) or {}
+    lab = {cid: {"verdict": decide(D["calls"].get(cid), v, mdir)} for cid, v in auto.items()}
+    guides = {}
+    for g in (FPM.report() or {}).get("guide") or []:
+        guides.setdefault(g["symbol"], g)
+    return (CRS.get("calls_table") or []), lab, (FSm.C.get("levels") or {}), (FSm.C.get("live_q") or {}), guides, proven_sources(D)
+
+
+def bp_run(t):
+    from krt import bestpicks as BP
+    from krt.calls import STORE as _S, CALLS_LOCK
+    from krt.notify import both as _b
+    rows = (sniper_state() or {}).get("rows") or []
+    with CALLS_LOCK:
+        D = _S.load()
+        ct, lab, lv, lq, gd, pv = bp_inputs(D, t)
+        new = BP.run(D, t, rows, ct, lab, lv, lq, gd, pv, _b)
+        if new:
+            _S.dirty = True
+    BPC["t"] = 0
+
+
+BPC = {"t": 0, "d": None}
+
+
+def bp_state():
+    if time.time() - BPC["t"] > 10:
+        try:
+            from krt import bestpicks as BP, fullscan as FSm
+            from krt.calls import STORE as _S
+            from krt.chartroom import STATE as CRS
+            t = now_ist()
+            D = _S.load()
+            R = BP.report(D, str(t.date()))
+            calls = list(D["calls"].values())
+            panel = {}
+            for ch in CRS.get("charts") or []:                  # 📈 chart panel: levels + strike history
+                c = ch.get("call") or {}
+                if c.get("symbol"):
+                    panel[c["symbol"]] = {"levels": (FSm.C.get("levels") or {}).get(c["symbol"]),
+                                          "hist": BP.strike_history(calls, c["symbol"], c.get("side") or "CE", c.get("strike"))}
+            R["panel"] = panel
+            BPC.update(t=time.time(), d=R)
+        except Exception as e:
+            traceback.print_exc()
+            BPC.update(t=time.time(), d={"err": str(e)[:200]})
+    return BPC["d"]
 
 
 SNC = {"t": 0, "d": None}
@@ -676,6 +732,7 @@ def prebreak_loop():
                 from krt import spreads as SPR                  # 📐 Credit spreads / Iron Condor (paper)
                 _ix = (STATE.get("full") or {}).get("index") or []
                 SPR.run(ANGEL, t, _ix, next((x.get("pct") for x in _ix if x.get("index") == "NIFTY"), 0))
+                bp_run(t)                                       # 🤖 AI Best Picks + 🪙 Golden calls
                 EVC["t"] = 0
                 LAB["t"] = 0
             except Exception:
@@ -1028,7 +1085,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),

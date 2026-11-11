@@ -703,6 +703,11 @@ def scan(ag, inst, full, now, live=True):
                     r_["stage"] = "READY"
                     r_.setdefault("notes", []).insert(0, "🥈 Silver-grade confirmation " + str(n_) + "/4 (2 வேணும்)" + (" · SIDEWAYS regime-ல் trend strategy வேண்டாம்" if bad_reg else ""))
             pref = list(PREFERRED.get(reg, []))
+            # v101: ⚡ ICT Silver Bullet (83% win · PF 2.36) — CONFIRMED (sweep → MSS → FVG retest, window-க்குள்) ஆனா எந்த regime-லும் call.
+            # முன்னாடி "LIQUIDITY REVERSAL" regime-ல் மட்டும் preferred → trend / sideways நாட்களில் CONFIRMED ஆனாலும் call வரல.
+            if (res.get("SILVER") or {}).get("stage") == "CONFIRMED" and "SILVER" not in pref:
+                pref.append("SILVER")
+                res["SILVER"].setdefault("notes", []).insert(0, "⚡ Silver Bullet CONFIRMED — proven strategy, regime gate இல்லாம call")
             # V4.1 confluence: regime UNCLEAR / எதுவும் preferred இல்லைன்னா — CONFIRMED strategy + அதே side-ல் வேறு ஒரு strategy READY/CONFIRMED இருந்தா அது preferred
             conf_side = {}
             for k_, r_ in res.items():

@@ -445,7 +445,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <div class="actions">
       <button id="bellBtn" class="bell" onclick="bellToggle()" aria-label="Notifications">🔔<span id="bellN" class="bn"></span></button>
       <button id="scanBtn" class="primary">Full market scan</button>
-      <button id="setBtn">Settings</button>
+      <button onclick="uiZoom(-0.05)" title="Smaller text">A−</button><button onclick="uiZoom(0.05)" title="Bigger text">A+</button><button id="setBtn">Settings</button>
     </div>
   </header>
   <div id="bellBox" class="bellbox" hidden></div>
@@ -1053,7 +1053,7 @@ function renderFull(s){
   try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
-  try{ $("aiTop").innerHTML = SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  try{ $("aiTop").innerHTML = SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -2608,6 +2608,46 @@ function aiGuide(c, ch, s){
   return {k,t,sc,why:[...plus.map(x=>"✓ "+x),...minus.map(x=>"✗ "+x)]};
 }
 function aiGuideHTML(G){ return `<div class="aiguide ${G.k}"><div>🤖 AI guide</div><div class="big">${esc(G.t)}</div><div class="hint">guide score ${G.sc}/100</div><ul>${G.why.map(w=>`<li class="${w.startsWith("✓")?"up":"dn"}">${esc(w)}</li>`).join("")}</ul></div>`; }
+/* 🔤 V101 text size (default 90%, A− / A+ remembered on this device) */
+function uiZoom(d){ let z=0.9; try{ z=parseFloat(localStorage.getItem("krt_zoom")||"0.9"); }catch(e){}
+  if(d) z=Math.max(0.75,Math.min(1.1,Math.round((z+d)*100)/100)); try{ localStorage.setItem("krt_zoom",String(z)); }catch(e){}
+  document.documentElement.style.zoom=z; }
+try{ uiZoom(0); }catch(e){}
+
+/* 🤖 V101 AI BEST PICKS + 🪙 GOLDEN CALLS (English) */
+let BP_SEEN=null;
+function histTxt(h){ if(!h) return ""; const a=h.all||{}, k=h.strike||{};
+  return `History: ${a.n||0} past calls on this stock/side · T1 hit ${a.t1||0} · SL ${a.sl||0}${a.win!=null?` · win ${a.win}%`:""}${k.n?` | this strike: ${k.n} calls · T1 ${k.t1} · SL ${k.sl}`:""}`; }
+function bestPicksBox(s){
+  const B=s.bestpicks||{}, T=B.today||[], H=B.history||[], St=B.stats||{}, A=St.all||{}, G=St.golden||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const ids=T.map(p=>p.id+(p.golden?"g":"")).join(","); if(BP_SEEN!==null&&ids!==BP_SEEN){ const nw=T.find(p=>!BP_SEEN.includes(p.id+(p.golden?"g":""))); if(nw){ try{ speak(`${nw.golden?"Golden call":"A I best pick"}. ${nw.symbol} ${nw.strike} ${nw.side==="CE"?"C E":"P E"}. Entry ${nw.entry}.`); }catch(e){} } } BP_SEEN=ids;
+  const card=p=>{ const pl=p.pnl_lot||0, open=OPEN_ST.includes(p.status);
+    return `<div class="rrow" style="border:2px solid ${p.golden?"#fbbf24":"var(--ce)"};${p.golden?"box-shadow:0 0 16px rgba(251,191,36,.45);background:linear-gradient(135deg,rgba(251,191,36,.12),transparent)":""}">
+      <div class="ctop"><b style="font-size:15px">${p.golden?"🪙 GOLDEN · ":"🤖 "}<span class="${p.side==='CE'?'up':'dn'}">BUY ${esc(p.symbol)} ${n2(p.strike)} ${p.side}</span></b><span class="hint">picked ${esc(ampm(p.time))} · score <b>${p.score}</b>/100</span></div>
+      <div class="cprow" style="margin:4px 0"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>T1/T2/T3 <b class="up">${(p.targets||[]).map(n2).join(" / ")}</b></span></div>
+      <div class="cprow"><span class="hint">LTP ₹${n2(p.exit??p.ltp)} · ${esc(p.status||"")}${(p.hits||[]).length?" · "+p.hits.map(esc).join(", "):""}</span><b class="${pl>=0?"up":"dn"}">${rs(pl)} / lot</b></div>
+      <div class="hint">Why: ${(p.why||[]).map(esc).join(" · ")||"–"} · ${esc(p.source||"")}</div><div class="hint">📊 ${esc(histTxt(p.hist))}</div>
+      ${open&&p.token!==undefined?"":""}</div>`; };
+  return `<div class="labbox" style="border:2px solid #fbbf24;font-size:13px"><h2>🤖 AI BEST PICKS — what to take now <small class="hint">${esc(B.time||"")} · checks every minute · max ${(B.cfg||{}).max_day||6}/day</small></h2>
+    <div class="hint">Every open call is scored with ALL analyses (Sniper score · chart 15 methods · AI Lab · prev day/week/month high-low break · volume · footprint · entry state). Score 75+ = PICK (time shown when picked) · 88+ with chart TAKE + level break = 🪙 GOLDEN. Push + voice when a new one comes.</div>
+    ${T.length?`<div class="cards">${T.map(card).join("")}</div>`:'<div class="hint">No pick yet today — nothing has reached 75+ with a clean entry. Calls below are not strong enough right now.</div>'}
+    <details ${T.length?"":"open"}><summary><b>📋 Results — all picks</b> · ${A.n||0} closed · win ${A.win??"–"}% · ${rs(A.net)} · 🪙 golden ${G.n||0} closed · win ${G.win??"–"}% · ${rs(G.net)}</summary>
+    ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.golden?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Score",p=>p.score],["Entry / SL",p=>`₹${n2(p.entry)} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>(p.targets||[]).map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")],["LTP / Exit",p=>n2(p.exit??p.ltp)],["P/L lot",p=>`<b class="${(p.pnl_lot||0)>=0?'up':'dn'}">${rs(p.pnl_lot)}</b>`],["Result",p=>esc(p.status||"")]],p=>OPEN_ST.includes(p.status)?"":(p.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">Results will appear here as picks close.</div>'}</details></div>`; }
+
+/* 📣 V101 chart panel below volume (English) */
+function chartPanel(ch,s){ const c=ch.call||{}, P=(((s.bestpicks||{}).panel)||{})[c.symbol]||{}, L=P.levels||{}, K=ch.candles||[], a=ch.analysis||{}, now=ch.entry_now||{};
+  if(!K.length) return ""; const ce=(c.side||"CE")!=="PE", last=K[K.length-1][4];
+  const vols=K.slice(-21,-1).map(k=>k[5]), av=vols.reduce((x,y)=>x+y,0)/(vols.length||1), lv=K[K.length-1][5], vx=av?lv/av:0, up=K[K.length-1][4]>=K[K.length-1][1];
+  const lvl=(ce?["PDH","PWH","PMH"]:["PDL","PWL","PML"]).map(k=>L[k]?`${k} ${n2(L[k])} ${(ce?last>L[k]:last<L[k])?"✅ broken":"⏳ "+(ce?"above":"below")}`:"").filter(Boolean).join(" · ");
+  const vd=(a.advice||{}).verdict;
+  return `<div class="cpbox" style="margin-top:8px;font-size:13px">
+    <div><b style="font-size:15px" class="${ce?"up":"dn"}">📣 ${ce?"CE":"PE"} ALERT${c.strike?` — take ${n2(c.strike)} ${esc(c.side)}`:""}</b> <span class="hint">${vd==="TAKE"?"✅ chart OK":vd==="AVOID"?"⛔ chart against":"⏳ chart waiting"}</span></div>
+    ${c.entry?`<div class="cprow" style="margin:4px 0"><span>Entry <b>₹${n2(c.entry)}</b></span><span>SL <b class="dn">₹${n2(c.sl)}</b></span><span>T1 <b class="up">₹${n2((c.targets||[])[0])}</b></span><span>T2 <b class="up">₹${n2((c.targets||[])[1])}</b></span><span>T3 <b class="up">₹${n2((c.targets||[])[2])}</b></span></div>`:""}
+    <div class="hint">👉 Now: ${esc(now.txt||"waiting for data")}</div>
+    <div class="hint">📊 Volume: last candle ${vx.toFixed(1)}× avg · ${up?"buyers":"sellers"} candle${vx>=1.5?" — strong":""}</div>
+    ${lvl?`<div class="hint">📏 Levels: ${esc(lvl)}</div>`:""}
+    ${P.hist?`<div class="hint">🧾 ${esc(histTxt(P.hist))}</div>`:""}</div>`; }
+
 /* ⚠ V100 CRASH / SURGE RADAR banner + 🎯 SNIPER tab */
 let CRASH_LV="NONE";
 function crashHTML(s){ const C=((s.sniper||{}).crash)||{}; if(!C.level||C.level==="NONE") return "";
@@ -2760,6 +2800,7 @@ function cpChart(ch){
   g+=`<line x1="0" x2="${W-padR}" y1="${y(last[4])}" y2="${y(last[4])}" stroke="#fb923c" stroke-dasharray="2 4" opacity=".5"/><rect x="${W-padR+2}" y="${+y(last[4])-9}" width="${padR-4}" height="17" rx="4" fill="#c2410c"/><text x="${W-padR+6}" y="${+y(last[4])+3}" font-size="10.5" font-weight="700" fill="#fff">${n2(last[4])}</text>`;
   let ds=0; for(let i=1;i<K.length;i++) if(K[i][0]<K[i-1][0]) ds=i;          /* இன்றைய candles மட்டும் (நேத்து 13:xx ≥ 10:00 என்று தவறா match ஆகாம) */
   const ci0=c.time?K.slice(ds).findIndex(k=>k[0]>=c.time):-1, ci=ci0>=0?ci0+ds:-1;
+  (c.ul_targets||[]).slice(0,3).forEach((t,j)=>{ if(t>lo&&t<hi) g+=`<line x1="0" x2="${W-padR}" y1="${y(t)}" y2="${y(t)}" stroke="#22c55e" stroke-dasharray="4 6" opacity=".55"/><text x="6" y="${+y(t)-3}" font-size="10" fill="#4ade80">T${j+1} ${n2(t)}${(c.targets||[])[j]?" (₹"+n2(c.targets[j])+")":""}</text>`; });
   if(ci>=0&&!ch.is_index) g+=`<g><rect x="${Math.max(2,+x(ci)-20)}" y="${+y(K[ci][3])+8}" width="40" height="15" rx="7" fill="${c.side==="PE"?"#b91c1c":"#c2410c"}"/><text x="${Math.max(22,+x(ci))}" y="${+y(K[ci][3])+19}" font-size="9.5" font-weight="700" fill="#fff" text-anchor="middle">${c.side==="PE"?"SHORT":"LONG"}</text></g>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;border-radius:10px">${g}</svg>`; }
 function copilotHTML(R,s){
@@ -2790,7 +2831,7 @@ function copilotHTML(R,s){
      <div class="cprow"><span><b style="font-size:18px">${esc(c.symbol)}</b> <b style="font-size:18px">${n2(last[4])}</b> <small class="${last[4]>=base?"up":"dn"}">${last[4]>=base?"+":""}${((last[4]/base-1)*100).toFixed(2)}%</small></span><span class="hint">${tfb} <b class="dn">● LIVE</b> ${COPTF}m · ${esc(COPK.t||R.time||"")}</span></div>
      <div class="cpbanner"><b>${esc(follow)}</b>${c.strike?` <span class="hint">· ${esc(c.symbol)} ${n2(c.strike)} ${esc(c.side)} · ${esc(c.source||"")}</span>`:""}${c.is_setup?` <span class="hint">· 🧩 setup — இன்னும் call இல்லை (${esc(c.source||"")})</span>`:""}</div>
      <div class="hint">O ${n2(last[1])} H ${n2(last[2])} L ${n2(last[3])} C ${n2(last[4])} · — EMA 21 ${n2(em[em.length-1])}</div>
-     ${cpChart(COPK.c&&COPK.sym===COPSEL&&COPK.tf===COPTF?{...ch,candles:COPK.c,analysis:COPTF==="5"?a:{...a,forecast:null}}:ch)}${COPTF!=="5"?'<div class="hint">🔮 Projection 5m chart-ல் மட்டும் (அதன் history 5m setups-ல் இருந்து)</div>':""}</div>
+     ${cpChart(COPK.c&&COPK.sym===COPSEL&&COPK.tf===COPTF?{...ch,candles:COPK.c,analysis:COPTF==="5"?a:{...a,forecast:null}}:ch)}${COPTF!=="5"?'<div class="hint">🔮 Projection only on the 5m chart (its history comes from 5m setups)</div>':""}${chartPanel(ch,s)}</div>
     <div>
      <div class="cpbox"><div class="cprow"><b>🔮 KRT Copilot</b><span class="hint">15 methods · ${esc(M.regime||"")}</span></div>
       <div class="hint" style="margin-top:4px">MARKET SCAN</div>${scan.map(([n,v,r])=>`<div class="cprow"><span>${okRow(r)?"✅":"▫️"} ${esc(n)}</span><span class="cpo">${esc(v)}</span></div>`).join("")}
@@ -2922,7 +2963,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v100";
+const APPV="v101";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
