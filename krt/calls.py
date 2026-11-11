@@ -8,7 +8,7 @@ from .telegram import send as tg
 CALLS_LOCK = threading.Lock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
-INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK", "NEWS", "PREBRK", "DSK", "FOOTPRINT")
+INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK", "NEWS", "PREBRK", "DSK", "FOOTPRINT", "COMBO", "MANNAN-GU")
 SKIPPED = {"day": None, "n": 0, "items": [], "log": []}
 
 
@@ -279,7 +279,27 @@ QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, 
        "sl_streak": 3, "counter_pct": 0.4}
 
 
-OWN_POOL = ("AIPICK", "MACHINE", "MANNAN-IDX", "MANNAN-STK")     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
+OWN_POOL = ("AIPICK", "MACHINE", "MANNAN-IDX", "MANNAN-STK", "MANNAN-GU")
+PROVEN = {"t": 0, "set": set(), "rows": {}}
+
+
+def proven_sources(d, now_ts=None):
+    """✅ நிரூபிச்ச modules (15+ முடிந்த calls · net லாபம் · profit factor ≥1.5) — 30 நிமிடம் cache. இவை weak modules-ஓட
+    day-max / duplicate gate-ல் block ஆகாது (சொந்த lane: அதே module-க்குள் dup + நாளைக்கு max 8)."""
+    import time as _t
+    if _t.time() - PROVEN["t"] < 1800 and PROVEN["set"]:
+        return PROVEN["set"]
+    st = {}
+    for x in (d.get("calls") or {}).values():
+        if x.get("shadow") or x["status"] in OPEN or x["status"] == "VOID" or x.get("kind") == "PICK":
+            continue
+        s_ = st.setdefault(x.get("source") or x["kind"], {"n": 0, "w": 0.0, "l": 0.0})
+        p_ = x.get("pnl_lot") or 0
+        s_["n"] += 1
+        s_["w" if p_ > 0 else "l"] += abs(p_)
+    ok = {k for k, v in st.items() if v["n"] >= 15 and v["w"] > v["l"] and (v["w"] / v["l"] if v["l"] else 9) >= 1.5}
+    PROVEN.update(t=_t.time(), set=ok, rows=st)
+    return ok     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
 
 
 def quality_v6(c, now):
@@ -315,12 +335,13 @@ def quality_v6(c, now):
     except Exception:
         return None
     day = c["date"]
+    pv = c.get("source") in proven_sources(d)                # v98: Index OI மாதிரி நிரூபிச்ச module-க்கு தனி lane
     mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until")
-            and not x.get("shadow") and (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL)]
+            and not x.get("shadow") and (x.get("source") == c.get("source") if pv else (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL))]
     if any(x["symbol"] == c["symbol"] for x in mine):
         return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
-    if len(mine) >= QV6["max_day"]:
-        return ("Q_DAY_MAX", f"இன்றைய max {QV6['max_day']} calls முடிந்தது")
+    if len(mine) >= (8 if pv else QV6["max_day"]):
+        return ("Q_DAY_MAX", f"இன்றைய max {8 if pv else QV6['max_day']} calls முடிந்தது")
     closed = sorted([x for x in mine if x["status"] not in OPEN], key=lambda x: str(x.get("exit_time") or ""))
     if sum(x.get("pnl_lot") or 0 for x in closed) <= QV6["day_stop"]:
         return ("Q_DAY_STOP", f"இன்றைய நஷ்டம் ₹{-QV6['day_stop']:,} தாண்டியது — இன்று போதும்")
@@ -551,6 +572,11 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
             if pl and x.get("confidence") == "OI bias":
                 add(_new("INTRADAY", "Index OI", {"symbol": x["index"], "price": x["spot"], "sl": pl["ul_sl"],
                                                   "targets": pl["ul_targets"]}, pl["option"], now, day))
+            mg = x.get("mgu")                                      # 👑 Mannan Gamma Unwind (Index)
+            plm = (x.get("plans") or {}).get((mg or {}).get("side"))
+            if mg and plm:
+                add(_new("MANNAN-GU", "👑 Mannan Gamma Unwind", {"symbol": x["index"], "price": x["spot"], "sl": plm["ul_sl"], "targets": plm["ul_targets"],
+                                                              "score": 90, "stars": 5, "reasons": ["👑 " + mg["why"]]}, plm["option"], now, day))
     if live and 9 * 60 + 30 <= mins <= 14 * 60 + 30:
         for r in power:   # 🎯 POWER OI: gates எல்லாம் pass ஆன ENTRY CONFIRMED மட்டும்
             o = r.get("option")
@@ -1294,3 +1320,35 @@ def add_gu_classic(c0, ev, now, K, lite=False):
         tg(f"🎯 GU CLASSIC{' LITE' if lite else ''} TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
            + " / ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + f"\nOI −{ev['drop']}% · hold ≤5 நாள் · {c['hold_until']} exit\n(alert only · not advice)", f"guc|{c['id']}")
     return 1
+
+
+
+def module_health(d, now):
+    """🩺 ஒவ்வொரு module-ம் வேலை செய்யுதா: கடைசி call · இன்று calls · இன்று reject ஆனது (எந்த gate) · நிலை."""
+    import collections
+    day = str(now.date())
+    calls = [x for x in (d.get("calls") or {}).values() if not x.get("shadow")]
+    last, today = {}, collections.Counter()
+    for x in calls:
+        src = x.get("source") or x["kind"]
+        k = f"{x['date']} {x.get('time') or ''}"
+        if k > last.get(src, ""):
+            last[src] = k
+        if x["date"] == day:
+            today[src] += 1
+    rej = collections.defaultdict(collections.Counter)
+    if SKIPPED.get("day") == day:
+        for r in SKIPPED["log"]:
+            rej[r.get("source") or r.get("kind")][r["code"]] += 1
+    pv = proven_sources(d)
+    rows = []
+    for src in set(last) | set(rej):
+        lk = last.get(src, "")
+        days = (pd.Timestamp(day) - pd.Timestamp(lk[:10])).days if lk else None
+        rc = rej.get(src) or collections.Counter()
+        st = ("🟢 வேலை செய்யுது" if today[src] else "🟡 signal வருது, gate block" if rc else
+              "🔴 3+ நாள் call இல்லை" if days is not None and days >= 3 else "⚪ இன்று signal இல்லை")
+        rows.append({"source": src, "last": lk, "days": days, "today": today[src], "rejects": sum(rc.values()),
+                     "top": [f"{k} ×{v}" for k, v in rc.most_common(2)], "status": st, "proven": src in pv})
+    rows.sort(key=lambda r: ({"🔴": 0, "🟡": 1, "⚪": 2, "🟢": 3}.get(r["status"][:1], 4), r["source"]))
+    return rows

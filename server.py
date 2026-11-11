@@ -216,6 +216,14 @@ def chart_loop():
                 AL.chart_alerts(CRS, t, both)
             except Exception:
                 traceback.print_exc()
+            try:                                     # 🔥 Sweep + CHOCH + Volume + Candle + AI
+                if market_open(t):
+                    from krt import combo as CB
+                    from krt.ai import STATE as _AST2
+                    from krt.instruments import load as _li
+                    CB.run(get_angel(), _li(ROOT / "data" / "cache"), t, (_AST2.get("risk") or {}).get("dir"))
+            except Exception:
+                traceback.print_exc()
         except Exception as e:
             __import__("krt.chartroom", fromlist=["STATE"]).STATE["err"] = str(e)[:200]
             traceback.print_exc()
@@ -428,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v97"
+APP_VERSION = "v98"
 EVC = {"t": 0, "d": None}
 
 
@@ -494,6 +502,26 @@ def store_state():
     from krt.calls import STORE as _S
     return {"remote": _S.remote, "error": _S.error, "load_failed": bool(getattr(_S, "load_failed", False)),
             "calls": len((_S.data or {}).get("calls") or {}), "dirty": _S.dirty}
+
+
+STC = {"t": 0, "d": None}
+
+
+def strat_state():
+    if time.time() - STC["t"] > 10:
+        try:
+            from krt import combo as CB, spreads as SPR
+            from krt.calls import STORE as _S, module_health, proven_sources
+            D = _S.load()
+            t = now_ist()
+            STC.update(t=time.time(), d={"combo": CB.STATE, "spreads": SPR.report(D), "health": module_health(D, t), "proven": sorted(proven_sources(D)),
+                                          "mgu": [{"index": x.get("index"), **(x.get("mgu") or {})} for x in ((STATE.get("full") or {}).get("index") or []) if x.get("mgu")],
+                                          "mgu_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "MANNAN-GU"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40],
+                                          "combo_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "COMBO"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40]})
+        except Exception as e:
+            traceback.print_exc()
+            STC.update(t=time.time(), d={"err": str(e)[:200]})
+    return STC["d"]
 
 
 FPC = {"t": 0, "d": None}
@@ -571,6 +599,9 @@ def prebreak_loop():
                 from krt import footprint as FPM
                 from krt.ai import STATE as _AST
                 FPM.scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), (_AST.get("risk") or {}).get("dir"))
+                from krt import spreads as SPR                  # 📐 Credit spreads / Iron Condor (paper)
+                _ix = (STATE.get("full") or {}).get("index") or []
+                SPR.run(ANGEL, t, _ix, next((x.get("pct") for x in _ix if x.get("index") == "NIFTY"), 0))
                 EVC["t"] = 0
                 LAB["t"] = 0
             except Exception:
@@ -905,7 +936,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),

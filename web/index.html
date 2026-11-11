@@ -985,7 +985,7 @@ function renderFull(s){
   TRK = {}; (f.tracking?.today||[]).forEach(t=>TRK[t.symbol+"|"+t.contract]=t);
   const restored = f.restored ? `<li>Server restart ஆனது — ${esc(hm(f.restored))} scan result காட்டப்படுகிறது. புது scan பின்னால் ஓடுது.</li>` : "";
   const late = !f.live ? `<li>Market மூடியிருக்கு — ${esc(f.session)} session-ன் கடைசி data காட்டப்படுகிறது.</li>`:"";
-  $("p-ov").innerHTML = `<ul class="summary">${restored}${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+  $("p-ov").innerHTML = (()=>{ try{ return stratHTML(s); }catch(e){ console.error(e); return ""; } })() + `<ul class="summary">${restored}${late}${f.summary.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
     ${(()=>{const T=(f.tracking||{}).today||[], H=((f.tracking||{}).history||[]).slice(0,60);
       return `<h2 class="sec">📋 இன்றைய எல்லா calls — ranking (P/L படி)</h2>${T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று இன்னும் call இல்லை.</div>'}
       <h2 class="sec">📅 சமீபத்திய calls — date வாரியாக (கடைசி 60)</h2>${H.length?callsTbl(H,false):'<div class="empty">இல்லை.</div>'}`})()}
@@ -2603,6 +2603,28 @@ function aiGuide(c, ch, s){
   return {k,t,sc,why:[...plus.map(x=>"✓ "+x),...minus.map(x=>"✗ "+x)]};
 }
 function aiGuideHTML(G){ return `<div class="aiguide ${G.k}"><div>🤖 AI guide</div><div class="big">${esc(G.t)}</div><div class="hint">guide score ${G.sc}/100</div><ul>${G.why.map(w=>`<li class="${w.startsWith("✓")?"up":"dn"}">${esc(w)}</li>`).join("")}</ul></div>`; }
+/* 🆕 V98 STRATEGIES (Overview) — 🩺 health · 👑 Mannan Gamma Unwind · 🔥 Sweep+CHOCH+Candle+AI · 📐 Credit spreads / Iron Condor */
+function stratHTML(s){
+  const S=s.strategies||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0))), H=S.health||[], CB=S.combo||{}, SP=S.spreads||{}, ST=SP.stats||{};
+  const callTbl=L=>simpleTbl(L.slice(0,25),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls);
+  const st=L=>{ const d=L.filter(c=>!OPEN_ST.includes(c.status)), w=d.filter(c=>(c.pnl_lot||0)>0).length; return `${d.length} முடிந்த · win ${d.length?Math.round(w/d.length*100)+"%":"–"} · ${rs(d.reduce((a,c)=>a+(c.pnl_lot||0),0))}`; };
+  const legs=sp=>sp.legs.map(l=>`<span class="${l.act==="SELL"?"dn":"up"}">${l.act} ${n2(l.strike)} ${l.type} @₹${n2(l.entry)}</span>`).join(" · ");
+  return `<div class="labbox" style="border:2px solid #22d3ee"><h2>🩺 Module health — எல்லாம் வேலை செய்யுதா?</h2>
+     <div class="hint">✅ proven = 15+ முடிந்த calls · லாபம் · PF ≥1.5 → weak modules-ஓட day-max / duplicate gate-ல் block ஆகாது (தனி lane). இப்போ: <b>${(S.proven||[]).map(esc).join(", ")||"–"}</b></div>
+     ${H.length?simpleTbl(H,[["நிலை",r=>`<b>${esc(r.status)}</b>`],["Module",r=>`${r.proven?"✅ ":""}<b>${esc(r.source)}</b>`],["கடைசி call",r=>r.last?`${esc(r.last)}${r.days?` <small class="hint">(${r.days} நாள் முன்)</small>`:""}`:"–"],["இன்று calls",r=>r.today],["இன்று block",r=>r.rejects?`${r.rejects} <div class="hint">${r.top.map(esc).join(" · ")}</div>`:"–"]],r=>r.status.startsWith("🔴")?"slrow":r.status.startsWith("🟢")?"uprow":""):'<div class="hint">Data வந்ததும் வரும்.</div>'}
+     <div class="hint">Gate codes: Q_DAY_MAX = நாள் max calls · Q_DUP = அதே symbol-க்கு வேற module call · Q_SL_TIGHT = SL ரொம்ப அருகில் · Q_OPEN_NOISE = 9:45 முன் · Q_COUNTER = market எதிர் · B_ = learned filter</div></div>
+   <div class="labbox" style="border:2px solid #f59e0b"><h2>👑 Mannan Gamma Unwind (Index) <small class="hint">${st(S.mgu_calls||[])}</small></h2>
+     <div class="hint">Gamma Unwind Classic-ன் (PF 18.97) core-ஐ NIFTY / BANKNIFTY chain-க்கு: spot-க்கு 1.2%-க்குள் பெரிய CE (அல்லது PE) wall-ல் <b>OI இன்றைய peak-ல் இருந்து ≥8% unwind</b> (writers cover) + அந்த premium ≥15% jump + spot momentum ≥0.12% → ATM option. Index-க்கு நாளைக்கு ஒன்று · 9:45–2:30.</div>
+     ${(S.mgu||[]).length?S.mgu.map(m=>`<div class="okbox"><b class="${m.side==="CE"?"up":"dn"}">👑 ${esc(m.index)} ${esc(m.side)}</b> — ${esc(m.why||"")}</div>`).join(""):'<div class="hint">இப்போ unwind signal இல்லை (deep scan-ல் chain பார்த்துக்கிட்டே இருக்கு).</div>'}
+     ${(S.mgu_calls||[]).length?callTbl(S.mgu_calls):""}</div>
+   <div class="labbox" style="border:2px solid #f97316"><h2>🔥 Liquidity Sweep + CHOCH + Volume + Candle + AI <small class="hint">${esc(CB.time||"")} · ${st(S.combo_calls||[])}</small></h2>
+     <div class="hint">6-ம் ஒன்னா வந்தா மட்டும் call: ⚡ sweep (8 bars) → 🔄 அதே பக்கம் CHOCH → 📊 volume ≥1.5× → 🕯 confirmation candle → 🤖 15-method confluence ≥60 → 🧭 market எதிர் இல்லை. NIFTY / BANKNIFTY futures + volume அதிகமான 10 stocks · 5 நிமிடத்துக்கு ஒருமுறை · நாளைக்கு max 4.</div>
+     ${(CB.rows||[]).length?simpleTbl(CB.rows.slice(0,10),[["Setup",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${r.side}</b> ${r.pass?'<b class="up">✅ ALL</b>':""}`],["Checks",r=>`${r.score}/6`],["Detail",r=>`<span class="hint">${r.checks.map(c=>`${c.ok?"✅":"❌"} ${esc(c.name.split(" (")[0])}`).join(" · ")}</span>`],["AI",r=>r.conf],["Vol",r=>r.vx+"×"]],r=>r.pass?"uprow":""):'<div class="hint">4+/6 conditions உள்ள setup இப்போ இல்லை.</div>'}
+     ${(S.combo_calls||[]).length?callTbl(S.combo_calls):""}</div>
+   <div class="labbox" style="border:2px solid #a855f7"><h2>📐 Credit Spreads / Iron Condor <small class="hint">paper · ${ST.n||0} முடிந்த · win ${ST.win??"–"}% · ${rs(ST.net)}</small></h2>
+     <div class="hint">Range நாள் (OI bias NEUTRAL + NIFTY |move| &lt;0.5%) → <b>Iron Condor</b>: CE wall + PE wall விக்கு, 2 strikes தள்ளி வாங்கு. BULLISH TILT → <b>Bull Put</b> · BEARISH TILT → <b>Bear Call</b>. 10:00–11:30 entry · exit: 50% credit லாபம் / 1× credit நஷ்டம் / short strike breach / 3:15. ⚠ Option selling margin அதிகம் (NIFTY IC ≈ ₹1 லட்சம்+) — paper மட்டும்.</div>
+     ${(SP.rows||[]).length?simpleTbl(SP.rows.slice(0,20),[["Date / Time",x=>`${sDate(x.date,"")} ${esc(ampm(x.time))}`],["Strategy",x=>`<b>${esc(x.index)} ${esc(x.kind)}</b><div class="hint">${legs(x)}</div>`],["Credit",x=>`₹${n2(x.credit)} <div class="hint">max +₹${n2(x.max_profit)} / −₹${n2(x.max_loss)}</div>`],["Breakeven",x=>`${x.be.dn?n2(x.be.dn):"–"} – ${x.be.up?n2(x.be.up):"–"}`],["இப்போ",x=>`₹${n2(x.cost)}`],["P/L",x=>`<b class="${x.pnl>=0?'up':'dn'}">${rs(x.pnl)}</b>`],["Status",x=>esc(x.status)]],x=>x.status==="OPEN"?"":x.pnl>0?"uprow":"slrow"):'<div class="hint">10:00–11:30-க்குள் condition வந்ததும் spread வரும்.</div>'}</div>`; }
+
 /* 👣 V97 FOOTPRINT ORDER-FLOW — 1M / 3M · RVOL · stacked imbalance · option filters · checklist */
 function fpLadder(sym,tf,x){ if(!x) return ""; const a=x.an, L=(a.levels||[]).slice(0,14), poc=a.poc;
   return `<div class="cpbox" style="background:var(--panel)"><div class="cprow"><b>${esc(sym)} · ${tf}M ${esc(x.bar.t)}</b><span class="${a.delta>=0?"up":"dn"}">Δ ${a.delta>=0?"+":""}${a.delta_pct}%</span></div>
@@ -2837,7 +2859,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v97";
+const APPV="v98";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

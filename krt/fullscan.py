@@ -333,11 +333,51 @@ def pick_options(ag, inst, rows):
         r["option_alts"] = sorted([a for a in alts if not best or a["contract"] != best["contract"]], key=lambda a: a["ask"])
 
 
+MGU = {"drop": 8.0, "jump": 15.0, "mom": 0.12, "wall_pct": 1.2, "wall_share": 0.5, "lookback_min": 5}
+
+
+def mgu_signal(idx, spot, rows, now, H):
+    """👑 Mannan Gamma Unwind (Index) — GU Classic-ன் core-ஐ index chain-க்கு:
+    spot-க்கு அருகில் (1.2%) உள்ள பெரிய CE wall-ல் OI இன்றைய peak-ல் இருந்து ≥8% குறைஞ்சு (writers cover) + அந்த CE premium ≥15% ஏறி
+    + spot momentum ≥0.12% (முந்தைய scan-ல் இருந்து) → CE. PE wall-க்கு mirror → PE. H = {"peak": {tok: oi}, "hist": {key: [(ts, v)]}}."""
+    pk, hist = H.setdefault("peak", {}), H.setdefault("hist", {})
+
+    def old(key, val):
+        L = hist.setdefault(key, [])
+        prev = next((v for ts, v in reversed(L) if (now - ts).total_seconds() >= MGU["lookback_min"] * 60), None)
+        L.append((now, val))
+        del L[:-40]
+        return prev
+    sp_old = old(f"{idx}|spot", spot)
+    best = None
+    for typ, sign in (("CE", 1), ("PE", -1)):
+        win = [r for r in rows if r.get(typ) and (0 < (r["strike"] - spot) * sign <= spot * MGU["wall_pct"] / 100)]
+        mx = max((r[typ]["oi"] for r in rows if r.get(typ)), default=0)
+        for r in win:
+            o = r[typ]
+            tok, oi, ltp = o.get("token"), o.get("oi") or 0, o.get("ltp") or 0
+            if not tok:
+                continue
+            pk[tok] = max(pk.get(tok, 0), oi)
+            p_old = old(f"{tok}|ltp", ltp)
+            if mx and oi < MGU["wall_share"] * mx and pk[tok] < MGU["wall_share"] * mx:
+                continue
+            drop = (pk[tok] - oi) / pk[tok] * 100 if pk[tok] else 0
+            jump = (ltp / p_old - 1) * 100 if p_old else 0
+            mom = (spot / sp_old - 1) * 100 * sign if sp_old else 0
+            if drop >= MGU["drop"] and jump >= MGU["jump"] and mom >= MGU["mom"]:
+                sig = {"side": typ, "strike": r["strike"], "drop": round(drop, 1), "jump": round(jump, 1), "mom": round(mom, 2),
+                       "why": f"{r['strike']:g} {typ} wall OI peak-ல் இருந்து −{drop:.1f}% (writers cover) · premium +{jump:.1f}% · spot {mom:+.2f}%"}
+                if not best or drop > best["drop"]:
+                    best = sig
+    return best
+
+
 def index_oi(ag, inst, spot_q):
     out = []
     today = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
     if C["oi_day"] != today:
-        C.update(oi_day=today, oi_base={})
+        C.update(oi_day=today, oi_base={}, mgu_h={})
     for idx, (ex, tok) in INDEX_SPOT.items():
         q = spot_q.get(tok)
         spot = _f((q or {}).get("ltp"))
@@ -399,7 +439,11 @@ def index_oi(ag, inst, spot_q):
                    "type": sd, "lot": o["lot"], "bid": o["bid"], "ask": o["ask"], "ltp": o["ltp"], "moneyness": "ATM"}
             attach_plan(pr, opt, _now(), "Index OI")
             plans[sd] = {"ul_sl": pr["sl"], "ul_targets": pr["targets"], "kinds": pr.get("target_kinds"), "option": opt}
-        out.append({"index": idx, "spot": spot, "pct": pct, "expiry": exp,
+        try:
+            mg = mgu_signal(idx, spot, rows, pd.Timestamp(_now()), C.setdefault("mgu_h", {}))
+        except Exception:
+            mg = None
+        out.append({"index": idx, "spot": spot, "pct": pct, "expiry": exp, "mgu": mg,
                     "day_high": _f((q or {}).get("high")) or spot, "day_low": _f((q or {}).get("low")) or spot,
                     "atm": atm, "pcr": pcr, "support": sup, "resistance": res, "bias": bias,
                     "suggest": side, "confidence": conf, "plans": plans,
