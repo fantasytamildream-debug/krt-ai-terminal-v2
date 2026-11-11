@@ -12,7 +12,7 @@ import math
 
 import pandas as pd
 
-CFG = {"tfs": [1, 3], "rvol": 1.5, "stack": 3, "ratio": 3.0, "delta_lo": 0.45, "delta_hi": 0.65, "spread_pct": 1.0, "spread_ticks": 2,
+CFG = {"tfs": [1, 3], "rvol": 1.5, "rvol_b": 1.2, "stack": 3, "ratio": 3.0, "delta_lo": 0.45, "delta_hi": 0.65, "spread_pct": 1.0, "spread_ticks": 2,
        "rr": 2.0, "max_risk": 2500, "start": "09:20", "end": "14:45", "max_day": 5, "n_stocks": 6, "min_lvl_vol": 1}
 STATE = {"time": None, "universe": [], "bars": {}, "signals": [], "log": [], "err": None, "tune": None}
 FP = {}                     # symbol → {"last": {...}, "tick", "step", "bars": {tf: {start: bar}}, "meta": {...}}
@@ -172,8 +172,13 @@ def checklist(side, an, rv, S, ctx):
         (f"நேரம் {CFG['start']}–{CFG['end']}", CFG["start"] <= ctx.get("hm", "00:00") <= CFG["end"], ctx.get("hm", ""), True)]
     mand = all(ok for _, ok, _, m in items if m)
     extra = sum(ok for _, ok, _, m in items if not m)
-    return {"items": [{"name": n, "ok": bool(ok), "txt": t, "must": m} for n, ok, t, m in items], "pass": bool(mand and extra >= 2),
-            "score": sum(ok for _, ok, _, _ in items), "of": len(items)}
+    # v100 Grade B (LITE): RVOL ≥1.2 போதும் (மற்ற ★ கட்டாயம்) + extra 2+ — COCHINSHIP / RVNL 6/8-ல் நின்னது இப்படி தான்
+    mand_b = all(ok for n, ok, _, m in items if m and not n.startswith("★ Relative volume")) and rv is not None and rv >= CFG["rvol_b"]
+    grade = "A" if (mand and extra >= 2) else "B" if (mand_b and extra >= 2) else None
+    score = sum(ok for _, ok, _, _ in items)
+    conf = min(95, 45 + 6 * score + (10 if grade == "A" else 0) + (5 if rv and rv >= 2 else 0)) if grade else None
+    return {"items": [{"name": n, "ok": bool(ok), "txt": t, "must": m} for n, ok, t, m in items], "pass": bool(grade),
+            "grade": grade, "conf": conf, "score": score, "of": len(items)}
 
 
 def pick_option(ag, inst, name, side, spot, now, ul_sl, ul_tgts):
@@ -297,18 +302,20 @@ def scan(ag, inst, now, calls, mdir=None):
                     PICK_ALT["last"] = None
                 if o:
                     pl = o["plan"]
-                    rr_ = {"symbol": u["symbol"], "side": sig["side"], "price": spot, "sl": round(ul_sl, 2), "targets": [round(x, 2) for x in tg], "score": 70 + 5 * sig["check"]["score"],
-                           "stars": 5, "vol_ratio": sig["rvol"], "reasons": [f"👣 {sig['tf']}M footprint: {sig['stack']} stacked {'buy' if ce else 'sell'} imbalance (≥{CFG['ratio']}:1) · RVOL {sig['rvol']}",
+                    rr_ = {"symbol": u["symbol"], "side": sig["side"], "price": spot, "sl": round(ul_sl, 2), "targets": [round(x, 2) for x in tg], "score": sig["check"].get("conf") or 70,
+                           "stars": 5 if sig["check"].get("grade") == "A" else 4, "grade": sig["check"].get("grade"), "vol_ratio": sig["rvol"], "reasons": [f"👣 {sig['tf']}M footprint: {sig['stack']} stacked {'buy' if ce else 'sell'} imbalance (≥{CFG['ratio']}:1) · RVOL {sig['rvol']}",
                                                                                  f"Option {o['strike']:g} {sig['side']} · δ {o.get('delta')} · {o['spread_txt']} · RR {o['rr_opt']} · risk ₹{o['risk']:,}"]}
                     opt = {"token": o["token"], "exch": o["exch"], "contract": o["contract"], "strike": o["strike"], "type": sig["side"], "expiry": o["expiry"], "lot": o["lot"],
                            "spread_pct": o.get("spread_pct"), "plan": dict(pl, money=False)}
                     c = _new("FOOTPRINT", "👣 Footprint", rr_, opt, now, day)
                     if c and c["id"] not in D["calls"] and not c.get("shadow"):
-                        c.update(source_label="👣 Footprint", intraday=True, fp={k: sig[k] for k in ("tf", "bar", "stack", "rvol", "delta_pct")}, checklist=sig["check"]["items"])
+                        c.update(source_label="👣 Footprint", intraday=True, fp={k: sig[k] for k in ("tf", "bar", "stack", "rvol", "delta_pct")}, checklist=sig["check"]["items"],
+                                 grade=sig["check"].get("grade") or c.get("grade"), fp_conf=sig["check"].get("conf"))
                         D["calls"][c["id"]] = c
                         STORE.dirty = True
                         mine.append(c)
-                        sig["call"] = {"id": c["id"], "strike": o["strike"], "entry": c.get("entry"), "sl": c.get("sl"), "targets": c.get("targets")}
+                        sig["call"] = {"id": c["id"], "strike": o["strike"], "entry": c.get("entry"), "sl": c.get("sl"), "targets": c.get("targets"),
+                                       "grade": c.get("grade"), "conf": sig["check"].get("conf"), "time": c.get("time")}
                 else:
                     sig["why_no"] = why[:4]
             STATE["signals"].insert(0, sig)
@@ -383,7 +390,8 @@ def guide(view, signals):
         flow = (f"{'Buyers' if ce else 'Sellers'} {an['buy_stack'] if ce else an['sell_stack']} levels-ல் தொடர்ந்து அழுத்துறாங்க (stacked imbalance) · "
                 f"delta {an['delta_pct']:+}% · RVOL {x['rvol'] if x['rvol'] is not None else '–'}×")
         if ck["pass"] and sig and sig.get("call"):
-            k, head = "BUY", f"✅ BUY {sym} {sig['call']['strike']:g} {sd} — call கொடுத்தாச்சு"
+            k, head = "BUY", (f"✅ BUY {sym} {sig['call']['strike']:g} {sd} — Grade {sig['call'].get('grade') or ck.get('grade')} · confidence {sig['call'].get('conf') or ck.get('conf')}/100 · "
+                              f"{sig['call'].get('time') or sig.get('time')}-க்கு call கொடுத்தாச்சு")
             plan = f"Entry ₹{sig['call']['entry']} · SL ₹{sig['call']['sl']} · T " + " / ".join(str(t) for t in sig['call'].get('targets') or [])
         elif ck["pass"] and sig and sig.get("alt"):
             a = sig["alt"]

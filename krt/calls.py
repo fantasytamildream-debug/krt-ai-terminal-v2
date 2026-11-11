@@ -276,7 +276,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
 
 # 🛡 QUALITY MODE V6 — எல்லா modules-க்கும் ஒரே gate (✋ My pick தவிர). நோக்கம்: குறைவான, சுத்தமான calls → win rate உயர்வு.
 QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, "max_day": 12, "day_stop": -7500,
-       "sl_streak": 3, "counter_pct": 0.4}
+       "sl_streak": 3, "counter_pct": 0.4, "widen_max_risk": 4000}
 
 
 OWN_POOL = ("AIPICK", "MACHINE", "MANNAN-IDX", "MANNAN-STK", "MANNAN-GU")
@@ -317,7 +317,18 @@ def quality_v6(c, now):
     is_idx = c["symbol"] in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
     need = 8 if is_idx else QV6["min_sl_pct"]          # stock options 15% · index 8%
     if (e - sl) / e * 100 < need:
-        return ("Q_SL_TIGHT", f"SL entry-ல் இருந்து {(e - sl) / e * 100:.0f}% மட்டும் — noise-லேயே அடிக்கும் ({need}% வேணும்)")
+        # v100: reject பண்ணாம SL-ஐ minimum-க்கு widen (₹2,500 rupee SL பெரிய lots-ல் 10% ஆகி எல்லா modules-ம் இங்கே block ஆச்சு)
+        lot = float(c.get("lot") or 1)
+        new_sl = round(e * (1 - need / 100), 2)
+        new_risk = (e - new_sl) * lot
+        if new_risk > QV6["widen_max_risk"]:
+            return ("Q_SL_TIGHT", f"SL {(e - sl) / e * 100:.0f}% மட்டும் · {need}%-க்கு widen பண்ணா risk ₹{new_risk:,.0f} (> ₹{QV6['widen_max_risk']:,})")
+        k = (e - new_sl) / (e - sl) if e > sl else 1
+        old_pct = (e - sl) / e * 100
+        c["targets"] = [round(e + (t - e) * k, 2) for t in (c.get("targets") or [])]
+        c.update(sl=new_sl, sl0=new_sl, risk=round(new_risk), risk_ok=new_risk <= 2500,
+                 sl_widened=f"SL {old_pct:.0f}% → {need}% (noise-ல் அடிக்காம) · targets அதே RR · 1 lot risk ₹{new_risk:,.0f}"
+                            + ("" if new_risk <= 2500 else " ⚠ ₹2,500-க்கு மேல் — size கவனம்"))
     if c.get("kind") != "AIPICK":
         try:
             from .ai import blocked as _blk
@@ -1323,6 +1334,9 @@ def add_gu_classic(c0, ev, now, K, lite=False):
 
 
 
+PAUSED_SRC = set()
+
+
 def module_health(d, now):
     """🩺 ஒவ்வொரு module-ம் வேலை செய்யுதா: கடைசி call · இன்று calls · இன்று reject ஆனது (எந்த gate) · நிலை."""
     import collections
@@ -1341,14 +1355,22 @@ def module_health(d, now):
         for r in SKIPPED["log"]:
             rej[r.get("source") or r.get("kind")][r["code"]] += 1
     pv = proven_sources(d)
+    try:
+        from .ai import STATE as _AST
+        PAUSED_SRC.clear()
+        PAUSED_SRC.update(m for m, x in ((_AST.get("opt") or {}).get("mods") or {}).items() if x.get("paused"))
+    except Exception:
+        pass
     rows = []
     for src in set(last) | set(rej):
         lk = last.get(src, "")
         days = (pd.Timestamp(day) - pd.Timestamp(lk[:10])).days if lk else None
         rc = rej.get(src) or collections.Counter()
-        st = ("🟢 வேலை செய்யுது" if today[src] else "🟡 signal வருது, gate block" if rc else
+        paused = src in PAUSED_SRC
+        st = ("🟢 வேலை செய்யுது" if today[src] else "⏸ Auto-paused (நஷ்டம் தரும் module — shadow-ல் test ஆகுது, லாபம் வந்தா தானா resume)" if paused else
+              "🟡 signal வருது, gate block" if rc else
               "🔴 3+ நாள் call இல்லை" if days is not None and days >= 3 else "⚪ இன்று signal இல்லை")
         rows.append({"source": src, "last": lk, "days": days, "today": today[src], "rejects": sum(rc.values()),
                      "top": [f"{k} ×{v}" for k, v in rc.most_common(2)], "status": st, "proven": src in pv})
-    rows.sort(key=lambda r: ({"🔴": 0, "🟡": 1, "⚪": 2, "🟢": 3}.get(r["status"][:1], 4), r["source"]))
+    rows.sort(key=lambda r: ({"🔴": 0, "🟡": 1, "⏸": 2, "⚪": 3, "🟢": 4}.get(r["status"][:1], 5), r["source"]))
     return rows

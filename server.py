@@ -436,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v99"
+APP_VERSION = "v100"
 EVC = {"t": 0, "d": None}
 
 
@@ -502,6 +502,80 @@ def store_state():
     from krt.calls import STORE as _S
     return {"remote": _S.remote, "error": _S.error, "load_failed": bool(getattr(_S, "load_failed", False)),
             "calls": len((_S.data or {}).get("calls") or {}), "dirty": _S.dirty}
+
+
+SNC = {"t": 0, "d": None}
+
+
+def sniper_state():
+    if time.time() - SNC["t"] > 12:
+        try:
+            from krt import sqs as SQ, crash as CRH, footprint as FPM
+            from krt.ailab import STATE as LAB
+            from krt.ai import STATE as _AST
+            from krt.chartroom import STATE as CRS
+            from krt.calls import STORE as _S, CALLS_LOCK
+            t = now_ist()
+            day = str(t.date())
+            mdir = (_AST.get("risk") or {}).get("dir")
+            brain = (lab_report() or {}).get("brain") or {}
+            charts = {(x.get("call") or {}).get("symbol"): x for x in CRS.get("charts") or []}
+            guide = {}
+            for g in (FPM.report() or {}).get("guide") or []:
+                guide.setdefault(g["symbol"], g)
+            enter = {e["symbol"]: e for e in (LAB.get("enter") or {}).get("rows") or []}
+            rows = []
+            with CALLS_LOCK:
+                D = _S.load()
+                for c in D["calls"].values():
+                    if c.get("date") != day or c.get("status") not in SQ.OPEN or c.get("shadow") or c.get("kind") == "PICK":
+                        continue
+                    q = SQ.score(c, charts.get(c["symbol"]), guide.get(c["symbol"]), enter.get(c["symbol"]), brain, mdir)
+                    if not c.get("sqs"):
+                        c["sqs"] = {"score": q["score"], "tier": q["tier"], "time": t.strftime("%H:%M")}
+                        _S.dirty = True
+                    rows.append({**{k: c.get(k) for k in ("id", "symbol", "strike", "side", "entry", "sl", "targets", "ltp", "lot", "time", "source", "source_label", "pnl_lot",
+                                                           "status", "token", "exch", "expiry", "contract", "sl_widened", "grade")}, **q})
+                cal = SQ.calibrate(list(D["calls"].values()))
+            rows.sort(key=lambda r: -r["score"])
+            integ = SQ.integrity(t, TICK.get("t"), STATE.get("last_run"), CRS.get("time"), _S, ANGEL, FPM.STATE.get("feed_t"), market_open(t))
+            SNC.update(t=time.time(), d={"rows": rows[:30], "top": rows[0] if rows else None, "integrity": integ, "crash": CRH.report(), "calib": cal,
+                                          "regime": brain, "mdir": mdir, "journal": (journal() or {}).get("all"), "weights": SQ.W})
+        except Exception as e:
+            traceback.print_exc()
+            SNC.update(t=time.time(), d={"err": str(e)[:200]})
+    return SNC["d"]
+
+
+CANC = {}
+
+
+def candles_api(sym, tf):
+    """📈 Chart Room multi-timeframe: 1 / 5 / 15 min candles (30 sec cache)."""
+    from krt.instruments import INDEX_SPOT, load as load_inst
+    k = f"{sym}|{tf}"
+    if k in CANC and time.time() - CANC[k][0] < 30:
+        return CANC[k][1]
+    inst = load_inst(ROOT / "data" / "cache")
+    if sym in INDEX_SPOT:
+        ex, tok = INDEX_SPOT[sym]
+    elif (inst.get("mcx_fut") or {}).get(sym):
+        ex, tok = "MCX", inst["mcx_fut"][sym][0]
+    else:
+        ex, tok = "NSE", (inst.get("eq") or {}).get(sym)
+    if not tok:
+        return None
+    iv = {"1": "ONE_MINUTE", "5": "FIVE_MINUTE", "15": "FIFTEEN_MINUTE"}.get(str(tf), "FIVE_MINUTE")
+    t = now_ist()
+    days = {"ONE_MINUTE": 2, "FIVE_MINUTE": 4, "FIFTEEN_MINUTE": 10}[iv]
+    df = get_angel().candles(ex, tok, iv, t - pd.Timedelta(days=days), t)
+    if df is None or df.empty:
+        return None
+    df = df.tail(120)
+    out = [[i.strftime("%H:%M"), round(float(r["open"]), 2), round(float(r["high"]), 2), round(float(r["low"]), 2), round(float(r["close"]), 2), int(r["volume"])]
+           for i, r in df.iterrows()]
+    CANC[k] = (time.time(), out)
+    return out
 
 
 STC = {"t": 0, "d": None}
@@ -661,6 +735,8 @@ def tick_loop():
                 for n, (ex, tok) in INDEX_SPOT.items():
                     req.setdefault(ex, []).append(tok)
                     names[tok] = n
+                req.setdefault("NSE", []).append("99926017")          # India VIX (crash radar) — data வரலைன்னா skip
+                names["99926017"] = "INDIA VIX"
             if mcx:
                 inst = load_inst(ROOT / "data" / "cache")
                 for n in CM.CFG["watch"]:
@@ -679,13 +755,21 @@ def tick_loop():
             if nse:
                 try:
                     FPM.feed(qs, t)
+                    FPM.STATE["feed_t"] = str(t)[:19]
+                except Exception:
+                    pass
+                try:                                 # ⚠ crash / surge radar (API call இல்லை)
+                    from krt import crash as CRH
+                    from krt.ai import STATE as _AST3
+                    from krt.notify import both as _both3
+                    CRH.tick(TICK["items"], t, _AST3.get("risk") or {}, ((FPM.STATE.get("bars") or {}).get("NIFTY") or {}).get(1), _both3)
                 except Exception:
                     pass
             for tok, q in qs.items():
                 n = names.get(tok)
                 if n and q.get("ltp"):
                     TICK["items"][n] = {"ltp": float(q["ltp"]), "pct": round(float(q.get("percentChange") or 0), 2),
-                                        "chg": round(float(q.get("netChange") or 0), 2), "mcx": n not in INDEX_SPOT}
+                                        "chg": round(float(q.get("netChange") or 0), 2), "mcx": n not in INDEX_SPOT and n != "INDIA VIX"}
             TICK.update(t=real_hms(), err=None)
         except Exception as e:
             TICK["err"] = str(e)[:120]
@@ -911,6 +995,14 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, _json({"ok": True, "key": pub, "subs": len(NT.subs()), "state": NT.STATE}))
             except Exception as e:
                 return self._send(200, _json({"ok": False, "msg": f"Push setup பிழை: {e} (requirements.txt-ல் pywebpush இருக்கா?)"}))
+        if self.path.startswith("/api/candles"):
+            from urllib.parse import urlparse, parse_qs
+            qq = parse_qs(urlparse(self.path).query)
+            try:
+                c_ = candles_api(str((qq.get("symbol") or [""])[0]).upper(), (qq.get("tf") or ["5"])[0]) if angel_configured() else None
+            except Exception as e:
+                return self._send(200, _json({"ok": False, "msg": str(e)[:120]}))
+            return self._send(200, _json({"ok": bool(c_), "candles": c_ or []}))
         if self.path == "/api/ticks":
             return self._send(200, _json({**TICK, "v": APP_VERSION}))
         if self.path == "/api/status":
@@ -936,7 +1028,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
