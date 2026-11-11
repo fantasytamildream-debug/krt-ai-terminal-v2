@@ -181,7 +181,7 @@ def pick_option(ag, inst, name, side, spot, now, ul_sl, ul_tgts):
     from .ailab import best_strike
     from .optmath import plan as _plan
     bs = best_strike(ag, inst, name, side, spot, now, ul_sl, ul_tgts[0], min_days=2, each=3)
-    why = []
+    why, alt = [], None
     for o in bs.get("rows") or []:
         if not (CFG["delta_lo"] <= (o.get("delta") or 0) <= CFG["delta_hi"]):
             why.append(f"{o['strike']:g}: delta {o.get('delta')}")
@@ -197,12 +197,18 @@ def pick_option(ag, inst, name, side, spot, now, ul_sl, ul_tgts):
         rr = (pl["targets"][0] - pl["entry"]) / (pl["entry"] - pl["sl"]) if pl["entry"] > pl["sl"] else 0
         if risk > CFG["max_risk"]:
             why.append(f"{o['strike']:g}: risk ₹{risk:,.0f} > ₹{CFG['max_risk']:,}")
+            if not alt or risk < alt["risk"]:
+                alt = {"strike": o["strike"], "side": side, "risk": round(risk), "entry": pl["entry"], "sl": pl["sl"], "targets": pl["targets"], "delta": o.get("delta")}
             continue
         if rr < CFG["rr"] * 0.9:
             why.append(f"{o['strike']:g}: RR {rr:.2f}")
             continue
         return {**o, "plan": pl, "risk": round(risk), "rr_opt": round(rr, 2), "spread_txt": stx}, why
+    PICK_ALT["last"] = alt
     return None, why or ["strike இல்லை"]
+
+
+PICK_ALT = {"last": None}
 
 
 def universe(inst, now):
@@ -256,7 +262,8 @@ def scan(ag, inst, now, calls, mdir=None):
             B = S["bars"][tf][k]
             an = analyze_bar(B)
             rv = rvol(S, tf, k)
-            view.setdefault(u["symbol"], {})[tf] = {"bar": {x: B[x] for x in ("t", "o", "h", "l", "c", "vol", "buy", "sell")}, "an": an, "rvol": rv}
+            view.setdefault(u["symbol"], {})[tf] = {"bar": {x: B[x] for x in ("t", "o", "h", "l", "c", "vol", "buy", "sell")}, "an": an, "rvol": rv,
+                                                     "ck": {sd: checklist(sd, an, rv, S, {"mdir": mdir, "hm": hm}) for sd in ("CE", "PE")}}
             for side in ("CE", "PE"):
                 ck = checklist(side, an, rv, S, {"mdir": mdir, "hm": hm})
                 stk = an["buy_stack"] if side == "CE" else an["sell_stack"]
@@ -285,6 +292,9 @@ def scan(ag, inst, now, calls, mdir=None):
                     o, why = pick_option(ag, inst, u["opt_name"], sig["side"], spot, now, ul_sl, tg)
                 except Exception as e:
                     o, why = None, [str(e)[:80]]
+                if not o and PICK_ALT.get("last"):
+                    sig["alt"] = PICK_ALT["last"]
+                    PICK_ALT["last"] = None
                 if o:
                     pl = o["plan"]
                     rr_ = {"symbol": u["symbol"], "side": sig["side"], "price": spot, "sl": round(ul_sl, 2), "targets": [round(x, 2) for x in tg], "score": 70 + 5 * sig["check"]["score"],
@@ -348,5 +358,47 @@ def report():
     closed = [c for c in calls if c.get("status") not in ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT")]
     w = sum((c.get("pnl_lot") or 0) > 0 for c in closed)
     return {"time": STATE["time"], "cfg": CFG, "universe": [u["symbol"] for u in STATE["universe"]], "bars": STATE["bars"], "signals": STATE["signals"][:40],
+            "guide": guide(STATE["bars"], STATE["signals"]),
             "calls": calls, "stats": {"n": len(closed), "win": round(w / len(closed) * 100) if closed else None, "net": sum(c.get("pnl_lot") or 0 for c in closed)},
             "tune": STATE.get("tune"), "err": STATE.get("err")}
+
+
+
+def guide(view, signals):
+    """🎯 AI guide — ஒவ்வொரு symbol-க்கும் ஒரு தெளிவான முடிவு: ✅ BUY CE / PE (strike) · ⚠ setup சரி ஆனா strike filter · ⏳ WAIT (எது missing) · ⛔ setup இல்லை."""
+    out = []
+    for sym, tfs in (view or {}).items():
+        best = None
+        for tf, x in tfs.items():
+            for sd, ck in (x.get("ck") or {}).items():
+                if not best or (ck["pass"], ck["score"]) > (best[2]["pass"], best[2]["score"]):
+                    best = (tf, sd, ck, x)
+        if not best:
+            continue
+        tf, sd, ck, x = best
+        an = x["an"]
+        ce = sd == "CE"
+        miss = [i["name"].replace("★ ", "") for i in ck["items"] if not i["ok"]]
+        sig = next((g for g in signals or [] if g["symbol"] == sym and g["side"] == sd and g.get("pass")), None)
+        flow = (f"{'Buyers' if ce else 'Sellers'} {an['buy_stack'] if ce else an['sell_stack']} levels-ல் தொடர்ந்து அழுத்துறாங்க (stacked imbalance) · "
+                f"delta {an['delta_pct']:+}% · RVOL {x['rvol'] if x['rvol'] is not None else '–'}×")
+        if ck["pass"] and sig and sig.get("call"):
+            k, head = "BUY", f"✅ BUY {sym} {sig['call']['strike']:g} {sd} — call கொடுத்தாச்சு"
+            plan = f"Entry ₹{sig['call']['entry']} · SL ₹{sig['call']['sl']} · T " + " / ".join(str(t) for t in sig['call'].get('targets') or [])
+        elif ck["pass"] and sig and sig.get("alt"):
+            a = sig["alt"]
+            k, head = "RISK", f"⚠ {sd} setup சரி — ஆனா {a['strike']:g} {sd} 1 lot risk ₹{a['risk']:,} (உங்க limit ₹{CFG['max_risk']:,})"
+            plan = f"எடுக்கணும்னா: Entry ₹{a['entry']} · SL ₹{a['sl']} · T1 ₹{(a['targets'] or [None])[0]} — பெரிய lot, risk அதிகம். Skip பண்றது நல்லது."
+        elif ck["pass"]:
+            k, head = "STRIKE", f"⚠ {sd} setup சரி — ஆனா filter-க்கு சரியான strike இல்லை"
+            plan = " · ".join((sig or {}).get("why_no") or ["delta / spread / RR filter"])
+        elif ck["score"] >= ck["of"] - 2:
+            k, head = "WAIT", f"⏳ {sd} பக்கம் உருவாகுது — இன்னும் வேணும்: " + ", ".join(miss[:3])
+            plan = "இவை வந்ததும் இங்கே ✅ ஆகும் (voice + notification)."
+        else:
+            k, head = "NONE", "⛔ இப்போ setup இல்லை"
+            plan = "Stacked imbalance / volume போதல — காத்திருங்க."
+        out.append({"symbol": sym, "side": sd, "tf": tf, "k": k, "head": head, "plan": plan, "flow": flow, "score": ck["score"], "of": ck["of"], "bar": x["bar"]["t"]})
+    order = {"BUY": 0, "RISK": 1, "STRIKE": 2, "WAIT": 3, "NONE": 4}
+    out.sort(key=lambda g: (order[g["k"]], -g["score"]))
+    return out

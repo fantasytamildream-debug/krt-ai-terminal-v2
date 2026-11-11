@@ -391,6 +391,40 @@ def pick_calls(calls, day, n=12):
     return out
 
 
+def pick_setups(have, day, n):
+    """v99: call ஆகாத நல்ல setups — 🏆 Top picks · 🧪 AI Lab ENTER (confidence 70+) · 🔥 Combo (4+/6) → Chart Room-க்கு."""
+    out, seen = [], set(have)
+    try:
+        from .daypicks import STATE as DPS
+        for r in DPS.get("today") or []:
+            if r["symbol"] not in seen and r.get("status") in ("OPEN", "T1 HIT", "T2 HIT"):
+                out.append({**{k: r.get(k) for k in ("symbol", "side", "strike", "expiry", "lot", "token", "exch", "contract", "entry", "sl", "targets", "ltp", "time")},
+                            "id": f"setup|{r['symbol']}|{r['side']}", "status": "OPEN", "is_setup": True, "source": ("🔥 Call of the Day" if r.get("cotd") else "🏆 Top pick"), "date": day})
+                seen.add(r["symbol"])
+    except Exception:
+        pass
+    try:
+        from .ailab import STATE as LAB
+        for e in sorted((LAB.get("enter") or {}).get("rows") or [], key=lambda e: -(e.get("confidence") or 0)):
+            if e["symbol"] not in seen and e.get("status") == "OK" and (e.get("confidence") or 0) >= 70:
+                out.append({**{k: e.get(k) for k in ("symbol", "side", "strike", "expiry", "lot", "token", "exch", "contract", "sl", "targets")},
+                            "entry": e.get("entry"), "ltp": e.get("ltp") or e.get("entry"), "time": e.get("first"), "id": f"setup|{e['symbol']}|{e['side']}",
+                            "status": "OPEN", "is_setup": True, "source": f"🧪 {e.get('src') or 'AI Lab'} · conf {e.get('confidence')}", "date": day})
+                seen.add(e["symbol"])
+    except Exception:
+        pass
+    try:
+        from .combo import STATE as CBS
+        for r in CBS.get("rows") or []:
+            if r["symbol"] not in seen and r.get("score", 0) >= 4:
+                out.append({"symbol": r["symbol"], "side": r["side"], "time": r.get("time"), "id": f"setup|{r['symbol']}|{r['side']}", "status": "OPEN",
+                            "is_setup": True, "source": f"🔥 Combo {r['score']}/6", "date": day})
+                seen.add(r["symbol"])
+    except Exception:
+        pass
+    return out[:max(0, n)]
+
+
 def entry_now(c, verdict, a=None):
     """இப்போ entry பண்ணலாமா? — call status + LTP vs entry zone + chart verdict."""
     st = c.get("status")
@@ -398,7 +432,7 @@ def entry_now(c, verdict, a=None):
         return {"k": "DONE", "txt": f"முடிந்தது — {st}"}
     e, sl, ltp = float(c.get("entry") or 0), float(c.get("sl") or 0), float(c.get("ltp") or 0)
     if not (e and ltp):
-        return {"k": "WAIT", "txt": "LTP வரல"}
+        return {"k": "WAIT", "txt": "Setup மட்டும் — strike / entry இன்னும் இல்லை (AI Lab / Footprint-ல் பாருங்க)" if c.get("is_setup") else "LTP வரல"}
     if (c.get("hits") or []):
         return {"k": "HOLD", "txt": f"Target hit ஆச்சு — புது entry வேண்டாம், இருக்கறவங்க trail (SL ₹{sl:g})"}
     if sl and ltp <= sl:
@@ -493,7 +527,8 @@ def run_once(ag, inst, store, now, extra=None, indices=None):
     P = d.setdefault("chart_preds", {})
     hist = d.setdefault("chart_hist", [])
     isy = {x["symbol"] for x in indices or []}
-    top = list(indices or []) + [c for c in pick_calls([c for c in (d.get("calls") or {}).values() if c["symbol"] not in isy], day)]
+    calls_ = [c for c in pick_calls([c for c in (d.get("calls") or {}).values() if c["symbol"] not in isy], day)]
+    top = list(indices or []) + calls_ + pick_setups(isy | {c["symbol"] for c in calls_}, day, 16 - len(calls_))
     n_idx = len(indices or [])
     for x in extra or []:                     # open calls 2-க்கு குறைவுன்னா — Money Machine / Strong / Movers top setups
         if len(top) >= n_idx + 2:

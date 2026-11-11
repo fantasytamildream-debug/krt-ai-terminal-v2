@@ -466,16 +466,16 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
+    <button role="tab" data-p="cr">📈 Chart Room</button>
+    <button role="tab" data-p="mm">👑 Money Machine</button>
+    <button role="tab" data-p="gm">💥 Gamma Blast</button>
+    <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="dsk">🎯 DSK <span id="dskCount"></span></button>
     <button role="tab" data-p="ofp">👣 Footprint <span id="fpCount"></span></button>
-    <button role="tab" data-p="pt">📝 Paper Trade</button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
-    <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
     <button role="tab" data-p="lab">🧪 AI Lab</button>
-    <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="cx">🛢 Commodity</button>
-    <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="nw">📰 News Radar</button>
     <button role="tab" data-p="ov">Overview</button>
@@ -494,7 +494,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   </nav>
 
-  <section class="pane" id="p-cl"><div id="aiTop"></div><div id="cotdTop"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div><div id="callTable"></div><div id="callsRest"></div><div id="strongBelow"></div><div id="v4strip"></div></section>
+  <section class="pane" id="p-cl"><div id="aiTop"></div><div id="cotdTop"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div><div id="bestTop"></div><div id="callTable"></div><div id="callsRest"></div><div id="strongBelow"></div><div id="v4strip"></div></section>
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-cx" hidden></section>
@@ -1332,9 +1332,9 @@ function renderCalls(s){
     <div class="hint" style="margin-top:8px;color:#4ade80">🛡 Quality Mode V6: 9:45–2:30 மட்டும் · ஒரு stock-க்கு நாளைக்கு ஒரு call (duplicate இல்லை) · stock SL ≥15% / index ≥8% தூரம் · NIFTY ±0.4% எதிர் side stock call இல்லை · நாளைக்கு max 12 · ₹7,500 loss / தொடர் 3 SL ஆனா pause · Movers 🟢 (score 85+, spread ≤5%) மட்டும். ✋ உங்க picks-க்கு இந்த gate இல்லை.</div>
     <div class="hint" style="margin-top:4px">📏 Rules: intraday SL ≤ ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · holding SL ≤ ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000 · SL hit → exit · T1 → SL entry–T1 நடு (min ₹1,000) · T2 → SL T1 · time stop இல்லை · 3:20 PM intraday exit.</div>
     <div class="hint" style="margin-top:4px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
-  try{ const cr_=$("callsRest"); if(cr_) cr_.innerHTML=`<div class="callboard">
+  try{ const cr_=$("callsRest"), bt_=$("bestTop"); if(cr_) cr_.innerHTML=`<div class="callboard">
     ${pushBar()}
-    ${preopenHTML(s)}${diaryHTML(s,true)}
+    ${preopenHTML(s)}
     ${(()=>{ const L=bestPicks(s).filter(x=>x.k==="TAKE"); return L.length?`<div class="okbox"><b>🏆 இப்போ ENTER: ${L.slice(0,4).map(x=>`${x.light} ${esc(x.symbol)}${x.strike?" "+n2(x.strike):""} ${x.side}`).join(" · ")}</b> <a href="#" onclick="goTab('lab');return false">முழு list →</a></div>`:""; })()}
     ${(()=>{ const P=s.pink_hist||{}, T=P.total||{}; if(!T.calls) return `<div class="pinkhist"><b>🩷 PINK CALLS — date-wise result</b> <span class="hint">இன்னும் pink call இல்லை. Strategy win ≥75% + லாபம் ஆன module-ன் call வந்ததும் இங்கே date-ஓட save ஆகும்.</span></div>`;
       const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
@@ -1343,7 +1343,9 @@ function renderCalls(s){
        ${simpleTbl((P.rows||[]).slice(0,60),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol+" "+c.strike+" "+c.side)}</b><div class="hint">${esc(c.source_label||c.source||c.kind)}</div>`],["Pink",c=>pinkTag(c.pink)],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1/T2/T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls)}</details>`; })()}
     ${radarHTML(s,true)}
     ${best.length&&CFILT!=="pink"?`<div class="bestbox"><div class="pwhead">⭐ BEST SETUPS இப்போ — 🩷 proven strategy / ✅ score 75+ · புது call முதலில்</div><div class="cgrid">${best.map(c=>bigCall(c,s)).join("")}</div></div>`:""}
-</div>`; }catch(e){ console.error(e); }      /* v94: push / pre-open / diary / ENTER / pink / radar / best setups — calls-க்கு கீழே */
+</div>`;
+    if(bt_&&cr_){ const bb=cr_.querySelector(".bestbox"); if(bb){ bt_.innerHTML='<div class="callboard"></div>'; bt_.firstChild.appendChild(bb); } else bt_.innerHTML=""; }      /* v99: ⭐ Best setups calls-க்கு உடனே கீழே */
+  }catch(e){ console.error(e); }      /* v94: push / pre-open / diary / ENTER / pink / radar — calls-க்கு கீழே */
 }
 function machineBox(f){
   const M=f.machine||{}, D=M.day||{}, rows=M.rows||[], C=M.cfg||{day_target:10000,day_stop:-4500,max_calls:5};
@@ -2264,7 +2266,7 @@ function labHTML(s){
   const PJ=A.picks||{}, PJs=PJ.stats||{};
   const pjHTML=`<div class="labbox"><h2>📒 AI Lab picks journal <small class="hint">🟢 TAKE ஆன ஒவ்வொரு call-ம் date / time / targets-உடன் save · ${PJs.n||0} முடிந்த · win ${PJs.win??"–"}% · ${PJs.net!=null?rs(PJs.net):"–"}</small></h2>
     ${(PJ.rows||[]).length?simpleTbl(PJ.rows.slice(0,60),[["Date / Time",x=>`${sDate(x.date,"")} ${esc(ampm(x.time))}`],["Call",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${n2(x.strike)} ${x.side}</b><div class="hint">${esc(x.source||"")}</div>`],["Entry (AI நேரம்)",x=>n2(x.entry)],["SL",x=>n2(x.sl)],["T1 / T2 / T3",x=>(x.targets||[]).map(n2).join(" / ")],["LTP / Exit",x=>n2(x.ltp)],["P/L lot",x=>x.pnl_lot!=null?`<b class="${x.pnl_lot>=0?'up':'dn'}">${rs(x.pnl_lot)}</b>`:"–"],["Hit",x=>tkCell(x)],["Result",x=>esc(x.status)],["History",x=>`<span class="hint">${esc(x.hist||"")}</span>`]],x=>OPEN_ST.includes(x.status)?"":x.pnl_lot>0?"uprow":"slrow"):'<div class="hint">AI 🟢 TAKE சொன்ன calls இங்கே நிரந்தரமா வரும் (result-உடன்).</div>'}</div>`;
-  return cotdHTML(s,false)+preopenHTML(s)+bestPicksHTML(s,false)+diaryHTML(s,false)+autoHTML+pjHTML+`<div class="labbox"><h2>📍 Level Lab — "இந்த level break ஆனா profit வருமா?"</h2>
+  return cotdHTML(s,false)+bestPicksHTML(s,false)+autoHTML+pjHTML+`<div class="labbox"><h2>📍 Level Lab — "இந்த level break ஆனா profit வருமா?"</h2>
      <div class="labin"><input id="labSym" placeholder="VBL" value="${esc(LABSYM)}" autocapitalize="characters"><input id="labLvl" placeholder="430" inputmode="decimal" value="${esc(LABLVL)}"><button class="pickbtn pp" onclick="labRun()">🔍 Analyse</button>
      <span class="hint">கடந்த 400 நாள் + 25 நாள் 5-min-ல் அந்த level-ல் என்ன நடந்தது → CE / PE plan + best strike (Greeks)</span></div>${lvl}</div>
    <div class="labbox"><h2>🧠 Market Regime Brain</h2><div><b style="font-size:16px">${esc(BR.txt||"Market நேரத்தில் வரும்")}</b></div>
@@ -2639,7 +2641,14 @@ function fpHTML(s){
   const sig=F.signals||[];
   const ckHTML=c=>`<details><summary>${c.pass?'<b class="up">✅ PASS</b>':'<b class="dn">✗</b>'} ${c.score}/${c.of}</summary>${(c.items||[]).map(i=>`<div class="hint">${i.ok?"✅":"❌"} ${esc(i.name)} — ${esc(i.txt)}</div>`).join("")}</details>`;
   const T=F.tune||{}, St=F.stats||{};
-  return `<div class="labbox" style="border:2px solid #22c55e"><h2>👣 Footprint Order-Flow Strategy <small class="hint">${esc(F.time||"market நேரத்தில் 60 sec-க்கு ஒருமுறை")} · universe: ${(F.universe||[]).map(esc).join(", ")||"–"}</small></h2>
+  const GD=F.guide||[];
+  const gcard=g=>`<div class="rrow" style="border-color:${{BUY:"var(--ce)",RISK:"#f59e0b",STRIKE:"#f59e0b",WAIT:"#38bdf8",NONE:"var(--line)"}[g.k]}${g.k==="BUY"?";box-shadow:0 0 14px rgba(34,197,94,.4)":""}">
+     <div class="ctop"><b style="font-size:16px">${esc(g.symbol)} <span class="${g.side==='CE'?'up':'dn'}">${g.side}</span></b><span class="hint">${g.tf}M bar ${esc(g.bar)} · ${g.score}/${g.of}</span></div>
+     <div style="font-weight:800;margin:3px 0">${esc(g.head)}</div><div class="hint">👣 ${esc(g.flow)}</div><div class="hint">👉 ${esc(g.plan)}</div></div>`;
+  const guideHTML=`<div class="labbox" style="border:2px solid #22c55e"><h2>🎯 AI guide — இப்போ என்ன பண்ணலாம்? <small class="hint">${esc(F.time||"")}</small></h2>
+     <div class="hint">ஒவ்வொரு stock / index-க்கும் கடைசி 1M / 3M footprint bar-ஐ பார்த்து: <b>✅ BUY</b> (strike-உடன் call) · <b>⚠ setup சரி ஆனா risk / strike</b> · <b>⏳ WAIT</b> (எது missing) · <b>⛔ setup இல்லை</b>.</div>
+     ${GD.length?GD.map(gcard).join(""):'<div class="hint">Market நேரத்தில் footprint bars வந்ததும் இங்கே guide வரும்.</div>'}</div>`;
+  return guideHTML+`<div class="labbox" style="border:2px solid #22c55e"><h2>👣 Footprint Order-Flow Strategy <small class="hint">${esc(F.time||"market நேரத்தில் 60 sec-க்கு ஒருமுறை")} · universe: ${(F.universe||[]).map(esc).join(", ")||"–"}</small></h2>
     <div class="hint">⚠ நேர்மை: உண்மையான footprint-க்கு exchange tick-by-tick trades வேணும் — Angel API அதை தராது. இங்கே ஒவ்வொரு 2 sec quote-ல் புது volume-ஐ LTP ≥ ask = BUY / ≤ bid = SELL (tick rule) என்று பிரிச்சு 1M / 3M footprint கட்டுறோம் — <b>approximation</b>. Index-க்கு futures footprint, call = அதன் option.</div>
     ${simpleTbl(P,[["Parameter",x=>`<b>${esc(x[0])}</b>`],["Initial value (testing)",x=>esc(x[1])]])}
     <div class="hint">இவை initial testing values — கீழே உள்ள tuning table உண்மையான signals-ல் இருந்து எந்த stack / RVOL combination நல்லது என்று காட்டும்.</div></div>
@@ -2653,7 +2662,7 @@ function fpHTML(s){
     ${(F.calls||[]).length?simpleTbl(F.calls.slice(0,40),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><div class="hint">${(c.fp||{}).tf||""}M · stack ${(c.fp||{}).stack||"–"} · RVOL ${(c.fp||{}).rvol||"–"}</div>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls):'<div class="hint">இன்னும் footprint call இல்லை — checklist முழுசா pass ஆனதும் வரும் (phone notification + voice).</div>'}</div>
    <div class="labbox"><h2>📡 Signals — இன்று (call ஆகாதவையும்)</h2>
     ${sig.length?simpleTbl(sig,[["நேரம்",x=>`${esc(ampm(x.time))}<div class="hint">bar ${esc(x.bar)}</div>`],["Signal",x=>`<b class="${x.side==='CE'?'up':'dn'}">${esc(x.symbol)} ${x.side}</b> <small>${x.tf}M</small>`],["Stack",x=>x.stack],["RVOL",x=>x.rvol??"–"],["Δ",x=>`${x.delta_pct>=0?"+":""}${x.delta_pct}%`],["Checklist",x=>ckHTML(x.check)],
-      ["Call",x=>x.call?`<b>${n2(x.call.strike)} ${x.side}</b> ₹${n2(x.call.entry)} · SL ₹${n2(x.call.sl)}`:(x.why_no||[]).length?`<span class="hint">${x.why_no.map(esc).join(" · ")}</span>`:"–"],["15 நிமிடம் கழிச்சு",x=>x.result==null?'<span class="hint">pending</span>':`<b class="${x.result>=0?"up":"dn"}">${x.result>=0?"+":""}${x.result}%</b>`]],x=>x.call?"uprow":"")
+      ["Call",x=>x.call?`<b>${n2(x.call.strike)} ${x.side}</b> ₹${n2(x.call.entry)} · SL ₹${n2(x.call.sl)}`:x.alt?`<b>⚠ ${n2(x.alt.strike)} ${x.side}</b> risk ₹${n2(x.alt.risk)} &gt; limit<div class="hint">${(x.why_no||[]).slice(0,2).map(esc).join(" · ")}</div>`:(x.why_no||[]).length?`<span class="hint">${x.why_no.map(esc).join(" · ")}</span>`:x.pass?"":'<span class="hint">checklist fail</span>'],["15 நிமிடம் கழிச்சு",x=>x.result==null?'<span class="hint">pending</span>':`<b class="${x.result>=0?"up":"dn"}">${x.result>=0?"+":""}${x.result}%</b>`]],x=>x.call?"uprow":"")
       :'<div class="hint">இன்னும் signal இல்லை.</div>'}</div>
    <div class="labbox"><h2>🔧 Parameter tuning <small class="hint">${T.n||0} signals-க்கு 15-min result</small></h2>
     ${(T.rows||[]).length?simpleTbl(T.rows,[["Stack ≥",r=>r.stack],["RVOL ≥",r=>r.rvol],["Signals",r=>r.n],["Win (15 min ≥0.15%)",r=>`<b>${r.win}%</b>`],["Avg move",r=>`${r.avg_mv>=0?"+":""}${r.avg_mv}%`],["",r=>r.stack===C.stack&&r.rvol===C.rvol?"⬅ இப்போ":""]],r=>T.best&&r===T.best?"uprow":""):`<div class="hint">${esc(T.why||"Signals வந்ததும் வரும்")}</div>`}
@@ -2706,7 +2715,7 @@ function copilotHTML(R,s){
   const ch=CH.find(x=>(x.call||{}).symbol===COPSEL), a=ch.analysis||{}, F=a.forecast||null, c=ch.call||{}, M=a.methods||{}, MR=Object.fromEntries((M.rows||[]).map(r=>[r.key,r]));
   const K=ch.candles, cl=K.map(k=>k[4]), last=K[K.length-1], day0=(()=>{ let d0=0; for(let i=1;i<K.length;i++) if(K[i][0]<K[i-1][0]) d0=i; return d0; })(), base=K[day0][1];
   const chips=CH.map(x=>{ const k=x.candles, l=k[k.length-1][4], f=k[0][1], pc=(l/f-1)*100, cc=x.call||{};
-    return `<div class="cpchip ${cc.symbol===COPSEL?"on":""}" onclick="COPSEL='${esc(cc.symbol)}';$('p-cr').innerHTML=crHTML(LAST_S)"><div class="hint">${esc(cc.symbol)}${cc.strike?" "+n2(cc.strike)+" "+esc(cc.side||""):""}</div><div style="display:flex;justify-content:space-between;align-items:center"><b>${n2(l)}</b>${cpSpark(k.map(z=>z[4]))}</div><small class="${pc>=0?"up":"dn"}">${pc>=0?"+":""}${pc.toFixed(2)}%</small></div>`; }).join("");
+    return `<div class="cpchip ${cc.symbol===COPSEL?"on":""}" onclick="COPSEL='${esc(cc.symbol)}';$('p-cr').innerHTML=crHTML(LAST_S)"><div class="hint">${cc.is_setup?"🧩 ":""}${esc(cc.symbol)}${cc.strike?" "+n2(cc.strike)+" "+esc(cc.side||""):" "+esc(cc.side||"")}</div><div style="display:flex;justify-content:space-between;align-items:center"><b>${n2(l)}</b>${cpSpark(k.map(z=>z[4]))}</div><small class="${pc>=0?"up":"dn"}">${pc>=0?"+":""}${pc.toFixed(2)}%</small></div>`; }).join("");
   const ce=(c.side||"CE")!=="PE", rsi=cpRSI(cl), em=cpEMA(cl,21), emUp=em[em.length-1]>em[em.length-4];
   const lab=(r,pos,neg)=>!r?"–":r.vote>0.2?pos:r.vote<-0.2?neg:"Neutral";
   const scan=[["Market structure",lab(MR.pa,"Bullish","Bearish"),MR.pa],["Liquidity zones",((MR.liq||{}).txt||"").startsWith("⚡")?"Swept "+(((a.liquidity||{}).sweeps||[]).slice(-1)[0]||{}).price:lab(MR.liq,"Pool above","Pool below"),MR.liq],
@@ -2725,7 +2734,7 @@ function copilotHTML(R,s){
   return `<div class="copilot"><div class="cpchips">${chips}</div>
    <div class="cpgrid"><div class="cpbox">
      <div class="cprow"><span><b style="font-size:18px">${esc(c.symbol)}</b> <b style="font-size:18px">${n2(last[4])}</b> <small class="${last[4]>=base?"up":"dn"}">${last[4]>=base?"+":""}${((last[4]/base-1)*100).toFixed(2)}%</small></span><span class="hint"><b class="dn">● LIVE</b> 5m · ${esc(R.time||"")}</span></div>
-     <div class="cpbanner"><b>${esc(follow)}</b>${c.strike?` <span class="hint">· ${esc(c.symbol)} ${n2(c.strike)} ${esc(c.side)} · ${esc(c.source||"")}</span>`:""}</div>
+     <div class="cpbanner"><b>${esc(follow)}</b>${c.strike?` <span class="hint">· ${esc(c.symbol)} ${n2(c.strike)} ${esc(c.side)} · ${esc(c.source||"")}</span>`:""}${c.is_setup?` <span class="hint">· 🧩 setup — இன்னும் call இல்லை (${esc(c.source||"")})</span>`:""}</div>
      <div class="hint">O ${n2(last[1])} H ${n2(last[2])} L ${n2(last[3])} C ${n2(last[4])} · — EMA 21 ${n2(em[em.length-1])}</div>
      ${cpChart(ch)}</div>
     <div>
@@ -2859,7 +2868,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v98";
+const APPV="v99";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

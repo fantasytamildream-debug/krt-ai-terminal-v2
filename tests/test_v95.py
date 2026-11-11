@@ -120,3 +120,16 @@ def test_forecast_path_and_real_history_confidence():
     assert f2["matches"] == 0 and f2["conf"] is None and f2["small"]                                 # history இல்லைன்னா fake % இல்லை
     pe = MT.forecast(a, "PE", hist)
     assert pe["tp"] < pe["px"] < pe["sl"]
+
+
+def test_setups_added_to_chart_room(monkeypatch):
+    from krt import ailab as AL, combo as CB, daypicks as DP
+    monkeypatch.setitem(DP.STATE, "today", [{"symbol": "MM", "side": "CE", "strike": 3350, "entry": 90, "sl": 62, "targets": [130], "ltp": 92, "status": "OPEN", "cotd": True, "time": "09:34", "token": "t"}])
+    monkeypatch.setitem(AL.STATE, "enter", {"rows": [{"symbol": "CUB", "side": "CE", "status": "OK", "confidence": 94, "strike": 230, "entry": 8.3, "sl": 6.85, "ltp": 8.0, "src": "OI flow"},
+                                                    {"symbol": "LOW", "side": "CE", "status": "OK", "confidence": 50}]})
+    monkeypatch.setitem(CB.STATE, "rows", [{"symbol": "BEL", "side": "PE", "score": 5, "time": "10:00"}, {"symbol": "MM", "side": "CE", "score": 6}])
+    S = CR.pick_setups({"NIFTY"}, "2026-11-11", 10)
+    assert [x["symbol"] for x in S] == ["MM", "CUB", "BEL"] and all(x["is_setup"] for x in S)          # dedupe · conf 70+ மட்டும்
+    assert S[0]["source"] == "🔥 Call of the Day" and CR.pick_setups({"NIFTY"}, "2026-11-11", 1)[0]["symbol"] == "MM"
+    assert CR.entry_now(S[2], "TAKE")["txt"].startswith("Setup மட்டும்")
+    assert CR.entry_now(S[1], "TAKE")["k"] == "ENTER"
