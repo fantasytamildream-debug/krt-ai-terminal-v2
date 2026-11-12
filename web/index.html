@@ -1065,7 +1065,8 @@ function renderFull(s){
   try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
-  try{ $("aiTop").innerHTML = SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  const typing_=document.activeElement&&["brQ","fbQ"].includes(document.activeElement.id);      /* v104.1: never redraw under the user's fingers */
+  if(!typing_) try{ $("aiTop").innerHTML = SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -2651,20 +2652,22 @@ function brainBox(s){
       ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.gold?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Score",p=>p.score],["Entry / SL",p=>`₹${n2(p.entry)} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>(p.targets||[]).map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")],["P/L lot",p=>`<b class="${(p.pnl_lot||0)>=0?'up':'dn'}">${rs(p.pnl_lot)}</b>`],["Result",p=>esc(p.status||"")]],p=>OPEN_ST.includes(p.status)?"":(p.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">Results appear here as Brain picks close.</div>'}</details>
     <div class="hint">⚠ Free and honest: the Brain is a specialist, not a fortune teller. Paper-trade it 2–3 weeks and trust the results table.</div>
     <div class="hint">📚 Learning model (full-analysis snapshots): ${esc(((B.snap||{}).why)||"collecting data")} — it can only veto weak picks, never push one in.</div>
-    <details><summary><b>💬 Ask Brain</b> (free, instant) — try "what should I take now?", "SBIN?", "market?"</summary>
-      <div style="display:flex;gap:6px;margin:6px 0"><input id="brQ" style="flex:1" placeholder="Ask: what to take now / a stock name / market" onkeydown="if(event.key==='Enter')brainAsk()"><button class="pickbtn" onclick="brainAsk()">Ask</button></div>
-      <div id="brA"></div></details></div>`; }
-async function brainAsk(){ const i=document.getElementById("brQ"), q=(i&&i.value||"").trim(); if(!q) return;
-  const o=document.getElementById("brA");
-  try{ const j=await post("/api/brain/ask",{q}); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(j.answer||"No answer")}</div>`; }catch(e){ if(o) o.innerHTML="⚠ "+esc(String(e)); } }
+    <details ${BR_Q||BR_A?"open":""}><summary><b>💬 Ask Brain</b> (free, instant) — try "what should I take now?", "SBIN?", "market?"</summary>
+      <div style="display:flex;gap:6px;margin:6px 0"><input id="brQ" style="flex:1" value="${esc(BR_Q)}" oninput="BR_Q=this.value" placeholder="Ask: what to take now / a stock name / market" onkeydown="if(event.key==='Enter')brainAsk()"><button class="pickbtn" onclick="brainAsk()">Ask</button></div>
+      <div id="brA">${BR_A?`<div class="cpbox" style="white-space:pre-wrap">${esc(BR_A)}</div>`:""}</div></details></div>`; }
+let BR_Q="", BR_A="";            /* v104.1: kept across page refreshes (the status refresh used to wipe the answer and the typing) */
+async function brainAsk(){ const i=document.getElementById("brQ"), q=((i&&i.value)||BR_Q||"").trim(); if(!q) return;
+  BR_Q=q; BR_A="🧠 thinking…"; const show=()=>{ const o=document.getElementById("brA"); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(BR_A)}</div>`; }; show();
+  try{ const j=await post("/api/brain/ask",{q}); BR_A=j.answer||j.msg||"No answer"; }catch(e){ BR_A="⚠ "+String(e); } show(); }
 
 /* 🧠 V102 FABLE PICKS — Claude Fable 5.2 picks the best 0-3 setups (English) */
 let FB_SEEN=null;
 async function fableRun(){ const b=document.getElementById("fbRun"); if(b){ b.disabled=true; b.textContent="🧠 Fable is thinking… (up to 2 min)"; }
   try{ const j=await post("/api/fable/run",{}); alert((j.ok?"✅ ":"⚠ ")+(j.msg||"")); }catch(e){ alert("⚠ "+e); } await load(); }
-async function fableAsk(){ const i=document.getElementById("fbQ"), q=(i&&i.value||"").trim(); if(!q) return;
-  const o=document.getElementById("fbA"); if(o) o.innerHTML='<div class="hint">🧠 Fable is reading all the setups… (up to 1–2 min)</div>';
-  try{ const j=await post("/api/fable/ask",{q}); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(j.answer||"No answer")}</div>`; }catch(e){ if(o) o.innerHTML="⚠ "+esc(String(e)); } }
+let FB_Q="", FB_A="";
+async function fableAsk(){ const i=document.getElementById("fbQ"), q=((i&&i.value)||FB_Q||"").trim(); if(!q) return;
+  FB_Q=q; FB_A="🧠 Fable is reading all the setups… (up to 1–2 min)"; const show=()=>{ const o=document.getElementById("fbA"); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(FB_A)}</div>`; }; show();
+  try{ const j=await post("/api/fable/ask",{q}); FB_A=j.answer||j.msg||"No answer"; }catch(e){ FB_A="⚠ "+String(e); } show(); }
 function fableBox(s){
   const F=s.fable||{}, C=F.cfg||{}, L=F.last||{}, T=F.today||[], H=F.history||[], St=F.stats||{}, A=St.all||{}, G=St.gold||{}, U=F.usage||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=T.map(p=>p.id).join(","); if(FB_SEEN!==null&&ids!==FB_SEEN){ const nw=T.find(p=>!FB_SEEN.includes(p.id)); if(nw){ try{ speak(`Fable ${nw.grade==="GOLD"?"gold":""} pick. ${nw.symbol} ${nw.strike} ${nw.side==="CE"?"C E":"P E"}. Confidence ${nw.confidence}.`); }catch(e){} } } FB_SEEN=ids;
@@ -2692,8 +2695,8 @@ function fableBox(s){
     <details><summary><b>📋 Fable results — all days</b> · ${A.n||0} closed · win ${A.win??"–"}% · ${rs(A.net)} · 🪙 gold ${G.n||0} · win ${G.win??"–"}% · ${rs(G.net)}</summary>
       ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.grade==="GOLD"?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Grade · conf",p=>`${esc(p.grade)} · ${p.confidence}`],["Buy zone / SL",p=>`₹${n2(p.entry_zone[0])}–${n2(p.entry_zone[1])} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>[p.t1,p.t2,p.t3].map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)))?" ✅":""}`).join(" / ")],["P/L lot",p=>`<b class="${(p.pnl||0)>=0?'up':'dn'}">${rs(p.pnl)}</b>`],["Result",p=>esc(p.status)]],p=>p.status==="OPEN"?"":(p.pnl||0)>0?"uprow":"slrow"):'<div class="hint">Results appear here as Fable picks close.</div>'}</details>
     <details><summary><b>💬 Ask Fable</b> — e.g. "Which call should I take now?" / "Is SBIN CE still OK?"</summary>
-      <div style="display:flex;gap:6px;margin:6px 0"><input id="fbQ" style="flex:1" placeholder="Ask in English or Tamil…" onkeydown="if(event.key==='Enter')fableAsk()"><button class="pickbtn" onclick="fableAsk()">Ask</button></div>
-      <div id="fbA"></div>${(F.chat||[]).map(c=>`<div class="hint" style="margin-top:6px"><b>Q ${esc(c.time)}:</b> ${esc(c.q)}<br><b>Fable:</b> ${esc(c.a)}</div>`).join("")}</details>
+      <div style="display:flex;gap:6px;margin:6px 0"><input id="fbQ" style="flex:1" value="${esc(FB_Q)}" oninput="FB_Q=this.value" placeholder="Ask in English or Tamil…" onkeydown="if(event.key==='Enter')fableAsk()"><button class="pickbtn" onclick="fableAsk()">Ask</button></div>
+      <div id="fbA">${FB_A?`<div class="cpbox" style="white-space:pre-wrap">${esc(FB_A)}</div>`:""}</div>${(F.chat||[]).map(c=>`<div class="hint" style="margin-top:6px"><b>Q ${esc(c.time)}:</b> ${esc(c.q)}<br><b>Fable:</b> ${esc(c.a)}</div>`).join("")}</details>
     <div class="hint">⚠ Fable is a strong AI, not a guarantee. Paper-trade its picks for 2–3 weeks and trust the results table, not the confidence number.</div></div>`; }
 
 /* 🤖 V101 AI BEST PICKS + 🪙 GOLDEN CALLS (English) */
@@ -3089,7 +3092,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v104";
+const APPV="v104.1";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3197,7 +3200,15 @@ async function load(){
   try { render(data); } catch(e){ console.error("render",e); $("subline").textContent="⚠ Page பிழை: "+(e.message||e)+" — screenshot அனுப்புங்க (server சரியா ஓடுது)"; clearTimeout(pollT); pollT=setTimeout(load,15000); }
   try { loadV4(); } catch(e){}
 }
-async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); return r.json(); }
+/* v104.1: Render shows an HTML error page (502/503) while the server restarts / deploys → retry once, then a clear message (not "SyntaxError <!DOCTYPE") */
+async function post(url, body, tries=2){
+  for(let i=0;i<tries;i++){
+    let r=null;
+    try{ r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); const t=await r.text(); return JSON.parse(t); }
+    catch(e){ if(i<tries-1){ await new Promise(z=>setTimeout(z,4000)); continue; }
+      const m=`⏳ Server is restarting or busy${r?` (HTTP ${r.status})`:""} — please try again in 30–60 seconds. (This happens for a minute after a new deploy.)`;
+      return {ok:false, msg:m, answer:m}; } }
+}
 $("scanBtn").onclick = async () => { $("scanBtn").disabled=true; await post("/api/full"); setTimeout(load,800); };
 async function runCk(){ const j=await post("/api/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(load,800); }
 $("ckBtn").onclick = async () => { $("ckBtn").disabled=true; const j=await post("/api/scan"); if(!j.ok&&j.msg) alert(j.msg); setTimeout(load,800); };
