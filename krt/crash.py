@@ -56,6 +56,14 @@ def evaluate(now, risk=None, fp=None):
                 S.append(f"NIFTY futures footprint: {an['sell_stack']} stacked sell · delta {an['delta_pct']}%")
             if side == "UP" and an.get("buy_stack", 0) >= 3 and an.get("delta_pct", 0) >= 40:
                 S.append(f"NIFTY futures footprint: {an['buy_stack']} stacked buy · delta +{an['delta_pct']}%")
+        # v104 EARLY (divergence) — price still going the OTHER way but flow / breadth / fear already turning → comes before the momentum signals
+        if n15 is not None and n15 * sg <= -0.15:
+            if fp and (fp.get("an") or {}).get("delta_pct", 0) * sg >= 40:
+                S.append(f"⚡ early: NIFTY still {n15:+.2f}% but futures flow already {'selling' if side == 'DOWN' else 'buying'} (hidden {'distribution' if side == 'DOWN' else 'accumulation'})")
+            if jump is not None and 10 <= jump < CFG["breadth_jump"]:      # ≥15 is already counted by the normal breadth signal
+                S.append(f"⚡ early: price {'up' if side == 'DOWN' else 'down'} but breadth turning ({jump:+.0f} pts in 15 min)")
+            if vix is not None and side == "DOWN" and vix >= 3:
+                S.append(f"⚡ early: India VIX +{vix:.1f}% while NIFTY still up — fear rising under the surface")
         if vix is not None and side == "DOWN" and vix >= CFG["vix"]:
             S.append(f"India VIX 15 நிமிடத்தில் +{vix:.1f}% (பயம் கூடுது)")
         if vix is not None and side == "UP" and vix <= -CFG["vix"]:

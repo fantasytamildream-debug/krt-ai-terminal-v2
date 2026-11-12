@@ -436,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v102"
+APP_VERSION = "v104"
 EVC = {"t": 0, "d": None}
 
 
@@ -647,6 +647,72 @@ def fable_state():
     return FBC["d"]
 
 
+def mood_run(t):
+    from krt import mood as MD, footprint as FPM, newsradar as NR, brain as BR, bestpicks as BP
+    from krt.ai import STATE as _AST
+    from krt.calls import STORE as _S, CALLS_LOCK
+    full = STATE.get("full") or {}
+    with CALLS_LOCK:                                         # nothing inside takes CALLS_LOCK
+        D = _S.load()
+        MD.update(t, TICK.get("items") or {}, _AST.get("risk") or {}, full.get("index") or [], FPM.STATE.get("bars") or {},
+                  NR.STATE.get("focus") or [], full.get("money") or {}, D.setdefault("mood_hist", {}))
+        _S.dirty = True
+        calls = D["calls"]
+        guides = {}
+        for g in (FPM.report() or {}).get("guide") or []:
+            guides.setdefault(g["symbol"], g)
+        allc = list(calls.values())
+        MD.best_calls(BR.STATE.get("rows") or [], calls, guides, (full.get("money") or {}).get("rows") or [],
+                      lambda s, sd, k: BP.strike_history(allc, s, sd, k))
+
+
+def mood_state():
+    from krt import mood as MD, footprint as FPM
+    return {**{k: MD.STATE.get(k) for k in ("time", "idx", "sectors", "calls")}, "flow": FPM.FLOW["alerts"][:20]}
+
+
+BRC = {"t": 0, "d": None}
+
+
+def brain_run(t):
+    from krt import brain as BR, bestpicks as BP, crash as CRH
+    from krt.ai import STATE as _AST
+    from krt.chartroom import STATE as CRS
+    from krt.calls import STORE as _S, CALLS_LOCK, add_pick
+    from krt.notify import both as _b
+    srows = (sniper_state() or {}).get("rows") or []              # takes CALLS_LOCK — must be outside
+    candles = {(x.get("call") or {}).get("symbol"): (x.get("analysis") or {}).get("candles") or [] for x in CRS.get("charts") or []}
+    with CALLS_LOCK:
+        D = _S.load()
+        ct, lab, lv, lq, gd, pv = bp_inputs(D, t)
+        new = BR.run(D, t, {"bp_rows": BP.STATE.get("rows") or [], "sniper_rows": srows, "charts_table": ct, "lab": lab, "guides": gd,
+                            "mdir": (_AST.get("risk") or {}).get("dir"), "crash": CRH.report(), "candles": candles}, _b)
+        if new:
+            _S.dirty = True
+        calls = dict(D["calls"])
+    BRC["t"] = 0
+    if new and os.environ.get("BRAIN_AUTO_PAPER", "1") == "1":         # Brain "takes" its own picks — on PAPER only
+        for p in new:
+            c = calls.get(p["id"]) or {}
+            try:
+                add_pick({**{k: c.get(k) for k in ("symbol", "side", "strike", "expiry", "contract", "token", "exch", "lot")}, "sl": c.get("sl"),
+                          "from_src": "🧠 Brain", "src_modules": ["🧠 Brain"]}, c.get("ltp"), t, 1)
+            except Exception:
+                pass
+    return new
+
+
+def brain_state():
+    if time.time() - BRC["t"] > 8:
+        try:
+            from krt import brain as BR
+            from krt.calls import STORE as _S
+            BRC.update(t=time.time(), d=BR.report(_S.load(), str(now_ist().date())))
+        except Exception as e:
+            BRC.update(t=time.time(), d={"err": str(e)[:200]})
+    return BRC["d"]
+
+
 BPC = {"t": 0, "d": None}
 
 
@@ -842,11 +908,16 @@ def prebreak_loop():
                 DP.run(ANGEL, t, list((_S0.load().get("calls") or {}).values()), _both)   # 🔥 Call of the Day + 🏆 Top 5
                 from krt import footprint as FPM
                 from krt.ai import STATE as _AST
-                FPM.scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), (_AST.get("risk") or {}).get("dir"))
+                from krt import bestpicks as _BPm
+                from krt.notify import both as _bothf
+                FPM.scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), (_AST.get("risk") or {}).get("dir"),
+                         extra=[r["symbol"] for r in (_BPm.STATE.get("rows") or [])[:6]], send=_bothf)   # 🟢 buyers / 🔴 sellers entering alerts
                 from krt import spreads as SPR                  # 📐 Credit spreads / Iron Condor (paper)
                 _ix = (STATE.get("full") or {}).get("index") or []
                 SPR.run(ANGEL, t, _ix, next((x.get("pct") for x in _ix if x.get("index") == "NIFTY"), 0))
                 bp_run(t)                                       # 🤖 AI Best Picks + 🪙 Golden calls
+                mood_run(t)                                     # 🌡 Market mood (indices · MCX · sectors · best calls)
+                brain_run(t)                                    # 🧠 KRT Brain (free, on-server)
                 EVC["t"] = 0
                 LAB["t"] = 0
             except Exception:
@@ -1199,7 +1270,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -1277,6 +1348,10 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/v4/settings":
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
+        if self.path == "/api/brain/ask":                   # 🧠 free, instant — reads Brain's live verdicts (no lock, no API)
+            from krt import brain as BR
+            from krt.ai import STATE as _AST
+            return self._send(200, _json({"ok": True, "answer": BR.answer(d.get("q") or "", now_ist(), _AST.get("risk") or {})}))
         if self.path == "/api/fable/run":
             new = fable_once(now_ist(), force=True)
             from krt import fable as FB

@@ -382,6 +382,16 @@ header{position:relative}
 .fpl td.bi{background:rgba(34,197,94,.35);font-weight:800}.fpl td.si{background:rgba(239,68,68,.35);font-weight:800}
 .fpl tr.poc td{outline:1px solid #f59e0b}
 .fpgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.mood{background:#0b0b0c;border:1px solid #222;border-radius:18px;padding:14px;margin:10px 0;color:#eee;font-size:13px}
+.mood .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.mood .chip{border:1px solid #2a2a2a;border-radius:999px;padding:8px 16px;white-space:nowrap;cursor:pointer;background:#111;color:#ccc}
+.mood .chip.on{background:#eee;color:#111;font-weight:700}
+.mood .card{background:#111;border:1px solid #222;border-radius:16px;padding:14px;margin-top:10px}
+.mood .big{font-size:52px;font-weight:800;line-height:1}
+.mood .tag{color:#f08a4b;letter-spacing:2px;font-family:monospace;font-size:12px}
+.mood .note{border-left:3px solid #f08a4b;background:#1a1412;padding:10px 12px;border-radius:8px;margin:10px 0}
+.mood .bar{height:8px;border-radius:5px;background:#222;position:relative;flex:1;margin:0 8px}
+.mood .bar i{position:absolute;top:0;height:8px;border-radius:5px}
 .labbox{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.02)}
 .labbox h2{margin:0 0 6px}.labin{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .labin input{background:var(--panel);color:var(--fg,#e5e7eb);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;width:130px}
@@ -471,6 +481,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
+    <button role="tab" data-p="md">🌡 Mood</button>
     <button role="tab" data-p="sn">🎯 Sniper</button>
     <button role="tab" data-p="dsk">🎯 DSK <span id="dskCount"></span></button>
     <button role="tab" data-p="ofp">👣 Footprint <span id="fpCount"></span></button>
@@ -507,6 +518,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-dsk" hidden></section>
   <section class="pane" id="p-ofp" hidden></section>
   <section class="pane" id="p-sn" hidden></section>
+  <section class="pane" id="p-md" hidden></section>
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
@@ -1053,7 +1065,7 @@ function renderFull(s){
   try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
-  try{ $("aiTop").innerHTML = SX("fableBox",()=>fableBox(s)) + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  try{ $("aiTop").innerHTML = SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -2614,6 +2626,38 @@ function uiZoom(d){ let z=0.9; try{ z=parseFloat(localStorage.getItem("krt_zoom"
   document.documentElement.style.zoom=z; }
 try{ uiZoom(0); }catch(e){}
 
+/* 🧠 V103 KRT BRAIN — free on-server trading AI (English) */
+let BR_SEEN=null;
+function brainBox(s){
+  const B=s.brain||{}, M=B.model||{}, T=B.today||[], R=B.rows||[], H=B.history||[], St=B.stats||{}, A=St.all||{}, G=St.gold||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const ids=T.map(p=>p.id+(p.gold?"g":"")).join(","); if(BR_SEEN!==null&&ids!==BR_SEEN){ const nw=T.find(p=>!BR_SEEN.includes(p.id+(p.gold?"g":""))); if(nw){ try{ speak(`Brain ${nw.gold?"gold":""} pick. ${nw.symbol} ${nw.strike} ${nw.side==="CE"?"C E":"P E"}. Entry ${nw.entry}.`); }catch(e){} } } BR_SEEN=ids;
+  const card=p=>{ const pl=p.pnl_lot||0;
+    return `<div class="rrow" style="border:2px solid ${p.gold?"#fbbf24":"#22d3ee"};${p.gold?"box-shadow:0 0 18px rgba(251,191,36,.5);background:linear-gradient(135deg,rgba(251,191,36,.14),transparent)":"box-shadow:0 0 12px rgba(34,211,238,.3)"}">
+      <div class="ctop"><b style="font-size:16px">${p.gold?"🪙 GOLD · ":"🧠 "}<span class="${p.side==='CE'?'up':'dn'}">BUY ${esc(p.symbol)} ${n2(p.strike)} ${p.side}</span></b><span class="hint">picked ${esc(ampm(p.time))} · score <b>${p.score}</b>/100</span></div>
+      <div class="cprow" style="margin:5px 0;font-size:14px"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>T1/T2/T3 <b class="up">${(p.targets||[]).map(n2).join(" / ")}</b></span></div>
+      <div class="cprow"><span class="hint">LTP ₹${n2(p.exit??p.ltp)} · <b>${esc(p.status||"")}</b>${(p.hits||[]).length?" · "+p.hits.map(esc).join(", "):""}</span><b class="${pl>=0?"up":"dn"}">${rs(pl)} / lot</b></div>
+      <div style="margin-top:4px">${(p.conf||[]).map(w=>`<div>✓ ${esc(w)}</div>`).join("")}</div><div class="hint">${esc(p.source||"")} · auto-added to Paper Trade</div></div>`; };
+  const dcol={TAKE:"up",WATCH:"",SKIP:"dn"};
+  return `<div class="labbox" style="border:3px solid #22d3ee;font-size:13px"><h2>🧠 KRT BRAIN — which call to take <small class="hint">free · runs on your server · checks every minute · ${esc(B.time||"")}</small></h2>
+    <div class="hint">Expert trading rules + your modules' REAL results + ML on your own closed calls. ML: <b class="${M.on?"up":""}">${M.on?"ON":"OFF"}</b> ${M.auc!=null?`(walk-forward AUC ${(+M.auc).toFixed(2)} on ${M.n} calls)`:""} — ${esc(M.on?"it beat the baseline on unseen data":"it did not beat the baseline on unseen data yet, so the Brain uses rules + real module results only")}.</div>
+    ${T.length?`<div class="cards" style="margin-top:6px">${T.map(card).join("")}</div>`:`<div class="okbox" style="margin-top:6px"><b>🧠 Brain: no clean trade right now.</b> <span class="hint">Nothing passed all checks (no blocker + 2 confirmations incl. one from the chart + score 72+). Waiting is a valid trade.</span></div>`}
+    <details ${T.length?"":"open"}><summary><b>📋 Every open call — Brain verdict</b> (${R.length}) · ✅ ${R.filter(r=>r.decision==="TAKE").length} take · 👀 ${R.filter(r=>r.decision==="WATCH").length} watch · ⛔ ${R.filter(r=>r.decision==="SKIP").length} skip</summary>
+      ${R.length?simpleTbl(R,[["Verdict",r=>`<b class="${dcol[r.decision]}">${r.gold?"🪙 ":""}${r.decision==="TAKE"?"✅ TAKE":r.decision==="WATCH"?"👀 WATCH":"⛔ SKIP"}</b><div class="hint">score ${r.score}${r.ml!=null?` · ML ${r.ml}%`:""}</div>`],
+        ["Call",r=>`<b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><div class="hint">${esc(r.source||"")} · ${esc(ampm(r.time))}</div>`],
+        ["Entry / SL / T1",r=>`₹${n2(r.entry)} / <span class="dn">₹${n2(r.sl)}</span> / <span class="up">₹${n2((r.targets||[])[0])}</span> <div class="hint">LTP ₹${n2(r.ltp)}</div>`],
+        ["Why",r=>`<span class="hint" style="white-space:normal">${esc(r.say)}</span>${r.module&&r.module.n?`<div class="hint">module: ${r.module.n} trades · ${r.module.win}% win · ₹${n2(r.module.exp)}/trade</div>`:""}`]],
+        r=>r.decision==="TAKE"?"uprow":r.decision==="SKIP"?"slrow":""):'<div class="hint">No open calls right now.</div>'}</details>
+    <details><summary><b>📋 Brain results — all days</b> · ${A.n||0} closed · win ${A.win??"–"}% · ${rs(A.net)} · 🪙 gold ${G.n||0} · win ${G.win??"–"}% · ${rs(G.net)}</summary>
+      ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.gold?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Score",p=>p.score],["Entry / SL",p=>`₹${n2(p.entry)} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>(p.targets||[]).map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")],["P/L lot",p=>`<b class="${(p.pnl_lot||0)>=0?'up':'dn'}">${rs(p.pnl_lot)}</b>`],["Result",p=>esc(p.status||"")]],p=>OPEN_ST.includes(p.status)?"":(p.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">Results appear here as Brain picks close.</div>'}</details>
+    <div class="hint">⚠ Free and honest: the Brain is a specialist, not a fortune teller. Paper-trade it 2–3 weeks and trust the results table.</div>
+    <div class="hint">📚 Learning model (full-analysis snapshots): ${esc(((B.snap||{}).why)||"collecting data")} — it can only veto weak picks, never push one in.</div>
+    <details><summary><b>💬 Ask Brain</b> (free, instant) — try "what should I take now?", "SBIN?", "market?"</summary>
+      <div style="display:flex;gap:6px;margin:6px 0"><input id="brQ" style="flex:1" placeholder="Ask: what to take now / a stock name / market" onkeydown="if(event.key==='Enter')brainAsk()"><button class="pickbtn" onclick="brainAsk()">Ask</button></div>
+      <div id="brA"></div></details></div>`; }
+async function brainAsk(){ const i=document.getElementById("brQ"), q=(i&&i.value||"").trim(); if(!q) return;
+  const o=document.getElementById("brA");
+  try{ const j=await post("/api/brain/ask",{q}); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(j.answer||"No answer")}</div>`; }catch(e){ if(o) o.innerHTML="⚠ "+esc(String(e)); } }
+
 /* 🧠 V102 FABLE PICKS — Claude Fable 5.2 picks the best 0-3 setups (English) */
 let FB_SEEN=null;
 async function fableRun(){ const b=document.getElementById("fbRun"); if(b){ b.disabled=true; b.textContent="🧠 Fable is thinking… (up to 2 min)"; }
@@ -2685,6 +2729,50 @@ function chartPanel(ch,s){ const c=ch.call||{}, P=(((s.bestpicks||{}).panel)||{}
     <div class="hint">📊 Volume: last candle ${vx.toFixed(1)}× avg · ${up?"buyers":"sellers"} candle${vx>=1.5?" — strong":""}</div>
     ${lvl?`<div class="hint">📏 Levels: ${esc(lvl)}</div>`:""}
     ${P.hist?`<div class="hint">🧾 ${esc(histTxt(P.hist))}</div>`:""}</div>`; }
+
+/* 🌡 V104 MARKET MOOD page */
+let MOODSEL="Overall";
+const MOODCOL=v=>v<20?"#ef5350":v<40?"#f0794b":v<60?"#d6a04a":v<80?"#7cc47f":"#3ecf8e";
+function moodGauge(v){ const W=300,H=170,cx=150,cy=150,r=120, a=Math.PI*(1-v/100), x=cx+r*Math.cos(a), y=cy-r*Math.sin(a);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:360px;display:block;margin:auto"><defs><linearGradient id="mg" x1="0" x2="1"><stop offset="0" stop-color="#ef5350"/><stop offset=".5" stop-color="#f08a4b"/><stop offset="1" stop-color="#3ecf8e"/></linearGradient></defs>
+    <path d="M30 150 A120 120 0 0 1 270 150" fill="none" stroke="#222" stroke-width="22" stroke-linecap="round"/>
+    <path d="M30 150 A120 120 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" fill="none" stroke="url(#mg)" stroke-width="22" stroke-linecap="round"/>
+    <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" fill="#111" stroke="#fff" stroke-width="5"/>
+    <text x="30" y="168" fill="#777" font-size="12" text-anchor="middle">0</text><text x="270" y="168" fill="#777" font-size="12" text-anchor="middle">100</text></svg>`; }
+function moodHTML(s){
+  const M=s.mood||{}, I=M.idx||{}, names=["Overall","NIFTY","BANKNIFTY","FINNIFTY","SENSEX","CRUDEOIL","GOLD","SILVER","NATURALGAS"].filter(n=>I[n]);
+  if(!names.length) return `<div class="mood"><div class="tag">TODAY</div><h2 style="margin:4px 0">Market mood</h2><div style="color:#999">Mood starts when live prices come in (market hours). Built from real market data: price, momentum, breadth, option OI, futures buyers/sellers, news and India VIX.</div></div>`;
+  if(!I[MOODSEL]) MOODSEL=names[0];
+  const X=I[MOODSEL], col=MOODCOL(X.score), B=X.breakdown||{}, P=X.parts||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const PN={price:"Price move",momentum:"15-min momentum",breadth:"Breadth (stocks up vs down)",oi:"Option OI / PCR",flow:"Futures buyers vs sellers",news:"News",vix:"India VIX (fear)"};
+  const partRow=(k,v)=>`<div class="cprow" style="align-items:center"><span style="width:170px;color:#bbb">${PN[k]||k}</span><span class="bar"><i style="left:${v>=0?50:50+v/2}%;width:${Math.abs(v)/2}%;background:${v>=0?"#3ecf8e":"#ef5350"}"></i><i style="left:50%;width:1px;background:#555"></i></span><b style="width:44px;text-align:right;color:${v>=0?"#3ecf8e":"#ef5350"}">${v>0?"+":""}${v}</b></div>`;
+  const hrs=Object.entries(X.hours||{}).sort((a,b)=>a[0]-b[0]);
+  const hourBars=hrs.length?`<div style="display:flex;align-items:flex-end;gap:6px;height:90px;margin-top:8px">${hrs.map(([h,v])=>`<div style="flex:1;text-align:center"><div style="height:${Math.max(4,v*0.8)}px;background:${MOODCOL(v)};border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:#888">${((+h-1)%12)+1}${+h<12?"a":"p"}</div><div style="font-size:10px;color:#bbb">${v}</div></div>`).join("")}</div>`:"";
+  const donut=`<svg viewBox="0 0 42 42" width="110"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#333" stroke-width="6"/>
+    <circle cx="21" cy="21" r="15.9" fill="none" stroke="#3ecf8e" stroke-width="6" stroke-dasharray="${B.bull||0} ${100-(B.bull||0)}" stroke-dashoffset="25"/>
+    <circle cx="21" cy="21" r="15.9" fill="none" stroke="#ef5350" stroke-width="6" stroke-dasharray="${B.bear||0} ${100-(B.bear||0)}" stroke-dashoffset="${25-(B.bull||0)}"/></svg>`;
+  const SE=M.sectors||[], BC=M.calls||[], FL=(M.flow||[]).filter(a=>a.date===String(s.now||"").slice(0,10)), CR=((s.sniper||{}).crash)||{};
+  return `<div class="mood"><div class="tag">TODAY · ${esc(M.time||"")}</div><h2 style="margin:4px 0 2px">Market mood</h2>
+    <div style="color:#999">Pick an index to see its mood, what is driving it, and how it changed through the day.</div>
+    <div class="chips" style="margin-top:10px">${names.map(n=>`<span class="chip ${n===MOODSEL?"on":""}" onclick="MOODSEL='${n}';$('p-md').innerHTML=moodHTML(LAST_S)">${n==="Overall"?"Overall market":n==="NIFTY"?"Nifty 50":n}</span>`).join("")}</div>
+    <div class="card">${moodGauge(X.score)}
+      <div class="tag">SELECTED</div><div style="font-size:26px;font-weight:800">${MOODSEL==="Overall"?"Overall market":esc(MOODSEL)}${X.price?` <small style="color:#999;font-size:14px">${n2(X.price)} ${X.pct!=null?(X.pct>=0?"+":"")+X.pct+"%":""}</small>`:""}</div>
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span class="big">${X.score}</span><b style="color:${col};font-size:18px">${esc(X.label)}</b>
+        ${X.vs_last!=null?`<span style="font-family:monospace;color:${X.vs_last>=0?"#3ecf8e":"#ef5350"}">${X.vs_last>=0?"▲":"▼"} ${Math.abs(X.vs_last)} vs last</span>`:""}</div>
+      <div style="color:#999">${X.signals} signals · day avg ${X.day_avg}</div>
+      <div class="note">${esc(X.say)}</div>
+      <div class="tag">BULLISH, NEUTRAL, BEARISH</div>
+      <div style="display:flex;align-items:center;gap:14px;margin:6px 0">${donut}<div><div>🟩 Bullish <b>${B.bull||0}</b></div><div>⬜ Neutral <b>${B.neutral||0}</b></div><div>🟥 Bearish <b>${B.bear||0}</b></div></div></div>
+      <div class="tag" style="margin-top:6px">WHAT IS DRIVING IT</div>${Object.entries(P).map(([k,v])=>partRow(k,v)).join("")}
+      ${hourBars?`<div class="tag" style="margin-top:10px">MOOD BY THE HOUR</div>${hourBars}`:""}</div>
+    ${CR.level&&CR.level!=="NONE"?`<div class="card" style="border-color:${CR.side==="DOWN"?"#ef5350":"#3ecf8e"}"><b>${CR.level==="ALERT"?"🚨":"⚠"} Crash / surge radar: ${CR.side==="DOWN"?"big SELL risk":"big BUY move"}</b><div style="color:#bbb">${(CR.signals||[]).map(esc).join(" · ")}</div></div>`:`<div class="card"><b>✓ Crash radar: normal</b> <span style="color:#999">— alerts if price speed, breadth, futures selling or VIX turn (early divergence included).</span></div>`}
+    <div class="card"><div class="tag">SECTOR MOOD — BEST FIRST</div>${SE.length?SE.map(x=>`<div class="cprow" style="align-items:center;margin:4px 0"><span style="width:130px">${esc(x.sector)}</span><span class="bar"><i style="left:0;width:${x.score}%;background:${MOODCOL(x.score)}"></i></span><b style="width:40px;text-align:right">${x.score}</b><span style="width:120px;text-align:right;color:${x.pct>=0?"#3ecf8e":"#ef5350"}">${x.pct>=0?"+":""}${x.pct}% · ${x.up}/${x.n} up</span></div>`).join(""):'<div style="color:#999">Sectors appear after the first deep scan.</div>'}</div>
+    <div class="card"><div class="tag">BEST CALLS NOW — BUYER INTEREST &amp; TARGETS</div>${BC.length?BC.map(c=>`<div style="border-top:1px solid #222;padding:8px 0"><div class="cprow"><b style="color:${c.side==="CE"?"#3ecf8e":"#ef5350"}">${c.decision==="TAKE"?"✅":"⏳"} ${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><span style="color:#999">Brain ${c.score}/100</span></div>
+        <div>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · LTP ₹${n2(c.ltp)}</div>
+        <div>Targets: ${(c.targets||[]).map((t,j)=>`T${j+1} ₹${n2(t)} <small style="color:#999">(${c.to_targets[j]!=null?(c.to_targets[j]>=0?"+":"")+c.to_targets[j]+"%":"–"})</small>`).join(" · ")}</div>
+        <div style="color:#bbb">👥 Buyers: ${c.buyers.length?c.buyers.map(esc).join(" · "):"no flow data yet"}${c.t1_rate!=null?` · past T1 reach ${c.t1_rate}% (${c.t1_n} calls)`:""}</div></div>`).join(""):'<div style="color:#999">No TAKE / WATCH calls from Brain right now.</div>'}</div>
+    <div class="card"><div class="tag">🟢 BUYERS / 🔴 SELLERS ENTERING — TODAY</div>${FL.length?FL.map(a=>`<div>${a.side==="BUY"?"🟢":"🔴"} <b>${esc(a.time)} ${esc(a.symbol)}</b> — ${a.side==="BUY"?"buyers":"sellers"} aggressive: delta ${a.delta>0?"+":""}${a.delta}% · ${a.stack} stacked · volume ${a.rvol}× · price ${n2(a.px)}</div>`).join(""):'<div style="color:#999">Alert comes (phone + voice) when 1-min order flow shows delta ±40%, 3+ stacked imbalances and volume 1.5×+.</div>'}</div>
+    <div style="color:#777;margin-top:8px">Mood uses real market data, not social media posts (X has no free API). It shows where the market is leaning — not a guarantee of the next move.</div></div>`; }
 
 /* ⚠ V100 CRASH / SURGE RADAR banner + 🎯 SNIPER tab */
 let CRASH_LV="NONE";
@@ -3001,7 +3089,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v102";
+const APPV="v104";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3084,6 +3172,7 @@ function render(s){
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-ofp").innerHTML = SX("fpHTML",()=>fpHTML(s)); }catch(e){ console.error(e); }
+  try{ const md_=$("p-md"); if(md_) md_.innerHTML = SX("moodHTML",()=>moodHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-sn").innerHTML = SX("sniperHTML",()=>sniperHTML(s)); $("crashBar").innerHTML = crashHTML(s); }catch(e){ console.error(e); }      /* "fp" = பழைய 🐘 OI Footprint tab — இது ofp */
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];

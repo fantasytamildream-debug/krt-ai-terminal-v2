@@ -216,7 +216,7 @@ def pick_option(ag, inst, name, side, spot, now, ul_sl, ul_tgts):
 PICK_ALT = {"last": None}
 
 
-def universe(inst, now):
+def universe(inst, now, extra=None):
     """NIFTY + BANKNIFTY futures (index options-க்கு) + live volume அதிகமான 6 F&O stocks — 5 நிமிடத்துக்கு ஒருமுறை மாறும்."""
     from . import fullscan as FS
     U = []
@@ -229,6 +229,9 @@ def universe(inst, now):
     top = sorted([s for s, q in lq.items() if s in eq and (q.get("vol_ratio") or 0) >= 1.2],
                  key=lambda s: -((lq[s].get("vol_ratio") or 0) * (1 + abs(lq[s].get("pct") or 0))))[:CFG["n_stocks"]]
     U += [{"symbol": s, "token": eq[s], "exch": "NSE", "kind": "EQ", "opt_name": s} for s in top]
+    have = {u["symbol"] for u in U}
+    for s in [x for x in (extra or []) if x in eq and x not in have][:6]:      # v104: best open calls' stocks — buyers entering?
+        U.append({"symbol": s, "token": eq[s], "exch": "NSE", "kind": "EQ", "opt_name": s})
     return U
 
 
@@ -247,12 +250,46 @@ def feed(qs, now):
             ingest(u["symbol"], q, now, u["kind"])
 
 
-def scan(ag, inst, now, calls, mdir=None):
+FLOW = {"last": {}, "alerts": []}
+
+
+def flow_alerts(view, now, send=None):
+    """🟢 BUYERS / 🔴 SELLERS entering — last 1-min bar: delta ≥ ±40% + 3 stacked imbalances + RVOL ≥ 1.5 (15-min cooldown per symbol+side)."""
+    new = []
+    for sym, tfs in (view or {}).items():
+        x = (tfs or {}).get(1) or {}
+        an, rv = x.get("an") or {}, x.get("rvol")
+        if not an or rv is None or rv < 1.5:
+            continue
+        for side, ok in (("BUY", an.get("delta_pct", 0) >= 40 and an.get("buy_stack", 0) >= 3),
+                         ("SELL", an.get("delta_pct", 0) <= -40 and an.get("sell_stack", 0) >= 3)):
+            k = f"{sym}|{side}"
+            last = FLOW["last"].get(k)
+            if not ok or (last is not None and (now - last).total_seconds() < 900):
+                continue
+            FLOW["last"][k] = now
+            a = {"time": now.strftime("%H:%M"), "date": str(now.date()), "symbol": sym, "side": side, "delta": an.get("delta_pct"),
+                 "stack": an.get("buy_stack" if side == "BUY" else "sell_stack"), "rvol": rv, "px": (x.get("bar") or {}).get("c")}
+            FLOW["alerts"].insert(0, a)
+            new.append(a)
+            if send:
+                try:
+                    send((f"🟢 BUYERS ENTERING · {sym}" if side == "BUY" else f"🔴 SELLERS ENTERING · {sym}")
+                         + f"\n1-min: delta {a['delta']:+}% · {a['stack']} stacked {'buy' if side == 'BUY' else 'sell'} imbalances · volume {rv}× · price {a['px']}"
+                         + ("\n👉 CE side gets support — check the call before entering" if side == "BUY" else "\n👉 careful with CE · PE side gets support"),
+                         f"flow|{k}|{a['time']}", True)
+                except Exception:
+                    pass
+    del FLOW["alerts"][60:]
+    return new
+
+
+def scan(ag, inst, now, calls, mdir=None, extra=None, send=None):
     """60 sec-க்கு ஒருமுறை: ஒவ்வொரு symbol-ன் கடைசி *முடிந்த* 1M / 3M bar → checklist → pass ஆனா option filters → FOOTPRINT call."""
     from .calls import CALLS_LOCK, STORE, _new
     day, hm = str(now.date()), now.strftime("%H:%M")
     if not STATE.get("u_t") or (now - STATE["u_t"]).total_seconds() >= 300:
-        STATE["universe"], STATE["u_t"] = universe(inst, now), now
+        STATE["universe"], STATE["u_t"] = universe(inst, now, extra), now
     mins = now.hour * 60 + now.minute
     view, new_sig = {}, []
     for u in STATE["universe"]:
@@ -281,6 +318,10 @@ def scan(ag, inst, now, calls, mdir=None):
                        "stack": stk, "rvol": rv, "delta_pct": an["delta_pct"], "check": ck, "pass": ck["pass"], "result": None, "call": None}
                 new_sig.append((sig, u, an, S))
     STATE["bars"] = view
+    try:
+        flow_alerts(view, now, send)
+    except Exception as e:
+        STATE["err"] = f"flow: {e}"[:120]
     with CALLS_LOCK:
         D = STORE.load()
         J = D.setdefault("fp_signals", [])
