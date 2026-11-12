@@ -1345,7 +1345,7 @@ function renderCalls(s){
     <div class="hint" style="margin-top:8px;color:#4ade80">🛡 Quality Mode V6: 9:45–2:30 மட்டும் · ஒரு stock-க்கு நாளைக்கு ஒரு call (duplicate இல்லை) · stock SL ≥15% / index ≥8% தூரம் · NIFTY ±0.4% எதிர் side stock call இல்லை · நாளைக்கு max 12 · ₹7,500 loss / தொடர் 3 SL ஆனா pause · Movers 🟢 (score 85+, spread ≤5%) மட்டும். ✋ உங்க picks-க்கு இந்த gate இல்லை.</div>
     <div class="hint" style="margin-top:4px">📏 Rules: intraday SL ≤ ₹2,500 · T1 ₹2,000 (premium கஷ்டம்னா ₹1,500) · T2 ₹4,000 · T3 ₹6,000 · holding SL ≤ ₹4,000 · T1 ₹5,000 · T2 ₹8,000 · T3 ₹12,000 · SL hit → exit · T1 → SL entry–T1 நடு (min ₹1,000) · T2 → SL T1 · time stop இல்லை · 3:20 PM intraday exit.</div>
     <div class="hint" style="margin-top:4px">★ rating / “எடுக்கலாமா” = rule-based check (grade, risk, volume, signal, entry நிலை) — AI prediction இல்லை, guarantee இல்லை. 🟣 “பெரிய player entry” = volume / OI வைத்து ஊகம் மட்டும். Paper tracking · முடிவு உங்களுடையது.</div>`;
-  try{ const cr_=$("callsRest"), bt_=$("bestTop"); if(cr_) cr_.innerHTML=`<div class="callboard">
+  try{ const cr_=$("callsRest"), bt_=$("bestTop"); if(cr_) cr_.innerHTML=idxDiagHTML(s)+`<div class="callboard">
     ${pushBar()}
     ${preopenHTML(s)}
     ${(()=>{ const L=bestPicks(s).filter(x=>x.k==="TAKE"); return L.length?`<div class="okbox"><b>🏆 இப்போ ENTER: ${L.slice(0,4).map(x=>`${x.light} ${esc(x.symbol)}${x.strike?" "+n2(x.strike):""} ${x.side}`).join(" · ")}</b> <a href="#" onclick="goTab('lab');return false">முழு list →</a></div>`:""; })()}
@@ -2730,6 +2730,14 @@ function chartPanel(ch,s){ const c=ch.call||{}, P=(((s.bestpicks||{}).panel)||{}
     ${lvl?`<div class="hint">📏 Levels: ${esc(lvl)}</div>`:""}
     ${P.hist?`<div class="hint">🧾 ${esc(histTxt(P.hist))}</div>`:""}</div>`; }
 
+/* v106: 📊 Index calls today — calls made + why others were blocked (gate code · module) */
+function idxDiagHTML(s){ const D=s.index_diag||{}; const L=["NIFTY","BANKNIFTY","FINNIFTY","SENSEX"].filter(k=>D[k]); if(!L.length) return "";
+  const CODE={Q_DUP:"same module already called it",Q_DAY_MAX:"daily limit",Q_SL_TIGHT:"SL too close",Q_OPEN_NOISE:"before 9:45",Q_COUNTER:"against market",Q_DAY_STOP:"day loss limit",Q_STREAK:"3 SL in a row"};
+  return `<div class="labbox" style="font-size:13px"><h2>📊 Index calls today <small class="hint">NIFTY · BANKNIFTY · FINNIFTY · SENSEX — own lane (max 8/day), not blocked by stock calls</small></h2>
+    ${simpleTbl(L,[["Index",k=>`<b>${k}</b>`],["Calls today",k=>D[k].calls.length?D[k].calls.map(c=>`<span class="${c.side==="CE"?"up":"dn"}">${esc(ampm(c.time))} ${n2(c.strike)} ${c.side}</span> <small class="hint">${esc(c.source||"")} · ${esc(c.status||"")}</small>`).join("<br>"):'<span class="hint">none yet</span>'],
+      ["Blocked (why)",k=>D[k].rejects.length?D[k].rejects.slice(0,4).map(r=>`<small>${esc(r.time||"")} ${esc(r.source||r.kind||"")}: <b>${esc(r.code)}</b>${CODE[r.code]?" ("+CODE[r.code]+")":""}</small>`).join("<br>"):'<span class="hint">–</span>']])}
+    <div class="hint">No call and nothing blocked = no index setup confirmed yet (V4 strategies / Index OI / Mannan / chart still waiting).</div></div>`; }
+
 /* v105: Footprint · Mood · Sniper live together in one tab (sub-options) */
 let FPSUB="fp";
 function fpSub(k){ FPSUB=k; $("p-ofp").innerHTML=fpGroup(LAST_S); }
@@ -3097,7 +3105,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v105";
+const APPV="v106";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3150,7 +3158,7 @@ function render(s){
     vb.className=s.version===APPV&&!ST.load_failed?"":"verwarn";
     if(ST.load_failed){ vb.innerHTML=`⚠ <b>பழைய calls history load ஆகல</b> — ${esc(ST.error||"GitHub load பிழை")}. உங்க பழைய data GitHub-ல் பத்திரமா இருக்கு (overwrite ஆகாது). சரி பண்ண: GitHub → Settings → Developer settings → Personal access tokens → புது token (data repo · Contents: Read and write) → Render → Environment → <b>GITHUB_TOKEN</b> மாத்தி Save. Token சரியானதும் 1 நிமிடத்தில் தானா history வரும் + இப்போ வந்த calls merge ஆகும்.`; }
     else
-    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}${(s.sys||{}).up_min!=null?` · ⏱ up ${s.sys.up_min<120?Math.round(s.sys.up_min)+"m":Math.round(s.sys.up_min/60)+"h"}`:""}${(s.sys||{}).rss_mb?` · RAM ${s.sys.rss_mb} MB${s.sys.rss_mb>430?" ⚠ near the 512 MB limit":""}`:""}</span>${Object.keys((s.sys||{}).loop_err||{}).length?`<div class="hint dn">⚠ failing steps: ${Object.entries(s.sys.loop_err).map(([k,v])=>`${esc(k)} (${esc(v.time)}: ${esc(v.err)})`).join(" · ")}</div>`:""}`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
+    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}${(s.sys||{}).up_min!=null?` · ⏱ up ${s.sys.up_min<120?Math.round(s.sys.up_min)+"m":Math.round(s.sys.up_min/60)+"h"}`:""}${(s.sys||{}).rss_mb?` · RAM ${s.sys.rss_mb} MB${s.sys.rss_mb>430?" ⚠ near the 512 MB limit":""}`:""}</span>${(()=>{ const H=(s.sys||{}).heal||{}; const a=[]; Object.entries(H.moved||{}).forEach(([m,p])=>a.push(`${m}.py was in the wrong place (${p}) — loaded it anyway; please move it into krt/`)); (H.embedded||[]).forEach(m=>a.push(`krt/${m}.py was missing — restored from the built-in copy`)); (H.missing||[]).forEach(m=>a.push(`krt/${m}.py is missing — upload it into the krt folder`)); return a.length?`<div class="hint" style="color:#f59e0b">🩹 ${a.map(esc).join(" · ")}</div>`:""; })()}${Object.keys((s.sys||{}).loop_err||{}).length?`<div class="hint dn">⚠ failing steps: ${Object.entries(s.sys.loop_err).map(([k,v])=>`${esc(k)} (${esc(v.time)}: ${esc(v.err)})`).join(" · ")}</div>`:""}`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
   try{ if(s.error) s.error=rateTxt(s.error); if(s.full&&s.full.errors) s.full.errors=s.full.errors.map(rateTxt); }catch(e){}
   try{ PINKMODS=(((s.full||{}).ai||{}).opt||{}).mods||{}; }catch(e){ PINKMODS={}; }
   const f=s.full, r=s.result;

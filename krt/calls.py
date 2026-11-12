@@ -276,7 +276,8 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
 
 # 🛡 QUALITY MODE V6 — எல்லா modules-க்கும் ஒரே gate (✋ My pick தவிர). நோக்கம்: குறைவான, சுத்தமான calls → win rate உயர்வு.
 QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, "max_day": 12, "day_stop": -7500,
-       "sl_streak": 3, "counter_pct": 0.4, "widen_max_risk": 4000}
+       "sl_streak": 3, "counter_pct": 0.4, "widen_max_risk": 4000, "idx_max": 8}
+IDX_SYMS = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
 
 
 OWN_POOL = ("AIPICK", "MACHINE", "MANNAN-IDX", "MANNAN-STK", "MANNAN-GU")
@@ -346,13 +347,23 @@ def quality_v6(c, now):
     except Exception:
         return None
     day = c["date"]
-    pv = c.get("source") in proven_sources(d)                # v98: Index OI மாதிரி நிரூபிச்ச module-க்கு தனி lane
-    mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until")
-            and not x.get("shadow") and (x.get("source") == c.get("source") if pv else (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL))]
-    if any(x["symbol"] == c["symbol"] for x in mine):
-        return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
-    if len(mine) >= (8 if pv else QV6["max_day"]):
-        return ("Q_DAY_MAX", f"இன்றைய max {8 if pv else QV6['max_day']} calls முடிந்தது")
+    live = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until") and not x.get("shadow")]
+    if c["symbol"] in IDX_SYMS:
+        # v106 INDEX LANE: stock calls used to fill the shared 12/day and "1 call per symbol" let only the first module call NIFTY —
+        # V4 Silver Bullet / Order Flow / Index OI index calls were silently blocked. Index calls now have their own lane.
+        mine = [x for x in live if x["symbol"] in IDX_SYMS]
+        if any(x["symbol"] == c["symbol"] and x.get("source") == c.get("source") and x.get("side") == c.get("side") for x in mine):
+            return ("Q_DUP", f"{c['symbol']} {c.get('side')} இன்று இதே module-ல் ஏற்கனவே call இருக்கு")
+        if len(mine) >= QV6["idx_max"]:
+            return ("Q_DAY_MAX", f"இன்றைய index calls max {QV6['idx_max']} முடிந்தது")
+    else:
+        pv = c.get("source") in proven_sources(d)                # v98: நிரூபிச்ச module-க்கு தனி lane
+        mine = [x for x in live if x["symbol"] not in IDX_SYMS and (x.get("source") == c.get("source") if pv else
+                (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL))]
+        if any(x["symbol"] == c["symbol"] for x in mine):
+            return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
+        if len(mine) >= (8 if pv else QV6["max_day"]):
+            return ("Q_DAY_MAX", f"இன்றைய max {8 if pv else QV6['max_day']} calls முடிந்தது")
     closed = sorted([x for x in mine if x["status"] not in OPEN], key=lambda x: str(x.get("exit_time") or ""))
     if sum(x.get("pnl_lot") or 0 for x in closed) <= QV6["day_stop"]:
         return ("Q_DAY_STOP", f"இன்றைய நஷ்டம் ₹{-QV6['day_stop']:,} தாண்டியது — இன்று போதும்")
@@ -1374,3 +1385,16 @@ def module_health(d, now):
                      "top": [f"{k} ×{v}" for k, v in rc.most_common(2)], "status": st, "proven": src in pv})
     rows.sort(key=lambda r: ({"🔴": 0, "🟡": 1, "⏸": 2, "⚪": 3, "🟢": 4}.get(r["status"][:1], 5), r["source"]))
     return rows
+
+
+
+def index_diag(d, now):
+    """📊 Index calls today: calls made per index + every rejection (gate code + module) — shows exactly why an index call did not come."""
+    day = str(now.date())
+    out = {}
+    for ix in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+        calls = sorted([{k: x.get(k) for k in ("time", "source", "side", "strike", "status", "pnl_lot")} for x in (d.get("calls") or {}).values()
+                        if x.get("date") == day and x.get("symbol") == ix and x.get("kind") != "PICK" and not x.get("shadow")], key=lambda r: str(r["time"]))
+        rej = [r for r in (SKIPPED["log"] if SKIPPED.get("day") == day else []) if r.get("symbol") == ix][-12:]
+        out[ix] = {"calls": calls, "rejects": rej[::-1]}
+    return out

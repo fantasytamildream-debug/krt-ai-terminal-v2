@@ -40,7 +40,11 @@ def test_proven_lane_unblocks_index_oi(monkeypatch):
     c = {"date": day, "symbol": "NIFTY", "side": "PE", "kind": "INTRADAY", "source": "Index OI", "entry": 100, "sl": 85}
     assert CL.quality_v6(c, now) is None                                                      # 12 calls + NIFTY dup இருந்தும் pass
     c2 = dict(c, source="Weak Module")
-    assert CL.quality_v6(c2, now)[0] in ("Q_DUP", "Q_DAY_MAX")                               # weak module-க்கு பழைய gate
+    assert CL.quality_v6(c2, now) is None                                                     # v106 index lane: another module's NIFTY call is allowed
+    fs.data["calls"]["dupe"] = {"id": "dupe", "date": day, "symbol": "NIFTY", "side": "PE", "kind": "INTRADAY", "source": "Weak Module", "status": "OPEN", "pnl_lot": 0}
+    assert CL.quality_v6(dict(c2), now)[0] == "Q_DUP"                                         # same module + same index + same side → blocked
+    s2 = {"date": day, "symbol": "S1", "side": "CE", "kind": "INTRADAY", "source": "Weak Module", "entry": 100, "sl": 85}
+    assert CL.quality_v6(s2, now)[0] in ("Q_DUP", "Q_DAY_MAX")                                # stocks keep the old gate
 
 
 def test_module_health(monkeypatch):

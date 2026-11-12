@@ -10,6 +10,57 @@ from krt.runner import run_scan, now_ist, market_open, angel_configured
 from krt.chartink import CLAUSE_FILE, saved_clauses
 from krt.config import load_settings
 
+# ───────────── v106 SELF-HEAL: new krt modules missing / uploaded to the wrong place ─────────────
+# GitHub does not unzip, Windows renames duplicates to "brain (1).py", files land in the repo root …
+# 1) search the whole project for a misplaced copy and load it as krt.<name>; 2) brain.py: fall back to the copy embedded below.
+NEW_MODS = ["brain", "mood", "bestpicks", "fable", "sqs", "crash", "spreads", "combo", "footprint", "methods"]
+_EMBED = {"brain": "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"}   # snapshot of krt/brain.py at v106 (real file wins when present)
+HEAL = {"moved": {}, "embedded": [], "missing": []}
+
+
+def _heal_modules():
+    import glob, importlib, importlib.util, sys, zlib as _z
+    import krt as _pkg
+    for m in NEW_MODS:
+        try:
+            importlib.import_module(f"krt.{m}")
+            continue
+        except ImportError:
+            pass
+        cands = [p for p in glob.glob(str(ROOT / "**" / f"{m}*.py"), recursive=True)
+                 if "__pycache__" not in p and "/tests/" not in p.replace("\\", "/") and Path(p).stem.split(" ")[0].split("(")[0] == m]
+        cands.sort(key=lambda p: (Path(p).name != f"{m}.py", len(p)))
+        done = False
+        for p in cands:
+            try:
+                spec = importlib.util.spec_from_file_location(f"krt.{m}", p)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[f"krt.{m}"] = mod
+                spec.loader.exec_module(mod)
+                setattr(_pkg, m, mod)
+                HEAL["moved"][m] = str(Path(p).relative_to(ROOT)) if str(p).startswith(str(ROOT)) else p
+                done = True
+                break
+            except Exception:
+                sys.modules.pop(f"krt.{m}", None)
+        if not done and m in _EMBED:
+            try:
+                (ROOT / "krt" / f"{m}.py").write_bytes(_z.decompress(base64.b64decode(_EMBED[m])))
+                importlib.invalidate_caches()
+                importlib.import_module(f"krt.{m}")
+                HEAL["embedded"].append(m)
+                done = True
+            except Exception:
+                pass
+        if not done:
+            HEAL["missing"].append(m)
+
+
+try:
+    _heal_modules()
+except Exception:
+    traceback.print_exc()
+
 HOSTED = bool(os.getenv("RENDER") or os.getenv("HOSTED"))
 PORT = int(os.getenv("PORT", "8765"))
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
@@ -436,7 +487,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v105"
+APP_VERSION = "v106"
 EVC = {"t": 0, "d": None}
 
 
@@ -912,8 +963,21 @@ def rss_mb():
         return None
 
 
+IDC = {"t": 0, "d": None}
+
+
+def idx_diag_state():
+    if time.time() - IDC["t"] > 10:
+        try:
+            from krt.calls import STORE as _S, index_diag
+            IDC.update(t=time.time(), d=index_diag(_S.load(), now_ist()))
+        except Exception as e:
+            IDC.update(t=time.time(), d={"err": str(e)[:160]})
+    return IDC["d"]
+
+
 def sys_state():
-    return {"up_min": round((time.time() - BOOT_T) / 60, 1), "rss_mb": rss_mb(), "loop_err": LOOP_ERR}
+    return {"up_min": round((time.time() - BOOT_T) / 60, 1), "rss_mb": rss_mb(), "loop_err": LOOP_ERR, "heal": HEAL}
 
 
 def light_loop():
@@ -1340,7 +1404,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),

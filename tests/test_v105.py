@@ -50,3 +50,45 @@ def test_steps_isolated_and_errors_visible():
 def test_sys_state_reports_uptime_and_ram():
     st = server.sys_state()
     assert st["up_min"] >= 0 and (st["rss_mb"] is None or st["rss_mb"] > 10) and isinstance(st["loop_err"], dict)
+
+
+def test_index_lane_not_starved_by_stock_calls(monkeypatch):
+    import pandas as pd
+    from krt import calls as CL, store as SM
+    from tests.test_mannan import FakeStore
+    fs = FakeStore()
+    for m in (CL, SM):
+        monkeypatch.setattr(m, "STORE", fs)
+    CL.PROVEN.update(t=0, set=set())
+    day = "2026-11-12"
+    fs.data["calls"] = {f"s{i}": {"id": f"s{i}", "date": day, "symbol": f"STK{i}", "side": "CE", "kind": "MOVERS", "source": "Top Movers", "status": "OPEN", "pnl_lot": 0}
+                        for i in range(12)}                                                   # stocks used all 12 slots
+    fs.data["calls"]["n1"] = {"id": "n1", "date": day, "symbol": "NIFTY", "side": "CE", "kind": "V4", "source": "V4 💎 VWAP Mean Reversion", "status": "OPEN", "pnl_lot": 0}
+    now = pd.Timestamp(f"{day} 11:00")
+    sb = {"date": day, "symbol": "NIFTY", "side": "CE", "kind": "V4", "source": "V4 ⚡ ICT Silver Bullet", "entry": 100, "sl": 90}
+    assert CL.quality_v6(sb, now) is None                                                     # Silver Bullet NIFTY still comes
+    assert CL.quality_v6(dict(sb, symbol="SENSEX", source="V4 🥇 Order Flow + Profile"), now) is None
+    st = {"date": day, "symbol": "TCS", "side": "CE", "kind": "MOVERS", "source": "Top Movers", "entry": 100, "sl": 85}
+    assert CL.quality_v6(st, now)[0] == "Q_DAY_MAX"                                           # stock lane still capped at 12
+    CL.SKIPPED.update(day=day, log=[{"time": "10:05", "symbol": "NIFTY", "source": "Index OI", "code": "Q_SL_TIGHT", "detail": ""}])
+    D = CL.index_diag(fs.data, now)
+    assert D["NIFTY"]["calls"][0]["source"].startswith("V4") and D["NIFTY"]["rejects"][0]["code"] == "Q_SL_TIGHT" and D["SENSEX"]["calls"] == []
+
+
+def test_self_heal_missing_or_misplaced_brain(tmp_path):
+    """krt/brain.py missing on the server (GitHub upload went wrong) → server finds a misplaced copy, else restores the built-in one."""
+    import shutil, subprocess, sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    for case in ("moved", "embedded"):
+        d = tmp_path / case
+        skip = shutil.ignore_patterns("__pycache__", ".pytest_cache", ".git")
+        shutil.copytree(root, d, ignore=lambda p, names: set(skip(p, names)) | ({"logs", "data"} & set(names) if Path(p) == root else set()))
+        (d / "krt" / "brain.py").unlink()
+        if case == "moved":
+            shutil.copy(root / "krt" / "brain.py", d / "brain (1).py")
+        out = subprocess.run([sys.executable, "-c", "import server, json; from krt import brain, mood; print(json.dumps(server.HEAL))"],
+                             cwd=d, capture_output=True, text=True, timeout=90)
+        heal = __import__("json").loads(out.stdout.strip().splitlines()[-1])
+        assert (heal["moved"].get("brain") == "brain (1).py") if case == "moved" else (heal["embedded"] == ["brain"])
+        assert heal["missing"] == []
