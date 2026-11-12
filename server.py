@@ -436,7 +436,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v104.1"
+APP_VERSION = "v105"
 EVC = {"t": 0, "d": None}
 
 
@@ -884,6 +884,55 @@ def lab_report():
     return LAB["d"]
 
 
+BOOT_T = time.time()
+LOOP_ERR = {}
+
+
+def _step(name, fn):
+    """Run one loop step; never let it kill the steps after it. Last error is shown in the UI (status.sys.loop_err)."""
+    try:
+        fn()
+        LOOP_ERR.pop(name, None)
+    except Exception as e:
+        LOOP_ERR[name] = {"time": now_ist().strftime("%H:%M:%S"), "err": f"{type(e).__name__}: {str(e)[:160]}"}
+        traceback.print_exc()
+
+
+def rss_mb():
+    try:
+        for ln in open("/proc/self/status"):
+            if ln.startswith("VmRSS:"):
+                return round(int(ln.split()[1]) / 1024)
+    except Exception:
+        pass
+    try:
+        import resource
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
+    except Exception:
+        return None
+
+
+def sys_state():
+    return {"up_min": round((time.time() - BOOT_T) / 60, 1), "rss_mb": rss_mb(), "loop_err": LOOP_ERR}
+
+
+def light_loop():
+    """v105: 🤖 Best Picks · 🌡 Mood · 🧠 Brain every 60 s on their OWN thread — they used to wait behind the heavy API chain
+    (autolab / enter scan / chains …) and were skipped whenever anything before them failed."""
+    time.sleep(20)
+    while True:
+        try:
+            t = now_ist()
+            hm = t.strftime("%H:%M")
+            if t.weekday() < 5 and "09:15" <= hm <= "23:30":
+                _step("bestpicks", lambda: bp_run(t))
+                _step("mood", lambda: mood_run(t))
+                _step("brain", lambda: brain_run(t))
+        except Exception:
+            traceback.print_exc()
+        time.sleep(60)
+
+
 def prebreak_loop():
     """🔭 Pre-Breakout Radar — market நேரத்தில் 60 sec-க்கு ஒருமுறை (daily bars + live quotes; candle API call இல்லை)."""
     global ANGEL
@@ -897,31 +946,32 @@ def prebreak_loop():
             from krt.angel_api import Angel
             from krt.instruments import load as load_inst
             ANGEL = ANGEL or Angel()
-            AL.prebreak_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {})
-            try:                                     # 🤖 ஒவ்வொரு call-க்கும் தானா history verdict
-                from krt.calls import STORE as _S0
-                AL.autolab_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), STATE.get("full") or {})
-                AL.enter_scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {}, list((_S0.load().get("calls") or {}).values()))
-                AL.enter_chains(ANGEL, load_inst(ROOT / "data" / "cache"), t)      # 🏦 option chain buyers / sellers
+            _step("prebreak", lambda: AL.prebreak_run(ANGEL, load_inst(ROOT / "data" / "cache"), t, STATE.get("full") or {}))
+            from krt.calls import STORE as _S0                # v105: every step isolated — one failure no longer skips the rest
+            inst_ = load_inst(ROOT / "data" / "cache")
+            _calls = lambda: list((_S0.load().get("calls") or {}).values())
+            _step("autolab", lambda: AL.autolab_run(ANGEL, inst_, t, _calls(), STATE.get("full") or {}))
+            _step("enter_scan", lambda: AL.enter_scan(ANGEL, inst_, t, STATE.get("full") or {}, _calls()))
+            _step("enter_chains", lambda: AL.enter_chains(ANGEL, inst_, t))
+            def _dp():
                 from krt import daypicks as DP
                 from krt.notify import both as _both
-                DP.run(ANGEL, t, list((_S0.load().get("calls") or {}).values()), _both)   # 🔥 Call of the Day + 🏆 Top 5
-                from krt import footprint as FPM
+                DP.run(ANGEL, t, _calls(), _both)
+            _step("daypicks", _dp)
+            def _fp():
+                from krt import footprint as FPM, bestpicks as _BPm
                 from krt.ai import STATE as _AST
-                from krt import bestpicks as _BPm
                 from krt.notify import both as _bothf
-                FPM.scan(ANGEL, load_inst(ROOT / "data" / "cache"), t, list((_S0.load().get("calls") or {}).values()), (_AST.get("risk") or {}).get("dir"),
-                         extra=[r["symbol"] for r in (_BPm.STATE.get("rows") or [])[:6]], send=_bothf)   # 🟢 buyers / 🔴 sellers entering alerts
-                from krt import spreads as SPR                  # 📐 Credit spreads / Iron Condor (paper)
+                FPM.scan(ANGEL, inst_, t, _calls(), (_AST.get("risk") or {}).get("dir"),
+                         extra=[r["symbol"] for r in (_BPm.STATE.get("rows") or [])[:6]], send=_bothf)
+            _step("footprint", _fp)
+            def _spr():
+                from krt import spreads as SPR
                 _ix = (STATE.get("full") or {}).get("index") or []
                 SPR.run(ANGEL, t, _ix, next((x.get("pct") for x in _ix if x.get("index") == "NIFTY"), 0))
-                bp_run(t)                                       # 🤖 AI Best Picks + 🪙 Golden calls
-                mood_run(t)                                     # 🌡 Market mood (indices · MCX · sectors · best calls)
-                brain_run(t)                                    # 🧠 KRT Brain (free, on-server)
-                EVC["t"] = 0
-                LAB["t"] = 0
-            except Exception:
-                traceback.print_exc()
+            _step("spreads", _spr)
+            EVC["t"] = 0
+            LAB["t"] = 0
             try:                                     # 🎯 DSK — 1–3 high-quality picks
                 from krt import dsk as DS
                 from krt.ai import STATE as AST
@@ -1219,7 +1269,27 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self):                                   # v105: a crash returns a JSON error (Render showed a dropped connection as 502)
+        try:
+            return self._do_GET()
+        except Exception as e:
+            traceback.print_exc()
+            try:
+                return self._send(500, _json({"ok": False, "msg": f"Server error: {type(e).__name__}: {str(e)[:200]}", "answer": f"Server error: {type(e).__name__}: {str(e)[:200]}"}))
+            except Exception:
+                pass
+
+    def do_POST(self):
+        try:
+            return self._do_POST()
+        except Exception as e:
+            traceback.print_exc()
+            try:
+                return self._send(500, _json({"ok": False, "msg": f"Server error: {type(e).__name__}: {str(e)[:200]}", "answer": f"Server error: {type(e).__name__}: {str(e)[:200]}"}))
+            except Exception:
+                pass
+
+    def _do_GET(self):
         if self.path == "/health":
             return self._send(200, "ok", "text/plain")
         # 📲 service worker / manifest / icon — secret இல்லை, login இல்லாம (phone push register-க்கு)
@@ -1270,7 +1340,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                 "market_open": market_open(now_ist()), "next_auto": next_auto(),
@@ -1289,7 +1359,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, _json(st))
         self._send(404, _json({"error": "not found"}))
 
-    def do_POST(self):
+    def _do_POST(self):
         if not self._auth_ok():
             return self._deny()
         try:
@@ -1547,6 +1617,7 @@ if __name__ == "__main__":
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=fable_loop, daemon=True).start()
+    threading.Thread(target=light_loop, daemon=True).start()
     threading.Thread(target=prebreak_loop, daemon=True).start()
     threading.Thread(target=events_loop, daemon=True).start()
     if angel_configured():  # start ஆனதும் ஒரு full scan

@@ -481,15 +481,13 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
-    <button role="tab" data-p="md">🌡 Mood</button>
-    <button role="tab" data-p="sn">🎯 Sniper</button>
+<button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
+    <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="dsk">🎯 DSK <span id="dskCount"></span></button>
-    <button role="tab" data-p="ofp">👣 Footprint <span id="fpCount"></span></button>
+    <button role="tab" data-p="ofp">👣 Footprint · Mood · Sniper <span id="fpCount"></span></button>
     <button role="tab" data-p="lb" aria-selected="false">⚡ Live Board</button>
-    <button role="tab" data-p="mn">👑 Jackpot Mannan <span id="mnCount"></span></button>
     <button role="tab" data-p="lab">🧪 AI Lab</button>
     <button role="tab" data-p="cx">🛢 Commodity</button>
-    <button role="tab" data-p="gk">👑 Goki Mannan</button>
     <button role="tab" data-p="nw">📰 News Radar</button>
     <button role="tab" data-p="ov">Overview</button>
     <button role="tab" data-p="jp">🎯 Jackpot</button>
@@ -517,8 +515,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-lab" hidden></section>
   <section class="pane" id="p-dsk" hidden></section>
   <section class="pane" id="p-ofp" hidden></section>
-  <section class="pane" id="p-sn" hidden></section>
-  <section class="pane" id="p-md" hidden></section>
+
   <section class="pane" id="p-pt" hidden></section>
   <section class="pane" id="p-pw" hidden></section>
   <section class="pane" id="p-el" hidden></section>
@@ -2733,6 +2730,13 @@ function chartPanel(ch,s){ const c=ch.call||{}, P=(((s.bestpicks||{}).panel)||{}
     ${lvl?`<div class="hint">📏 Levels: ${esc(lvl)}</div>`:""}
     ${P.hist?`<div class="hint">🧾 ${esc(histTxt(P.hist))}</div>`:""}</div>`; }
 
+/* v105: Footprint · Mood · Sniper live together in one tab (sub-options) */
+let FPSUB="fp";
+function fpSub(k){ FPSUB=k; $("p-ofp").innerHTML=fpGroup(LAST_S); }
+function fpGroup(s){ const B=(k,t)=>`<button class="pickbtn ${FPSUB===k?"on":""}" style="${FPSUB===k?"border-color:#f97316;color:#fb923c;font-weight:700":""}" onclick="fpSub('${k}')">${t}</button>`;
+  const body=FPSUB==="md"?moodHTML(s):FPSUB==="sn"?sniperHTML(s):fpHTML(s);
+  return `<div style="display:flex;gap:8px;margin:6px 0 10px;flex-wrap:wrap">${B("fp","👣 Footprint")}${B("md","🌡 Mood")}${B("sn","🎯 Sniper")}</div>${body}`; }
+
 /* 🌡 V104 MARKET MOOD page */
 let MOODSEL="Overall";
 const MOODCOL=v=>v<20?"#ef5350":v<40?"#f0794b":v<60?"#d6a04a":v<80?"#7cc47f":"#3ecf8e";
@@ -2744,7 +2748,8 @@ function moodGauge(v){ const W=300,H=170,cx=150,cy=150,r=120, a=Math.PI*(1-v/100
     <text x="30" y="168" fill="#777" font-size="12" text-anchor="middle">0</text><text x="270" y="168" fill="#777" font-size="12" text-anchor="middle">100</text></svg>`; }
 function moodHTML(s){
   const M=s.mood||{}, I=M.idx||{}, names=["Overall","NIFTY","BANKNIFTY","FINNIFTY","SENSEX","CRUDEOIL","GOLD","SILVER","NATURALGAS"].filter(n=>I[n]);
-  if(!names.length) return `<div class="mood"><div class="tag">TODAY</div><h2 style="margin:4px 0">Market mood</h2><div style="color:#999">Mood starts when live prices come in (market hours). Built from real market data: price, momentum, breadth, option OI, futures buyers/sellers, news and India VIX.</div></div>`;
+  const ME=((s.sys||{}).loop_err||{}).mood;
+  if(!names.length) return `<div class="mood"><div class="tag">TODAY</div><h2 style="margin:4px 0">Market mood</h2><div style="color:#999">${ME?`<span style="color:#ef5350">⚠ Mood step failed at ${esc(ME.time)}: ${esc(ME.err)} — send me this line.</span><br>`:""}Mood updates every minute from 9:15 (first reading about 1 minute after the server starts). Built from real market data: price, momentum, breadth, option OI, futures buyers/sellers, news and India VIX.</div></div>`;
   if(!I[MOODSEL]) MOODSEL=names[0];
   const X=I[MOODSEL], col=MOODCOL(X.score), B=X.breakdown||{}, P=X.parts||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const PN={price:"Price move",momentum:"15-min momentum",breadth:"Breadth (stocks up vs down)",oi:"Option OI / PCR",flow:"Futures buyers vs sellers",news:"News",vix:"India VIX (fear)"};
@@ -2757,7 +2762,7 @@ function moodHTML(s){
   const SE=M.sectors||[], BC=M.calls||[], FL=(M.flow||[]).filter(a=>a.date===String(s.now||"").slice(0,10)), CR=((s.sniper||{}).crash)||{};
   return `<div class="mood"><div class="tag">TODAY · ${esc(M.time||"")}</div><h2 style="margin:4px 0 2px">Market mood</h2>
     <div style="color:#999">Pick an index to see its mood, what is driving it, and how it changed through the day.</div>
-    <div class="chips" style="margin-top:10px">${names.map(n=>`<span class="chip ${n===MOODSEL?"on":""}" onclick="MOODSEL='${n}';$('p-md').innerHTML=moodHTML(LAST_S)">${n==="Overall"?"Overall market":n==="NIFTY"?"Nifty 50":n}</span>`).join("")}</div>
+    <div class="chips" style="margin-top:10px">${names.map(n=>`<span class="chip ${n===MOODSEL?"on":""}" onclick="MOODSEL='${n}';$('p-ofp').innerHTML=fpGroup(LAST_S)">${n==="Overall"?"Overall market":n==="NIFTY"?"Nifty 50":n}</span>`).join("")}</div>
     <div class="card">${moodGauge(X.score)}
       <div class="tag">SELECTED</div><div style="font-size:26px;font-weight:800">${MOODSEL==="Overall"?"Overall market":esc(MOODSEL)}${X.price?` <small style="color:#999;font-size:14px">${n2(X.price)} ${X.pct!=null?(X.pct>=0?"+":"")+X.pct+"%":""}</small>`:""}</div>
       <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span class="big">${X.score}</span><b style="color:${col};font-size:18px">${esc(X.label)}</b>
@@ -3092,7 +3097,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v104.1";
+const APPV="v105";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3145,7 +3150,7 @@ function render(s){
     vb.className=s.version===APPV&&!ST.load_failed?"":"verwarn";
     if(ST.load_failed){ vb.innerHTML=`⚠ <b>பழைய calls history load ஆகல</b> — ${esc(ST.error||"GitHub load பிழை")}. உங்க பழைய data GitHub-ல் பத்திரமா இருக்கு (overwrite ஆகாது). சரி பண்ண: GitHub → Settings → Developer settings → Personal access tokens → புது token (data repo · Contents: Read and write) → Render → Environment → <b>GITHUB_TOKEN</b> மாத்தி Save. Token சரியானதும் 1 நிமிடத்தில் தானா history வரும் + இப்போ வந்த calls merge ஆகும்.`; }
     else
-    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}</span>`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
+    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}${(s.sys||{}).up_min!=null?` · ⏱ up ${s.sys.up_min<120?Math.round(s.sys.up_min)+"m":Math.round(s.sys.up_min/60)+"h"}`:""}${(s.sys||{}).rss_mb?` · RAM ${s.sys.rss_mb} MB${s.sys.rss_mb>430?" ⚠ near the 512 MB limit":""}`:""}</span>${Object.keys((s.sys||{}).loop_err||{}).length?`<div class="hint dn">⚠ failing steps: ${Object.entries(s.sys.loop_err).map(([k,v])=>`${esc(k)} (${esc(v.time)}: ${esc(v.err)})`).join(" · ")}</div>`:""}`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
   try{ if(s.error) s.error=rateTxt(s.error); if(s.full&&s.full.errors) s.full.errors=s.full.errors.map(rateTxt); }catch(e){}
   try{ PINKMODS=(((s.full||{}).ai||{}).opt||{}).mods||{}; }catch(e){ PINKMODS={}; }
   const f=s.full, r=s.result;
@@ -3174,9 +3179,8 @@ function render(s){
   try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
-  try{ $("p-ofp").innerHTML = SX("fpHTML",()=>fpHTML(s)); }catch(e){ console.error(e); }
-  try{ const md_=$("p-md"); if(md_) md_.innerHTML = SX("moodHTML",()=>moodHTML(s)); }catch(e){ console.error(e); }
-  try{ $("p-sn").innerHTML = SX("sniperHTML",()=>sniperHTML(s)); $("crashBar").innerHTML = crashHTML(s); }catch(e){ console.error(e); }      /* "fp" = பழைய 🐘 OI Footprint tab — இது ofp */
+  try{ $("p-ofp").innerHTML = SX("fpGroup",()=>fpGroup(s)); }catch(e){ console.error(e); }
+  try{ $("crashBar").innerHTML = crashHTML(s); }catch(e){ console.error(e); }      /* "fp" = பழைய 🐘 OI Footprint tab — இது ofp */
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
   const _seen=new Set(), _TT=_T.filter(c=>!_seen.has(c.id)&&_seen.add(c.id));
