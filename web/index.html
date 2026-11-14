@@ -477,6 +477,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
+    <button role="tab" data-p="jv">🤖 JARVIS</button>
     <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
@@ -509,6 +510,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-cx" hidden></section>
+  <section class="pane" id="p-jv" hidden></section>
   <section class="pane" id="p-cr" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-mn" hidden></section>
@@ -2699,6 +2701,106 @@ function fableBox(s){
       <div id="fbA">${FB_A?`<div class="cpbox" style="white-space:pre-wrap">${esc(FB_A)}</div>`:""}</div>${(F.chat||[]).map(c=>`<div class="hint" style="margin-top:6px"><b>Q ${esc(c.time)}:</b> ${esc(c.q)}<br><b>Fable:</b> ${esc(c.a)}</div>`).join("")}</details>
     <div class="hint">⚠ Fable is a strong AI, not a guarantee. Paper-trade its picks for 2–3 weeks and trust the results table, not the confidence number.</div></div>`; }
 
+/* 🤖 V108 JARVIS — BOSS OF THE BOSS CALLS (dedicated page) */
+let JVSEL=null, JVTF="5", JVK={}, JVPER="all", JV_Q="", JV_A="", JV_SEEN=null;
+async function jvFetch(){ const s=LAST_S||{}, J=s.jarvis||{}, r=(J.elite||[]).concat(J.top||[]).find(x=>x.id===JVSEL); if(!r) return;
+  const key=r.symbol+"|"+JVTF; if(JVK.key===key&&Date.now()-JVK.t<25000) return;
+  try{ const q=await fetch(`/api/candles?symbol=${encodeURIComponent(r.symbol)}&tf=${JVTF}`,{cache:"no-store"}); const j=await q.json();
+    JVK={key,t:Date.now(),c:j.ok?j.candles:[],err:j.ok?null:(j.msg||"candles not available")}; }catch(e){ JVK={key,t:Date.now(),c:[],err:String(e)}; }
+  const box=document.getElementById("jvChartBox"); if(box) box.innerHTML=jvChart(r); }
+function jvPick(id){ JVSEL=id; JVK={}; $("p-jv").innerHTML=jarvisHTML(LAST_S); jvFetch(); }
+function jvTF(t){ JVTF=t; JVK={}; jvFetch(); const b=document.getElementById("jvChartBox"); if(b){ const s=LAST_S||{},J=s.jarvis||{},r=(J.elite||[]).concat(J.top||[]).find(x=>x.id===JVSEL); if(r) b.innerHTML=jvChart(r); } }
+function jvChart(r){
+  let K=JVK.key===r.symbol+"|"+JVTF?(JVK.c||[]):[];
+  if(!K.length&&JVTF==="5"){ const ch=(((LAST_S||{}).chart||{}).charts||[]).find(x=>(x.call||{}).symbol===r.symbol); if(ch) K=ch.candles||[]; }
+  const tfs=[["1","1m"],["3","3m"],["5","5m"],["15","15m"],["30","30m"],["60","1H"],["D","Daily"],["W","Weekly"]];
+  const bar=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${tfs.map(([k,l])=>`<button class="pickbtn ${JVTF===k?"on":""}" style="${JVTF===k?"border-color:#a78bfa;color:#c4b5fd":""}" onclick="jvTF('${k}')">${l}</button>`).join("")}</div>`;
+  if(!K.length) return bar+`<div class="hint">${JVK.err?"⚠ "+esc(JVK.err)+" — ":""}Loading real ${JVTF==="D"?"daily":JVTF==="W"?"weekly":JVTF+"-minute"} candles from Angel One… (charts need live data)</div>`;
+  K=K.slice(-90); const pl=r.plan||{}, D=r.draw||{}, T=pl.targets||[];
+  const lvls=[pl.ul,pl.invalid,...T.map(t=>t.ul)].filter(v=>v!=null);
+  let lo=Math.min(...K.map(k=>k[3])), hi=Math.max(...K.map(k=>k[2]));
+  const near=lvls.filter(v=>v>lo-(hi-lo)*0.6&&v<hi+(hi-lo)*0.6); lo=Math.min(lo,...near); hi=Math.max(hi,...near); const pad=(hi-lo)*0.05||1; lo-=pad; hi+=pad;
+  const W=760,H=400,VH=46,PR=96,bw=(W-PR)/K.length, y=v=>((hi-v)/(hi-lo)*(H-VH-18)+6).toFixed(1), x=i=>(i*bw+bw/2).toFixed(1), vmax=Math.max(...K.map(k=>k[5]))||1;
+  const inR=v=>v!=null&&v>lo&&v<hi;
+  let g=`<rect width="${W}" height="${H}" fill="#0b0b14"/>`;
+  for(let t=0;t<5;t++){ const v=lo+(hi-lo)*t/4; g+=`<line x1="0" x2="${W-PR}" y1="${y(v)}" y2="${y(v)}" stroke="#1c1c2b"/><text x="${W-PR+4}" y="${+y(v)+4}" font-size="10" fill="#6b6b80">${n2(v)}</text>`; }
+  (D.zones||[]).forEach(z=>{ if(inR(z.lo)||inR(z.hi)) g+=`<rect x="0" width="${W-PR}" y="${y(Math.min(hi,z.hi))}" height="${Math.max(2,y(Math.max(lo,z.lo))-y(Math.min(hi,z.hi))).toFixed(1)}" fill="${z.kind==="DEMAND"?"rgba(34,197,94,.10)":"rgba(239,68,68,.10)"}"/><text x="4" y="${+y(Math.min(hi,z.hi))+11}" font-size="9" fill="${z.kind==="DEMAND"?"#4ade80":"#f87171"}">${z.kind==="DEMAND"?"demand":"supply"} ${n2(z.lo)}–${n2(z.hi)}</text>`; });
+  (D.sr||[]).forEach(s_=>{ if(inR(s_.price)) g+=`<line x1="0" x2="${W-PR}" y1="${y(s_.price)}" y2="${y(s_.price)}" stroke="#94a3b8" stroke-dasharray="1 4" opacity=".7"/><text x="${W-PR-60}" y="${+y(s_.price)-2}" font-size="9" fill="#94a3b8">S/R ${n2(s_.price)}</text>`; });
+  (D.eq||[]).forEach(e=>{ if(inR(e.price)) g+=`<line x1="0" x2="${W-PR}" y1="${y(e.price)}" y2="${y(e.price)}" stroke="#f59e0b" stroke-dasharray="2 3" opacity=".6"/><text x="${W-PR-110}" y="${+y(e.price)-2}" font-size="9" fill="#fbbf24">liquidity ${e.kind} ${n2(e.price)}</text>`; });
+  (D.events||[]).forEach(e=>{ if(inR(e.price)) g+=`<line x1="${(W-PR)*0.45}" x2="${W-PR}" y1="${y(e.price)}" y2="${y(e.price)}" stroke="#a78bfa" stroke-width="1.4"/><text x="${(W-PR)*0.45}" y="${+y(e.price)-3}" font-size="10" font-weight="700" fill="#c4b5fd">${esc(e.type)} ${n2(e.price)}</text>`; });
+  const intraday=!["D","W"].includes(JVTF);
+  if(intraday&&K[0].length>6){ let pv=0,vv=0,dd=null,pts=[]; K.forEach((k,i)=>{ if(k[6]!==dd){ dd=k[6]; pv=0; vv=0; } pv+=(k[2]+k[3]+k[4])/3*(k[5]||1); vv+=(k[5]||1); pts.push(`${x(i)},${y(pv/vv)}`); }); g+=`<polyline points="${pts.join(" ")}" fill="none" stroke="#38bdf8" stroke-width="1.3"/>`; }
+  K.forEach((k,i)=>{ const up=k[4]>=k[1], col=up?"#22c55e":"#ef4444";
+    g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(k[2])}" y2="${y(k[3])}" stroke="${col}"/><rect x="${(x(i)-bw*.35).toFixed(1)}" y="${y(Math.max(k[1],k[4]))}" width="${(bw*.7).toFixed(1)}" height="${Math.max(1,Math.abs(y(k[1])-y(k[4]))).toFixed(1)}" fill="${col}"/>`;
+    g+=`<rect x="${(x(i)-bw*.35).toFixed(1)}" y="${(H-k[5]/vmax*VH).toFixed(1)}" width="${(bw*.7).toFixed(1)}" height="${(k[5]/vmax*VH).toFixed(1)}" fill="${up?"rgba(34,197,94,.35)":"rgba(239,68,68,.35)"}"/>`;
+    if(i%15===0) g+=`<text x="${x(i)}" y="${H-VH-3}" font-size="9" fill="#55556a" text-anchor="middle">${esc(k[0])}</text>`; });
+  const lab=(v,t,col,dash)=>inR(v)?`<line x1="0" x2="${W-PR}" y1="${y(v)}" y2="${y(v)}" stroke="${col}" ${dash?`stroke-dasharray="${dash}"`:""} stroke-width="1.3"/><rect x="${W-PR+2}" y="${+y(v)-8}" width="${PR-4}" height="15" rx="3" fill="${col}"/><text x="${W-PR+5}" y="${+y(v)+3}" font-size="9.5" font-weight="700" fill="#06060c">${t}</text>`:"";
+  g+=lab(pl.ul,`ENTRY ${n2(pl.ul)}`,"#e5e7eb","4 3");
+  g+=lab(pl.invalid,`INVALID ${n2(pl.invalid)}`,"#ef4444","5 3");
+  let upN=0, dnN=0;
+  T.forEach((t,i)=>{ const txt=`T${i+1} ${n2(t.ul)} ₹${n2(t.prem)}`; if(inR(t.ul)) g+=lab(t.ul,txt,"#4ade80","6 4");
+    else if(t.ul!=null){ const above=t.ul>=hi, yy=above?16+upN++*17:H-VH-28-dnN++*17; g+=`<rect x="6" y="${yy-11}" width="168" height="15" rx="3" fill="#0b0b14" stroke="#4ade80"/><text x="11" y="${yy}" font-size="10" font-weight="700" fill="#4ade80">${above?"↑":"↓"} ${txt} (${above?"above":"below"} view)</text>`; } });
+  if(intraday&&r.time){ const today=String((LAST_S||{}).now||"").slice(0,10); const si=K.findIndex(k=>k[6]===today&&k[0]>=String(r.time).slice(0,5)); if(si>=0) g+=`<circle cx="${x(si)}" cy="${y(K[si][r.side==="PE"?2:3])}" r="6" fill="none" stroke="#c4b5fd" stroke-width="2"/><text x="${x(si)}" y="${+y(K[si][r.side==="PE"?2:3])+(r.side==="PE"?-10:18)}" font-size="10" fill="#c4b5fd" text-anchor="middle">signal ${esc(r.time)}</text>`; }
+  const off=lvls.filter(v=>!inR(v)); 
+  return bar+`<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;border-radius:10px">${g}</svg>
+    <div class="hint">Drawn from real ${JVTF==="D"?"daily":JVTF==="W"?"weekly":JVTF+"-minute"} candles · levels on the underlying, option premium in ₹ · 🟦 VWAP · purple = BOS/CHOCH · amber = liquidity pools · shaded = supply / demand${off.length?` · ${off.length} level(s) outside this view`:""}</div>`; }
+function jvCard(r,JS_){ JS_=JS_||LAST_S||{}; const pl=r.plan||{}, v=r.val||{}, P=r.parts||{}, T=pl.targets||[], ic={PASS:"✅",WARN:"⚠️",FAIL:"❌"};
+  return `<div class="rrow" style="border:2px solid ${r.score>=90?"#fbbf24":"#a78bfa"};background:linear-gradient(135deg,rgba(167,139,250,.10),transparent);box-shadow:0 0 18px rgba(167,139,250,.25)">
+    <div class="ctop"><b style="font-size:16px;letter-spacing:.5px">🤖 JARVIS — BOSS OF THE BOSS CALL</b><span><b style="font-size:20px">${r.score}</b><small class="hint">/100 · ${esc(r.rating)}</small></span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 12px;margin:6px 0">
+      <div><span class="hint">Instrument</span><br><b>${esc(r.symbol)}</b></div><div><span class="hint">Option</span><br><b class="${r.side==="CE"?"up":"dn"}">${n2(r.strike)} ${r.side}</b></div>
+      <div><span class="hint">Expiry</span><br><b>${esc(r.expiry||"–")}</b></div><div><span class="hint">Entry zone</span><br><b>₹${n2(pl.zone[0])} – ₹${n2(pl.zone[1])}</b> <small class="hint">LTP ₹${n2(r.ltp)}</small></div>
+      <div><span class="hint">Stoploss</span><br><b class="dn">₹${n2(pl.sl)}</b>${pl.invalid?` <small class="hint">invalid below ${n2(pl.invalid)}</small>`:""}</div><div><span class="hint">Risk-to-reward</span><br><b>1:${v.rr}</b> · risk ${esc(r.risk)}</div>
+      <div><span class="hint">Trade type</span><br><b>Intraday</b></div><div><span class="hint">Confirmation</span><br><b>${esc(r.status)}</b> · signal ${esc(r.time)} IST</div></div>
+    <div class="cprow" style="flex-wrap:wrap;gap:6px">${T.map((t,i)=>`<span class="cpbox" style="padding:3px 8px">T${i+1} <b class="up">₹${n2(t.prem)}</b> <small class="hint">${t.ul?n2(t.ul)+" · ":""}${esc(t.why)}</small></span>`).join("")}${T.length<5?`<span class="hint">only ${T.length} defensible target(s) — no made-up levels</span>`:""}</div>
+    <div style="margin-top:4px"><b>Analysis:</b> ${(r.why||[]).map(esc).join(" · ")||"module signal"} <span class="hint">· ${esc(r.module||"")}</span></div>
+    ${(r.flags||[]).length?`<div style="color:#f59e0b">⚠ Event risk: ${r.flags.map(esc).join(" · ")}</div>`:""}
+    <details><summary><b>🛡 Independent validation — ${esc(v.decision)}</b> (${(v.checks||[]).filter(c=>c.status==="PASS").length}/10 pass)</summary>${(v.checks||[]).map(c=>`<div class="hint">${ic[c.status]} ${esc(c.name)} — ${esc(c.detail)}</div>`).join("")}</details>
+    <details><summary><b>🧭 Entry & exit advisor</b></summary>${(r.advice||[]).map(a=>`<div class="hint">• ${esc(a)}</div>`).join("")}</details>
+    <details><summary><b>🔍 Why this score</b></summary>${Object.entries(P).map(([k,val])=>`<div class="cprow" style="font-size:12px"><span style="width:160px">${esc(((JS_.jarvis||{}).names||{})[k]||k)}</span><span style="flex:1;margin:0 6px;background:#222;border-radius:4px;height:8px;align-self:center"><i style="display:block;height:8px;border-radius:4px;width:${val==null?0:val/(((JS_.jarvis||{}).weights||{})[k]||1)*100}%;background:#a78bfa"></i></span><b>${val==null?"no data":val+"/"+(((JS_.jarvis||{}).weights||{})[k]||"")}</b></div>`).join("")}
+      ${(r.against||[]).length?`<div class="hint dn">Disagrees: ${r.against.map(esc).join(", ")}</div>`:""}${(r.missing||[]).length?`<div class="hint">No data (scored 0, not guessed): ${r.missing.map(esc).join(", ")}</div>`:""}</details>
+    <div style="margin-top:6px">${r.id===JVSEL?"":`<button class="pickbtn" onclick='jvPick(${JSON.stringify(r.id).replace(/'/g,"&#39;")})'>📈 Show chart</button>`} ${paperBtn(r.id)}</div></div>`; }
+function jarvisHTML(s){
+  const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
+  if(!JVSEL||!E.concat(T).some(r=>r.id===JVSEL)) JVSEL=(E[0]||T[0]||{}).id||null;
+  const sel=E.concat(T).find(r=>r.id===JVSEL);
+  const card=(k,v,c)=>`<div class="cpbox" style="flex:1;min-width:110px;text-align:center"><div class="hint">${k}</div><b style="font-size:16px" class="${c||""}">${v}</b></div>`;
+  const stCol=x=>/HIT|CLOSED|ACTIVE|CONFIRMED/.test(x)?"up":/STOPLOSS|INVALID/.test(x)?"dn":"";
+  return `<div class="labbox" style="border:2px solid #a78bfa;background:radial-gradient(circle at 10% 0%,rgba(167,139,250,.15),transparent 60%)">
+    <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
+    <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
+    ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${E.length?`<div class="cards">${E.map(r=>jvCard(r,s)).join("")}</div>`:`<div class="labbox" style="text-align:center;border:2px dashed #a78bfa"><b style="font-size:17px">${esc(J.no_trade||"NO TRADE — WAITING FOR HIGH-QUALITY CONFIRMATION")}</b><div class="hint">JARVIS never forces calls. A setup needs score 80+, all 10 validation checks without a fail, and real targets.</div></div>`}
+   ${sel?`<div class="labbox"><h2>📈 ${esc(sel.symbol)} ${n2(sel.strike)} ${sel.side} — AI-annotated chart</h2><div id="jvChartBox">${jvChart(sel)}</div></div>`:""}
+   <div class="labbox"><h2>🏆 Top 10 AI-ranked opportunities <small class="hint">90+ elite · 80–89 strong · 70–79 watchlist · below 70 avoid — quality score, not win probability</small></h2>
+    ${T.length?simpleTbl(T.map((r,i)=>({...r,rank:i+1})),[["#",r=>r.rank],["Contract",r=>`<a href="#" onclick='jvPick(${JSON.stringify(r.id).replace(/'/g,"&#39;")});return false'><b class="${r.side==="CE"?"up":"dn"}">${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b></a><div class="hint">${esc(r.module||"")}</div>`],
+      ["Expiry",r=>esc(r.expiry||"–")],["Premium",r=>`₹${n2(r.ltp)}`],["Direction",r=>r.side==="CE"?'<span class="up">⬆ bullish</span>':'<span class="dn">⬇ bearish</span>'],["Score",r=>`<b>${r.score}</b><div class="hint">${esc(r.rating)}</div>`],
+      ["Risk",r=>esc(r.risk)],["Status",r=>`<b class="${r.val.decision==="APPROVE"?"up":r.val.decision==="REJECT"?"dn":""}">${esc(r.val.decision)}</b>${r.val.fails.length?`<div class="hint dn">${r.val.fails.map(esc).join(", ")}</div>`:""}`],
+      ["Reason",r=>`<span class="hint">${(r.why||[]).slice(0,2).map(esc).join(" · ")||"–"}</span>`]],r=>r.val.decision==="APPROVE"&&r.score>=80?"uprow":r.val.decision==="REJECT"?"slrow":""):'<div class="hint">No open setups to rank yet — JARVIS ranks the live calls from every module during market hours.</div>'}
+    ${Object.keys(J.coverage||{}).length?`<div class="hint">Data coverage: ${Object.entries(J.coverage).map(([k,v])=>`${esc(((J.names||{})[k])||k)} ${v}`).join(" · ")}</div>`:""}</div>
+   <div class="labbox"><h2>📡 Live trade monitoring <small class="hint">WAITING → ENTRY CONFIRMED → ACTIVE → T1…T5 → CLOSED</small></h2>
+    ${L.length?simpleTbl(L,[["Signal",r=>`<b>${esc(r.sid)}</b><div class="hint">${esc(r.time)}</div>`],["Contract",r=>`<b class="${r.side==="CE"?"up":"dn"}">${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b>`],["Status",r=>`<b class="${stCol(r.status)}">${esc(r.status)}</b>`],
+      ["Entry",r=>r.entry_px!=null?`₹${n2(r.entry_px)} <small class="hint">${esc(r.entry_time)}</small>`:`zone ₹${n2(r.orig.zone[0])}–${n2(r.orig.zone[1])}`],["LTP",r=>`₹${n2(r.ltp)}`],["SL",r=>`₹${n2(r.sl)}`],
+      ["Targets",r=>r.orig.targets.map((t,i)=>`${n2(t)}${r.hits.some(h=>h.startsWith("T"+(i+1)+" "))?" ✅":""}`).join(" / ")],["P/L lot",r=>`<b class="${(r.pnl||0)>=0?"up":"dn"}">${rs(r.pnl)}</b>`]]):'<div class="hint">No live JARVIS call.</div>'}</div>
+   <div class="labbox"><h2>📊 JARVIS performance — verified, after costs</h2>
+    <div style="display:flex;gap:6px;margin-bottom:6px">${[["day","Today"],["week","Week"],["month","Month"],["all","All"]].map(([k,l])=>`<button class="pickbtn ${JVPER===k?"on":""}" onclick="JVPER='${k}';$('p-jv').innerHTML=jarvisHTML(LAST_S);jvFetch()">${l}</button>`).join("")}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${card("Total calls",P.total??0)}${card("Triggered",P.triggered??0)}${card("Wins / losses",`${P.wins??0} / ${P.losses??0}`)}${card("Win rate",P.win_rate!=null?P.win_rate+"%":"–")}${card("Profit factor",P.pf??"–")}${card("Expectancy",rs(P.expectancy),(P.expectancy||0)>=0?"up":"dn")}${card("Max drawdown",P.max_dd?"−₹"+n2(P.max_dd):"–","dn")}${card("Net after costs",rs(P.net),(P.net||0)>=0?"up":"dn")}</div>
+    <div class="hint">Avg win ${rs(P.avg_win)} · avg loss ${rs(P.avg_loss)} · avg planned RR 1:${P.avg_rr??"–"} · gross ${rs(P.gross)} · not triggered ${P.not_triggered??0} · invalidated ${P.invalidated??0}. Counted only when the entry actually filled (simulated on live option prices) — touching a target without an entry is not a win.</div>
+    ${["by_side","by_type","by_regime"].map(k=>Object.keys(P[k]||{}).length?`<div class="hint">${k==="by_side"?"CE / PE":k==="by_type"?"Stock / Index / MCX":"Regime"}: ${Object.entries(P[k]).map(([a,b])=>`${esc(a)} ${b.n} calls · ${b.win}% · ${rs(b.net)}`).join(" | ")}</div>`:"").join("")}</div>
+   <div class="labbox"><h2>📜 Historical calls <small class="hint">permanent record · original plan never edited · changes saved as versions</small></h2>
+    ${Hs.length?simpleTbl(Hs.slice(0,60),[["Signal",r=>`<b>${esc(r.sid)}</b><div class="hint">${esc(r.date)} ${esc(r.time)}</div>`],["Contract",r=>`<b class="${r.side==="CE"?"up":"dn"}">${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><div class="hint">exp ${esc(r.expiry||"–")} · score ${r.orig.score}</div>`],
+      ["Plan",r=>`zone ₹${n2(r.orig.zone[0])}–${n2(r.orig.zone[1])} · SL ₹${n2(r.orig.sl)}<div class="hint">T ${r.orig.targets.map(n2).join(" / ")}</div>`],["Entry",r=>r.entry_px!=null?`₹${n2(r.entry_px)} ${esc(r.entry_time)}`:"–"],
+      ["Hits",r=>r.hits.map(esc).join(", ")||"–"],["Exit",r=>r.exit_px!=null?`₹${n2(r.exit_px)} ${esc(r.exit_time||"")}`:"–"],["Net",r=>r.net!=null?`<b class="${r.net>=0?"up":"dn"}">${rs(r.net)}</b>`:"–"],["Status",r=>`<b class="${stCol(r.status)}">${esc(r.status)}</b>${(r.versions||[]).length?`<div class="hint">${r.versions.map(v=>esc(v.time+" "+v.change)).join("<br>")}</div>`:""}`]]):'<div class="hint">No JARVIS call yet.</div>'}</div>
+   <div class="labbox"><h2>💬 Ask JARVIS</h2><div class="hint">Try: "Why did you select this call?" · "Is the entry still valid?" · "Why CE and not PE?" · "What changed in OI?" · "What is the invalidation price?" · "How much capital is at risk?"</div>
+    <div style="display:flex;gap:6px;margin:6px 0"><input id="jvQ" style="flex:1" value="${esc(JV_Q)}" oninput="JV_Q=this.value" placeholder="Ask about any setup (add the stock name)…" onkeydown="if(event.key==='Enter')jvAsk()"><button class="pickbtn" onclick="jvAsk()">Ask</button></div>
+    <div id="jvA">${JV_A?`<div class="cpbox" style="white-space:pre-wrap">${esc(JV_A)}</div>`:""}</div></div>
+   <div class="hint">⚠ JARVIS combines the terminal's real data and rules; scores are quality ratings, not win probabilities. Paper only — no orders are placed.</div>`; }
+setTimeout(()=>{ const b=document.querySelector('#tabs button[data-p="jv"]'); if(b) b.addEventListener("click",()=>setTimeout(jvFetch,60)); },0);
+async function jvAsk(){ const i=document.getElementById("jvQ"), q=((i&&i.value)||JV_Q||"").trim(); if(!q) return; JV_Q=q; JV_A="🤖 JARVIS is checking the current scan…";
+  const show=()=>{ const o=document.getElementById("jvA"); if(o) o.innerHTML=`<div class="cpbox" style="white-space:pre-wrap">${esc(JV_A)}</div>`; }; show();
+  try{ const j=await post("/api/jarvis/ask",{q}); JV_A=j.answer||j.msg||"No answer"; }catch(e){ JV_A="⚠ "+String(e); } show(); }
+
 /* v107: 📝 Paper button for any call id · ⚠ warnings · 🚀 rising */
 function paperBtn(id,open){ return open===false?"":`<button class="pickbtn pp" onclick='paperFromCall(${JSON.stringify(String(id)).replace(/'/g,"&#39;")})'>📝 Paper</button>`; }
 function warnHTML(w){ return (w||[]).length?`<div style="color:#f59e0b;font-size:12px">${w.map(esc).join("<br>")}</div>`:""; }
@@ -3132,7 +3234,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v107";
+const APPV="v108";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3215,6 +3317,7 @@ function render(s){
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-ofp").innerHTML = SX("fpGroup",()=>fpGroup(s)); }catch(e){ console.error(e); }
+  try{ const jv_=$("p-jv"); if(jv_&&!(document.activeElement&&document.activeElement.id==="jvQ")){ jv_.innerHTML = SX("jarvisHTML",()=>jarvisHTML(s)); if(!jv_.hidden) jvFetch(); } }catch(e){ console.error(e); }
   try{ $("crashBar").innerHTML = crashHTML(s); }catch(e){ console.error(e); }      /* "fp" = பழைய 🐘 OI Footprint tab — இது ofp */
   try{ if(!document.activeElement||!["labSym","labLvl"].includes(document.activeElement.id)) $("p-lab").innerHTML = SX("labHTML",()=>labHTML(s)); }catch(e){ console.error(e); }
   try{ LAST_S=s; regCalls(s.full); renderMood(s); renderBell(); trendTopCall(s); const _T=[...(((s.full||{}).tracking||{}).today||[]),...((s.mcx||{}).calls||[]).filter(c=>c.date===String(s.now||"").slice(0,10))];
