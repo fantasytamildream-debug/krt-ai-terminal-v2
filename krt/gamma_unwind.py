@@ -36,7 +36,7 @@ ENG = {
 CLASSIC = {"oi_drop": 8.0, "oi_strong": 12.0, "oi_falling_bars": 2, "vol_sma": 20, "vol_min_of_last3": 2,
            "consol_min": 4, "consol_max": 12, "consol_atr": 1.0, "min_range_ticks": 2, "max_zero_vol": 1,
            "window": (9 * 60 + 30, 14 * 60 + 30), "min_dte": 4, "targets": [0.25, 0.50, 0.75, 1.00],
-           "sl_cap": 0.40, "hold_days": 5, "max_day": 5, "min_oi_lots": 50,
+           "sl_cap": 0.40, "hold_days": 5, "max_day": 10 ** 6, "min_oi_lots": 50,
            "lite_drop": 4.0, "lite_core": 2, "lite_max": 3}     # LITE: daily calls வர — stock break + OI ≥4% + core 2/4
 ST = {"day": None, "sel": {}, "zones": [], "contracts": [], "signals": {}, "armed": {}, "last": None,
       "health": {}, "regime": {}, "entries": 0, "cool": {}}

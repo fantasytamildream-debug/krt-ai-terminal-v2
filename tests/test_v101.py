@@ -32,10 +32,10 @@ def test_run_saves_picks_with_time_and_results():
     now = pd.Timestamp("2026-11-11 10:30")
     new = BP.run(D, now, sq, ct, {}, {f"S{i}": {"PDH": 95} for i in range(9)}, {f"S{i}": {"ltp": 100} for i in range(9)}, {}, set(), lambda m, k, u: sent.append(m))
     J = D["best_picks"]
-    assert len(new) == 6 and len(J) == 6 and all(p["time"] == "10:30" for p in J.values())                       # max 6 / day
+    assert len(new) == 9 and len(J) == 9 and all(p["time"] == "10:30" for p in J.values())                       # v107: no daily cap
     p0 = J["d|0"]
     assert p0["hist"]["all"]["n"] == 2 and p0["hist"]["all"]["t1"] == 1 and p0["hist"]["all"]["sl"] == 1             # strike history
-    assert len(sent) == 6 and sent[0].startswith(("🤖 AI BEST PICK", "🪙 GOLDEN CALL"))
+    assert len(sent) == 9 and sent[0].startswith(("🤖 AI BEST PICK", "🪙 GOLDEN CALL"))
     assert BP.run(D, now + pd.Timedelta(minutes=1), sq, ct, {}, {}, {}, {}, set(), None) == []                     # duplicates இல்லை
     D["calls"]["d|0"].update(status="T3 DONE", pnl_lot=1200)
     R = BP.report(D, "2026-11-11")

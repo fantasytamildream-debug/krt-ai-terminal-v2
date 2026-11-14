@@ -317,7 +317,7 @@ def prebreak_scan(bars, live_q, oi_tag=None, top=15):
     return out[:top]
 
 
-def prebreak_run(ag, inst, now, full=None, live=True, max_day=4):
+def prebreak_run(ag, inst, now, full=None, live=True, max_day=10 ** 6):
     """Radar + BREAKING (score ≥70, 9:30–2:30) → best strike → call (kind PREBRK, நாளைக்கு max 4, symbol-க்கு ஒன்று)."""
     from . import fullscan as FS
     from .calls import CALLS_LOCK, STORE, _new

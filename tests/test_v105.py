@@ -69,7 +69,8 @@ def test_index_lane_not_starved_by_stock_calls(monkeypatch):
     assert CL.quality_v6(sb, now) is None                                                     # Silver Bullet NIFTY still comes
     assert CL.quality_v6(dict(sb, symbol="SENSEX", source="V4 🥇 Order Flow + Profile"), now) is None
     st = {"date": day, "symbol": "TCS", "side": "CE", "kind": "MOVERS", "source": "Top Movers", "entry": 100, "sl": 85}
-    assert CL.quality_v6(st, now)[0] == "Q_DAY_MAX"                                           # stock lane still capped at 12
+    assert CL.quality_v6(st, now) is None                                                     # v107: no daily cap — 13th stock call comes
+    assert CL.quality_v6(dict(st, symbol="STK3"), now)[0] == "Q_DUP"                          # same stock twice is still blocked
     CL.SKIPPED.update(day=day, log=[{"time": "10:05", "symbol": "NIFTY", "source": "Index OI", "code": "Q_SL_TIGHT", "detail": ""}])
     D = CL.index_diag(fs.data, now)
     assert D["NIFTY"]["calls"][0]["source"].startswith("V4") and D["NIFTY"]["rejects"][0]["code"] == "Q_SL_TIGHT" and D["SENSEX"]["calls"] == []

@@ -1040,7 +1040,7 @@ function renderFull(s){
     <h2 class="sec">Stock footprint alerts (Volume ≥3× + OI buildup)</h2>${simpleTbl(fp.stocks,[["Time",r=>esc((r.signal_time||"").slice(11))],["Stock",r=>esc(r.symbol)],["Side",r=>`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>`],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Vol",r=>n2(r.vol_ratio)+"×"],["OI",r=>esc(r.oi_tag)]])}`;
   const nw=s.news||{items:[]}, setupSyms=new Set([...(f.best||[]),...(f.ce||[]),...(f.pe||[]),...pts].map(r=>r.symbol));
   BEST=new Set((f.tracking||{}).best_ids||[]);
-  $("p-nw").innerHTML = radarHTML(s,false)+`<div class="hint">Moneycontrol, Economic Times, Business Standard, Google News — புதியது முதலில் (கடந்த 24 மணி). Tag = headline வார்த்தை மட்டும் (தவறலாம்). Setup உள்ள stock + news tag இருந்தால் green. ${nw.t?"Updated "+esc(hm(nw.t)):""} ${nw.err?"⚠ "+esc(nw.err):""}</div>
+  $("p-nw").innerHTML = (()=>{ try{ return diaryHTML(s,false); }catch(e){ console.error(e); return ""; } })()+radarHTML(s,false)+`<div class="hint">Moneycontrol, Economic Times, Business Standard, Google News — புதியது முதலில் (கடந்த 24 மணி). Tag = headline வார்த்தை மட்டும் (தவறலாம்). Setup உள்ள stock + news tag இருந்தால் green. ${nw.t?"Updated "+esc(hm(nw.t)):""} ${nw.err?"⚠ "+esc(nw.err):""}</div>
     <div class="news">${newsHTML(nw.items, setupSyms)}</div>`;
   const ck=s.result;
   const gm=f.gamma||{index:[],stocks:[],calendar:[]}, gtrig=[...gm.index,...gm.stocks].filter(g=>g.status==="TRIGGERED");
@@ -1059,11 +1059,11 @@ function renderFull(s){
   const bs=((f.tracking||{}).best_setup)||[];
   const bsHTML=bs.length?`<div class="suggest">🏆 <b>இப்போது வரை best setup:</b> ${bs.map((b,i)=>`${i+1}. <b>${esc(b.source)}</b> (avg ₹${n2(b.avg)}/call · win ${b.win_rate??"–"}% · ${b.closed} closed)`).join(" &nbsp; ")}<div class="hint">குறைந்தது 10 closed calls உள்ள setups மட்டும், சராசரி லாபம் வைத்து.</div></div>`:"";
   const ARt=(f.all_rounder||[]).filter(a=>a.count>=3);
-  try{ $("p-pt").innerHTML = SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
+  try{ $("p-pt").innerHTML = SX("hpHTML",()=>hpHTML(s)) + SX("paperHTML",()=>paperHTML(f)); }catch(e){ console.error(e); }
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
   const typing_=document.activeElement&&["brQ","fbQ"].includes(document.activeElement.id);      /* v104.1: never redraw under the user's fingers */
-  if(!typing_) try{ $("aiTop").innerHTML = SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  if(!typing_) try{ $("aiTop").innerHTML = SX("riserHTML",()=>riserHTML(s)) + SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -1286,7 +1286,7 @@ function bigCall(c,s){
   const slLoss=(+c.sl-e)*lot;
   const PK=pinkOf(c);
   return `<article data-cid="${esc(c.id)}" class="ccard ${side} ${J.pw.length?'power':''} ${isNew?'isnew':''} ${FLASH.has(c.id)?'flash':''} ${PK?(PK.tier==="dark"?"pink2":"pink"):""}">
-    ${PK?`<div style="margin-bottom:4px">${pinkTag(PK)}</div>`:""}
+    ${PK?`<div style="margin-bottom:4px">${pinkTag(PK)}</div>`:""}${riseTag(c.id,s)?`<div style="margin-bottom:4px">${riseTag(c.id,s)}</div>`:""}${warnHTML(c.risk_warn)}
     ${aiDecisionHTML(aiDecision(c,s))}
     ${stagesHTML(stageOfCall(c,s))}
     <div class="ctop"><div class="cbuy">${esc(c.symbol)} ${esc(c.strike)} <span class="${side}">${esc(c.side)}</span></div>
@@ -1722,7 +1722,7 @@ function gokiHTML(f){
 }
 /* ===== 📝 PAPER TRADE ===== */
 function capGet(){ try{ return +localStorage.getItem("krt_cap")||100000; }catch(e){ return 100000; } }
-function capSet(v){ try{ localStorage.setItem("krt_cap", String(+v||100000)); }catch(e){} if(LAST_S) $("p-pt").innerHTML=paperHTML(LAST_S.full||{}); }
+function capSet(v){ try{ localStorage.setItem("krt_cap", String(+v||100000)); }catch(e){} if(LAST_S) $("p-pt").innerHTML=hpHTML(LAST_S)+paperHTML(LAST_S.full||{}); }
 async function paperGo(o){
   const lots=prompt(`📝 Paper trade: ${o.symbol} ${n2(o.strike)} ${o.side}\nஎத்தனை lot? (1 lot = ${o.lot})\nEntry = இப்போ LTP · SL ≤ ₹2,500/lot · T1 ₹2K · T2 ₹4K · T3 ₹6K`,"1");
   if(lots===null) return;
@@ -2114,6 +2114,9 @@ function diaryHTML(s,compact){
     return `<div class="drow d${Math.max(0,r.days)}"><div class="ctop"><b>${lab(r.days)} · ${esc(r.symbol)}</b><span class="hint">${esc(r.date)} · ${esc(r.src||"")}</span></div>
      <div class="hint">${r.spot?`LTP ${n2(r.spot)} · `:""}${r.r20!=null?`20 நாள் ${r.r20>=0?"+":""}${r.r20}% · `:""}${r.near_high?"🔝 52w high அருகில் · ":""}${r.oi?`OI ${esc(r.oi)} · `:""}${r.implied?`<b>Options எதிர்பார்க்கும் move ±${r.implied.pct}%</b> (ATM ${n2(r.implied.strike)} straddle ₹${n2(r.implied.straddle)})`:""}${r.reaction!=null?` · <b class="${r.reaction>=0?'up':'dn'}">Result reaction ${r.reaction>=0?"+":""}${r.reaction}%</b>`:""}</div>
      <div class="hint">👉 ${esc(r.plan||"")}</div>
+     ${r.ai?`<div class="cpbox" style="margin:6px 0;font-size:13px"><div><b>🤖 AI pre-results view: <span class="${r.ai.side==="CE"?"up":r.ai.side==="PE"?"dn":""}">${esc(r.ai.lean)}</span></b> <small class="hint">confidence ${esc(r.ai.conf)} · rule-based, nobody knows the numbers</small></div>
+       ${(r.ai.why||[]).map(w=>`<div class="hint">• ${esc(w)}</div>`).join("")}${r.ai.warn?`<div style="color:#f59e0b">${esc(r.ai.warn)}</div>`:""}
+       <div class="hint">🎯 ${esc(r.ai.watch)}</div>${r.ai.side?`<div class="hint">Lean ${r.ai.side} — but only take it if results-day price confirms (the 15-min break above). If price breaks the other way, follow the price, not this view.</div>`:""}</div>`:""}
      ${r.setup?`<div><b class="${r.setup.side==="CE"?"up":r.setup.side==="PE"?"dn":""}">${esc(r.setup.txt)}</b>${sk?` · 🎯 <b>${esc(r.symbol)} ${n2(sk.strike)} ${r.setup.side}</b> (${esc(sk.moneyness||"")}) LTP ₹${n2(sk.ltp)} · SL ₹${n2(sk.prem_sl)} · T ₹${n2(sk.prem_target)}`:""}</div>`:""}</div>`; };
   return `<div class="labbox diary"><h2>📅 Results Diary — முன்கூட்டியே தெரிஞ்சுக்க</h2>
     ${E.nse_err?`<div class="hint">⚠ ${esc(E.nse_err)}</div>`:""}
@@ -2634,7 +2637,7 @@ function brainBox(s){
       <div class="ctop"><b style="font-size:16px">${p.gold?"🪙 GOLD · ":"🧠 "}<span class="${p.side==='CE'?'up':'dn'}">BUY ${esc(p.symbol)} ${n2(p.strike)} ${p.side}</span></b><span class="hint">picked ${esc(ampm(p.time))} · score <b>${p.score}</b>/100</span></div>
       <div class="cprow" style="margin:5px 0;font-size:14px"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>T1/T2/T3 <b class="up">${(p.targets||[]).map(n2).join(" / ")}</b></span></div>
       <div class="cprow"><span class="hint">LTP ₹${n2(p.exit??p.ltp)} · <b>${esc(p.status||"")}</b>${(p.hits||[]).length?" · "+p.hits.map(esc).join(", "):""}</span><b class="${pl>=0?"up":"dn"}">${rs(pl)} / lot</b></div>
-      <div style="margin-top:4px">${(p.conf||[]).map(w=>`<div>✓ ${esc(w)}</div>`).join("")}</div><div class="hint">${esc(p.source||"")} · auto-added to Paper Trade</div></div>`; };
+      <div style="margin-top:4px">${(p.conf||[]).map(w=>`<div>✓ ${esc(w)}</div>`).join("")}</div><div class="hint">${esc(p.source||"")} · auto-added to Paper Trade</div>${paperBtn(p.id,OPEN_ST.includes(p.status))} ${riseTag(p.id,s)}</div>`; };
   const dcol={TAKE:"up",WATCH:"",SKIP:"dn"};
   return `<div class="labbox" style="border:3px solid #22d3ee;font-size:13px"><h2>🧠 KRT BRAIN — which call to take <small class="hint">free · runs on your server · checks every minute · ${esc(B.time||"")}</small></h2>
     <div class="hint">Expert trading rules + your modules' REAL results + ML on your own closed calls. ML: <b class="${M.on?"up":""}">${M.on?"ON":"OFF"}</b> ${M.auc!=null?`(walk-forward AUC ${(+M.auc).toFixed(2)} on ${M.n} calls)`:""} — ${esc(M.on?"it beat the baseline on unseen data":"it did not beat the baseline on unseen data yet, so the Brain uses rules + real module results only")}.</div>
@@ -2696,6 +2699,30 @@ function fableBox(s){
       <div id="fbA">${FB_A?`<div class="cpbox" style="white-space:pre-wrap">${esc(FB_A)}</div>`:""}</div>${(F.chat||[]).map(c=>`<div class="hint" style="margin-top:6px"><b>Q ${esc(c.time)}:</b> ${esc(c.q)}<br><b>Fable:</b> ${esc(c.a)}</div>`).join("")}</details>
     <div class="hint">⚠ Fable is a strong AI, not a guarantee. Paper-trade its picks for 2–3 weeks and trust the results table, not the confidence number.</div></div>`; }
 
+/* v107: 📝 Paper button for any call id · ⚠ warnings · 🚀 rising */
+function paperBtn(id,open){ return open===false?"":`<button class="pickbtn pp" onclick='paperFromCall(${JSON.stringify(String(id)).replace(/'/g,"&#39;")})'>📝 Paper</button>`; }
+function warnHTML(w){ return (w||[]).length?`<div style="color:#f59e0b;font-size:12px">${w.map(esc).join("<br>")}</div>`:""; }
+function riseTag(id,s){ const r=(((s||LAST_S||{}).riser||{}).live||[]).find(x=>x.id===id); return r?`<span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800">🚀 ${r.state==="STRONG"?"STRONG ":""}RISING +${r.chg3m}% / 3 min</span>`:""; }
+let RISE_SEEN=null;
+function riserHTML(s){ const R=s.riser||{}, L=R.live||[], A=(R.alerts||[]).filter(a=>a.time);
+  const k=A.map(a=>a.id+a.ltp).join(","); if(RISE_SEEN!==null&&k!==RISE_SEEN&&A[0]){ try{ speak(`Rising. ${A[0].symbol} ${A[0].strike} ${A[0].side==="CE"?"C E":"P E"} up ${A[0].chg3m} percent in 3 minutes.`); }catch(e){} } RISE_SEEN=k;
+  if(!L.length&&!A.length) return "";
+  return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">checks every 20 s · ${esc(R.time||"")}</small></h2>
+    ${L.length?L.map(r=>`<div class="rrow" style="border-color:#16a34a"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥":"🚀"} ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><span class="hint">${esc(r.source||"")}</span></div>
+      <div>₹${n2(r.ltp)} · <b class="up">+${r.chg3m}% in 3 min</b> · ${r.from_entry>=0?"+":""}${r.from_entry}% from entry ₹${n2(r.entry)}${r.t1?` · T1 ₹${n2(r.t1)} (${r.to_t1>=0?"+":""}${r.to_t1}%)`:""}</div>
+      <div class="hint">👉 In the trade? move SL up. Not in? only on a small pullback — fast moves can reverse.</div>${paperBtn(r.id)}</div>`).join(""):'<div class="hint">Nothing rising right now.</div>'}
+    ${A.length?`<details><summary>Today's rising alerts (${A.length})</summary>${A.map(a=>`<div class="hint">${esc(a.time)} · ${esc(a.symbol)} ${n2(a.strike)} ${a.side} · ₹${n2(a.ltp)} · +${a.chg3m}% / 3 min</div>`).join("")}</details>`:""}</div>`; }
+function hpHTML(s){ const H=s.highprofit||{}, M=H.modules||[], T=H.today||[], St=H.stats||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  return `<div class="labbox" style="border:3px solid #fbbf24;font-size:13px"><h2>💰 High-profit strategies — easy picks <small class="hint">modules that really made money: 10+ calls · win ≥55% · profit factor ≥1.5</small></h2>
+    ${M.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">${M.map(m=>`<span class="cpbox" style="padding:4px 8px"><b>${esc(m.module)}</b> <small class="hint">${m.win}% win · PF ${m.pf} · ${rs(m.exp)}/call · ${m.n} calls</small></span>`).join("")}</div>`:'<div class="hint">No module has proven itself yet.</div>'}
+    <h3 class="sec">Today's calls from these strategies (${T.length}) <small class="hint">${St.n||0} closed · win ${St.win??"–"}% · ${rs(St.net)}</small></h3>
+    ${T.length?simpleTbl(T,[["Time",c=>esc(ampm(c.time))],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b> ${riseTag(c.id,s)}<div class="hint">${esc(c.source_label||c.source||"")} · ${c.m_win}% win · PF ${c.m_pf}</div>${warnHTML(c.risk_warn)}`],
+      ["Entry / SL",c=>`₹${n2(c.entry)} / <span class="dn">₹${n2(c.sl)}</span>`],["T1 / T2 / T3",c=>(c.targets||[]).map((t,j)=>`${n2(t)}${(c.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")],
+      ["LTP",c=>n2(c.exit??c.ltp)],["P/L lot",c=>`<b class="${(c.pnl_lot||0)>=0?'up':'dn'}">${rs(c.pnl_lot)}</b>`],["Status",c=>esc(c.status||"")],["",c=>paperBtn(c.id,OPEN_ST.includes(c.status))]],
+      c=>OPEN_ST.includes(c.status)?"":(c.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">No call from these strategies yet today — when V4 Silver Bullet, Gamma Unwind Classic, Index OI etc. fire, they appear here (push + voice).</div>'}
+    ${(H.near||[]).length?`<div class="hint">Close to qualifying: ${H.near.map(m=>`${esc(m.module)} (${m.win}% · ${m.n} calls)`).join(" · ")}</div>`:""}
+    <div class="hint">⚠ Past results don't guarantee the next trade — paper first.</div></div>`; }
+
 /* 🤖 V101 AI BEST PICKS + 🪙 GOLDEN CALLS (English) */
 let BP_SEEN=null;
 function histTxt(h){ if(!h) return ""; const a=h.all||{}, k=h.strike||{};
@@ -2709,7 +2736,7 @@ function bestPicksBox(s){
       <div class="cprow" style="margin:4px 0"><span>Entry <b>₹${n2(p.entry)}</b></span><span>SL <b class="dn">₹${n2(p.sl)}</b></span><span>T1/T2/T3 <b class="up">${(p.targets||[]).map(n2).join(" / ")}</b></span></div>
       <div class="cprow"><span class="hint">LTP ₹${n2(p.exit??p.ltp)} · ${esc(p.status||"")}${(p.hits||[]).length?" · "+p.hits.map(esc).join(", "):""}</span><b class="${pl>=0?"up":"dn"}">${rs(pl)} / lot</b></div>
       <div class="hint">Why: ${(p.why||[]).map(esc).join(" · ")||"–"} · ${esc(p.source||"")}</div><div class="hint">📊 ${esc(histTxt(p.hist))}</div>
-      ${open&&p.token!==undefined?"":""}</div>`; };
+      ${paperBtn(p.id,open)} ${riseTag(p.id,s)}</div>`; };
   return `<div class="labbox" style="border:2px solid #fbbf24;font-size:13px"><h2>🤖 AI BEST PICKS — what to take now <small class="hint">${esc(B.time||"")} · checks every minute · max ${(B.cfg||{}).max_day||6}/day</small></h2>
     <div class="hint">Every open call is scored with ALL analyses (Sniper score · chart 15 methods · AI Lab · prev day/week/month high-low break · volume · footprint · entry state). Score 75+ = PICK (time shown when picked) · 88+ with chart TAKE + level break = 🪙 GOLDEN. Push + voice when a new one comes.</div>
     ${T.length?`<div class="cards">${T.map(card).join("")}</div>`:'<div class="hint">No pick yet today — nothing has reached 75+ with a clean entry. Calls below are not strong enough right now.</div>'}
@@ -3105,7 +3132,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v106";
+const APPV="v107";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

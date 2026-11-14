@@ -11,7 +11,7 @@ import math
 
 import pandas as pd
 
-AI = {"min_p": 0.66, "min_samples": 30, "max_day": 5, "cold_score": 85, "pink_score": 70, "pink_min_p": 0.50}
+AI = {"min_p": 0.66, "min_samples": 30, "max_day": 10 ** 6, "cold_score": 85, "pink_score": 70, "pink_min_p": 0.50}
 STATE = {"model": None, "risk": None, "nifty_hist": []}
 IDX = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
 
@@ -213,7 +213,8 @@ def optimize(calls, min_n=8):
         kn = [net_of(c) for c in keep[-60:]]                 # சமீபத்திய 60 — recover ஆனா தானா resume
         mods[m]["after_filters"] = {"n": len(keep), "exp": round(sum(kn) / len(kn)) if kn else None,
                                     "win": round(sum(1 for x in kn if x > 0) / len(kn) * 100) if kn else None}
-        mods[m]["paused"] = len(L) >= 15 and (len(kn) < 8 or sum(kn) / len(kn) < 0)      # V8: 15 calls-லேயே pause
+        mods[m]["losing"] = len(L) >= 15 and (len(kn) < 8 or sum(kn) / len(kn) < 0)      # V8 rule kept as a LABEL only
+        mods[m]["paused"] = False                                                            # v107: nothing auto-paused (user choice)
         mods[m]["retired"] = RETIRED.get(m)
         mods[m]["upgrade"] = UPGRADES.get(m)
         mods[m]["pink"] = pink_tier(mods[m], PREC.get(m))

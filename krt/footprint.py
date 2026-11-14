@@ -13,7 +13,7 @@ import math
 import pandas as pd
 
 CFG = {"tfs": [1, 3], "rvol": 1.5, "rvol_b": 1.2, "stack": 3, "ratio": 3.0, "delta_lo": 0.45, "delta_hi": 0.65, "spread_pct": 1.0, "spread_ticks": 2,
-       "rr": 2.0, "max_risk": 2500, "start": "09:20", "end": "14:45", "max_day": 5, "n_stocks": 6, "min_lvl_vol": 1}
+       "rr": 2.0, "max_risk": 2500, "start": "09:20", "end": "14:45", "max_day": 10 ** 6, "n_stocks": 6, "min_lvl_vol": 1}
 STATE = {"time": None, "universe": [], "bars": {}, "signals": [], "log": [], "err": None, "tune": None}
 FP = {}                     # symbol → {"last": {...}, "tick", "step", "bars": {tf: {start: bar}}, "meta": {...}}
 

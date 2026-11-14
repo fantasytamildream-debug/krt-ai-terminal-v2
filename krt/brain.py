@@ -17,7 +17,7 @@ import math
 import numpy as np
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT")
-CFG = {"pick": 72, "gold": 85, "max_day": 3, "min_conf": 2, "late_pct": 5}
+CFG = {"pick": 72, "gold": 85, "max_day": 10 ** 6, "min_conf": 2, "late_pct": 5}
 STATE = {"time": None, "rows": [], "model": None}
 
 

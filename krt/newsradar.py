@@ -51,7 +51,7 @@ MARKET = [
     (r"war\b|wars\b|missiles?\b|attacks?\b|tariff (hike|threat)|sanctions\b|sanctioned", -2), (r"ceasefire|trade deal|peace (deal|talks)", 2),
 ]
 BANK = r"rbi|repo|bank|banking|nbfc|credit growth|npa|psu bank|hdfc bank|icici bank|sbi\b|kotak|axis bank"
-CFG = {"min_score": 3, "hours": 20, "max_day": 4, "start": "09:30", "end": "14:30", "vol_x": 1.5, "max_focus": 12, "q_every": 600}
+CFG = {"min_score": 3, "hours": 20, "max_day": 10 ** 6, "start": "09:30", "end": "14:30", "vol_x": 1.5, "max_focus": 12, "q_every": 600}
 STATE = {"time": None, "focus": [], "err": None, "calls": [], "alerts": [], "log": []}
 CACHE = {"q_t": 0, "q_items": []}
 LK = threading.Lock()

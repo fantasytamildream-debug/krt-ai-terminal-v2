@@ -125,6 +125,61 @@ def add_manual(store, sym, date):
     return d
 
 
+def outlook(row, cl, past):
+    """🤖 Pre-results analysis (rule-based, honest — no one can know the numbers): trend into results · near 52w high ·
+    OI build-up · options-implied move vs the stock's normal daily move · how this stock reacted to its past results
+    → LEAN UP / LEAN DOWN / NEUTRAL + what to watch on results day (CE above the first 15-min high, PE below the low)."""
+    sc, why = 0, []
+    r20 = row.get("r20")
+    r5 = round((cl[-1] / cl[-6] - 1) * 100, 2) if len(cl) > 6 else None
+    if r20 is not None:
+        if r20 >= 5:
+            sc += 1
+            why.append(f"strong run-up into results (+{r20}% in 20 days)")
+        elif r20 <= -5:
+            sc -= 1
+            why.append(f"weak into results ({r20}% in 20 days)")
+    if r5 is not None and abs(r5) >= 2:
+        sc += 1 if r5 > 0 else -1
+        why.append(f"last 5 days {r5:+}%")
+    if row.get("near_high"):
+        sc += 1
+        why.append("near 52-week high — buyers in control")
+    oi = str(row.get("oi") or "")
+    if oi in ("Long Built Up", "Short Covering"):
+        sc += 1
+        why.append(f"futures OI: {oi}")
+    elif oi in ("Short Built Up", "Long Unwinding"):
+        sc -= 1
+        why.append(f"futures OI: {oi}")
+    rets = [abs(cl[i] / cl[i - 1] - 1) * 100 for i in range(max(1, len(cl) - 20), len(cl))] if len(cl) > 2 else []
+    norm = round(sum(rets) / len(rets), 2) if rets else None
+    im = (row.get("implied") or {}).get("pct")
+    big = None
+    if im and norm:
+        big = round(im / norm, 1)
+        why.append(f"options expect ±{im}% (≈{big}× a normal day ±{norm}%)" + (" — a big move is priced in" if big >= 3 else ""))
+    reacts = [p["reaction"] for p in past if p.get("reaction") is not None][-6:]
+    if reacts:
+        up = sum(1 for x in reacts if x > 0)
+        avg = round(sum(abs(x) for x in reacts) / len(reacts), 2)
+        why.append(f"past results: {up}/{len(reacts)} up days · average move ±{avg}%")
+        if len(reacts) >= 3:
+            sc += 1 if up / len(reacts) >= 0.67 else -1 if up / len(reacts) <= 0.33 else 0
+    warn = None
+    if r20 is not None and im and r20 >= 2 * im:
+        warn = "⚠ already ran more than 2× the expected move — 'buy the rumour, sell the news' risk (a good result can still fall)"
+    elif r20 is not None and im and r20 <= -2 * im:
+        warn = "⚠ already fell more than 2× the expected move — a decent result can bounce sharply (short covering)"
+    lean = "LEAN UP" if sc >= 2 else "LEAN DOWN" if sc <= -2 else "NEUTRAL"
+    side = "CE" if lean == "LEAN UP" else "PE" if lean == "LEAN DOWN" else None
+    watch = ("Results day: wait 9:15–9:30. 5-min close ABOVE the first 15-min high with volume ≥1.5× → CE (ATM / 1 ITM). "
+             "Close BELOW the 15-min low with volume → PE. Target ≈ the options-implied move"
+             + (f" (±{im}%)" if im else "") + ". Do not buy options the day BEFORE results — IV crush can cut premium 20–40% even if you are right.")
+    return {"lean": lean, "side": side, "score": sc, "why": why, "warn": warn, "watch": watch, "normal": norm, "ratio": big,
+            "past": reacts, "conf": "low" if abs(sc) <= 1 else "medium" if abs(sc) <= 3 else "higher"}
+
+
 def diary(store, ag, inst, now, full=None, live=True):
     """Results diary rows — 7 நாள் வரை upcoming + 3 நாள் முன் முடிந்தவை (reaction-உடன்)."""
     from . import fullscan as FS
@@ -184,6 +239,14 @@ def diary(store, ag, inst, now, full=None, live=True):
             if len(cl) >= 2:
                 row["reaction"] = round((cl[-1] / cl[-2] - 1) * 100, 2)
             row["plan"] = "Results முடிஞ்சது."
+        RH = store.load().setdefault("results_hist", {})
+        if row.get("reaction") is not None and days < 0:              # remember every reaction → next quarter's analysis uses it
+            L = RH.setdefault(s, [])
+            if not any(p["date"] == x["date"] for p in L):
+                L.append({"date": x["date"], "reaction": row["reaction"], "r20": r20})
+                store.dirty = True
+        if days >= 0:
+            row["ai"] = outlook(row, cl, [p for p in RH.get(s, []) if p["date"] != x["date"]])
         out.append(row)
     STATE["results"] = out
     return out

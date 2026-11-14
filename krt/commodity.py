@@ -25,7 +25,7 @@ CFG = {"watch": ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC"],
        "trade_mini": {"CRUDEOIL": "CRUDEOILM", "NATURALGAS": "NATGASMINI", "GOLD": "GOLDM", "SILVER": "SILVERM"},
        "open": "09:00", "last_entry": "23:00", "eod": "23:20", "close": "23:55",
        "silver_windows": [["10:00", "11:00"], ["14:30", "15:30"], ["19:00", "21:00"]],
-       "min_score": 70, "lite_score": 60, "max_day": 10, "risk_cap": 6000, "max_spread": 6.0}
+       "min_score": 70, "lite_score": 60, "max_day": 10 ** 6, "risk_cap": 6000, "max_spread": 10.0}
 STATE = {"time": None, "rows": [], "err": None, "beat": None, "jackpot": None, "ai": None}
 CACHE = {}
 FR = {}          # name → (time, frames)
@@ -242,8 +242,8 @@ def _scan_one(ag, inst, name, now, S):
                         b["why_not"].append(f"Score {b['score']} < {CFG['lite_score'] if b['lite'] else CFG['min_score']}")
                     if o["spread_pct"] > CFG["max_spread"]:
                         b["why_not"].append(f"Spread {o['spread_pct']}%")
-                    if b["plan"]["risk_rs"] > CFG["risk_cap"]:
-                        b["why_not"].append(f"Risk ₹{b['plan']['risk_rs']:,}/lot > ₹{CFG['risk_cap']:,} — mini contract பாருங்க")
+                    if b["plan"]["risk_rs"] > CFG["risk_cap"]:                   # v107: warning only — big MCX lots blocked every call
+                        b["risk_warn"] = f"⚠ risk ₹{b['plan']['risk_rs']:,}/lot (> ₹{CFG['risk_cap']:,}) — use the mini contract or smaller size"
                     b["ok"] = not b["why_not"]
             row["best"] = b
         return row
@@ -307,6 +307,9 @@ def to_calls(rows, now):
             c = _new("MCX", f"🛢 {b['name']}", rr, opt, now, day)
             if not c or c["id"] in d["calls"]:
                 continue
+            c["shadow"] = False                                           # v107: never hidden
+            if b.get("risk_warn"):
+                c.setdefault("risk_warn", []).append(b["risk_warn"])
             c.update(grade="A" if (b["score"] >= 85 and b.get("stage") == "CONFIRMED") else "B", qcodes=[], qtext=[], mcx={"commodity": o.get("commodity"), "fut_px": r["px"]},
                      source_label=f"🛢 Commodity · {b['name']}")
             d["calls"][c["id"]] = c

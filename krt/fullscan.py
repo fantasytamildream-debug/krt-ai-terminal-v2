@@ -1139,10 +1139,10 @@ def run_power(ag, res):
     return res
 
 
-MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 25, "min_score": 85, "max_spread": 5}   # V6: 🟢 green மட்டும் call
+MOVERS = {"min_pct": 2.0, "min_vr": 1.5, "max_calls": 10 ** 6, "min_score": 85, "max_spread": 5}   # V6: 🟢 green மட்டும் call
 
 
-def run_v2_rows(rows, kind, src, now, live, res, max_day=4, need=None):
+def run_v2_rows(rows, kind, src, now, live, res, max_day=10 ** 6, need=None):
     """⚡ 5-min ORB / Volume+OI V2 — quality-gate block இல்லாம நேரடி call: volume ≥1.5× · late இல்லை · NIFTY பெரிய எதிர் இல்லை ·
     option + ₹ plan (SL ≤ ₹2,500) · ★ rating · 9:20–2:30 · module-க்கு நாளைக்கு max 4."""
     from .calls import rupee_plan, add_simple
@@ -1240,7 +1240,7 @@ def run_breakouts(ag, inst, res, universe, now, live):
 SWING_ON = False
 
 STRONG = {"start": 9 * 60 + 30, "end": 14 * 60 + 30, "max_dist": 1.2, "vol_x": 2.0, "day_vr": 1.5, "fresh_bars": 3,
-          "max_check": 12, "max_day": 6, "retest_pct": 0.25}
+          "max_check": 12, "max_day": 10 ** 6, "retest_pct": 0.25}
 
 
 def run_strong(ag, inst, live_q, res, now, live):
@@ -2035,7 +2035,7 @@ def ar_pro(a, res):
 
 
 MACHINE = {"t1_rs": 2000, "t2_rs": 4000, "t3_rs": 6000, "max_risk": 2500, "max_move_pct": 30, "day_target": 10000,
-           "day_stop": -4500, "max_calls": 5, "min_score": 58, "show_score": 40}
+           "day_stop": -10 ** 9, "max_calls": 10 ** 6, "min_score": 58, "show_score": 40}
 
 
 def _r05(x):

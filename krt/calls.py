@@ -122,7 +122,7 @@ QCODE_TXT = {"Q_REMOVED": "Module நீக்கப்பட்டது", "Q_M
 
 def _qcfg():
     q = load_settings().get("quality") or {}
-    return {"enabled": q.get("enabled", True), "min_rvol": q.get("min_rvol", 2.0), "max_calls": q.get("max_calls_per_day", 3),
+    return {"enabled": q.get("enabled", True), "min_rvol": q.get("min_rvol", 2.0), "max_calls": 10 ** 6,          # v107: no daily cap
             "max_spread": q.get("max_spread_pct", 2.0), "pullback": q.get("pullback_entry", True)}
 
 
@@ -275,8 +275,8 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
 
 
 # 🛡 QUALITY MODE V6 — எல்லா modules-க்கும் ஒரே gate (✋ My pick தவிர). நோக்கம்: குறைவான, சுத்தமான calls → win rate உயர்வு.
-QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, "max_day": 12, "day_stop": -7500,
-       "sl_streak": 3, "counter_pct": 0.4, "widen_max_risk": 4000, "idx_max": 8}
+QV6 = {"on": True, "start": 9 * 60 + 45, "end": 14 * 60 + 30, "min_sl_pct": 15, "max_day": 10 ** 6, "day_stop": -7500,
+       "sl_streak": 3, "counter_pct": 0.4, "widen_max_risk": 4000, "idx_max": 10 ** 6, "no_limits": True}   # v107: no daily caps, no auto-pause (user choice)
 IDX_SYMS = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
 
 
@@ -322,7 +322,7 @@ def quality_v6(c, now):
         lot = float(c.get("lot") or 1)
         new_sl = round(e * (1 - need / 100), 2)
         new_risk = (e - new_sl) * lot
-        if new_risk > QV6["widen_max_risk"]:
+        if new_risk > QV6["widen_max_risk"] and not QV6.get("no_limits"):
             return ("Q_SL_TIGHT", f"SL {(e - sl) / e * 100:.0f}% மட்டும் · {need}%-க்கு widen பண்ணா risk ₹{new_risk:,.0f} (> ₹{QV6['widen_max_risk']:,})")
         k = (e - new_sl) / (e - sl) if e > sl else 1
         old_pct = (e - sl) / e * 100
@@ -335,12 +335,16 @@ def quality_v6(c, now):
             from .ai import blocked as _blk
             b_ = _blk(c)
             if b_:
-                return b_
+                if not QV6.get("no_limits"):
+                    return b_
+                c.setdefault("risk_warn", []).append("⚠ " + b_[1])        # v107: paused / learned filter → warning, call still comes
         except Exception:
             pass
     np_ = MARKET.get("nifty_pct") or 0
     if (c["side"] == "CE" and np_ <= -QV6["counter_pct"]) or (c["side"] == "PE" and np_ >= QV6["counter_pct"]):
-        if c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+        if c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX") and QV6.get("no_limits"):
+            c.setdefault("risk_warn", []).append(f"⚠ against market — NIFTY {np_:+.2f}%")
+        elif c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
             return ("Q_COUNTER", f"NIFTY {np_:+.2f}% — எதிர் side stock call இல்லை")
     try:
         d = STORE.load()
@@ -362,13 +366,21 @@ def quality_v6(c, now):
                 (x["kind"] == c["kind"] if c["kind"] in OWN_POOL else x["kind"] not in OWN_POOL))]
         if any(x["symbol"] == c["symbol"] for x in mine):
             return ("Q_DUP", f"{c['symbol']} இன்று ஏற்கனவே call இருக்கு — ஒரு stock-க்கு ஒரு நாள் ஒரு call")
-        if len(mine) >= (8 if pv else QV6["max_day"]):
-            return ("Q_DAY_MAX", f"இன்றைய max {8 if pv else QV6['max_day']} calls முடிந்தது")
+        if len(mine) >= QV6["max_day"]:
+            return ("Q_DAY_MAX", f"இன்றைய max {QV6['max_day']} calls முடிந்தது")
     closed = sorted([x for x in mine if x["status"] not in OPEN], key=lambda x: str(x.get("exit_time") or ""))
-    if sum(x.get("pnl_lot") or 0 for x in closed) <= QV6["day_stop"]:
-        return ("Q_DAY_STOP", f"இன்றைய நஷ்டம் ₹{-QV6['day_stop']:,} தாண்டியது — இன்று போதும்")
+    net_ = sum(x.get("pnl_lot") or 0 for x in closed)
     last = closed[-QV6["sl_streak"]:]
-    if len(last) == QV6["sl_streak"] and all((x.get("pnl_lot") or 0) < 0 for x in last):
+    streak_ = len(last) == QV6["sl_streak"] and all((x.get("pnl_lot") or 0) < 0 for x in last)
+    if QV6.get("no_limits"):                     # v107: loss stops → warning on the call (call still comes)
+        if net_ <= QV6["day_stop"]:
+            c.setdefault("risk_warn", []).append(f"⚠ today's loss ₹{net_:,.0f} crossed ₹{-QV6['day_stop']:,} — take a smaller size")
+        if streak_:
+            c.setdefault("risk_warn", []).append(f"⚠ last {QV6['sl_streak']} calls hit SL — market may be against this side")
+        return None
+    if net_ <= QV6["day_stop"]:
+        return ("Q_DAY_STOP", f"இன்றைய நஷ்டம் ₹{-QV6['day_stop']:,} தாண்டியது — இன்று போதும்")
+    if streak_:
         return ("Q_SL_STREAK", f"தொடர்ந்து {QV6['sl_streak']} SL — market எதிரா இருக்கு, pause")
     return None
 
@@ -478,13 +490,13 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         if not c.get("hold_until"):
             day_net = sum(x.get("pnl_lot") or 0 for x in calls.values() if x["date"] == c["date"] and not x.get("shadow")
                           and x.get("grade", "A") == "A" and x["status"] not in OPEN)   # Grade A closed calls மட்டும்
-            if day_net <= -abs(risk_cfg.get("daily_loss_limit", 5000)):
-                c.setdefault("force_codes", []).append("DAILY_LOSS_STOP")
+            if day_net <= -abs(risk_cfg.get("daily_loss_limit", 5000)):       # v107: warning only — the call still comes
+                c.setdefault("risk_warn", []).append(f"⚠ today's loss ₹{day_net:,.0f} crossed the daily loss limit — take a smaller size")
             if risk_cfg.get("breakeven_after_t1", True):
                 c.setdefault("trail_after_t1", True)     # T1 பிறகு SL → entry (break-even)
         codes = (c.get("force_codes") or []) + quality_gate(c, calls, now)   # V3.2: block இல்லை — grade மட்டும்
-        hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
-                 "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP"}
+        hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", 
+                 "RISK_CAP", "T1_UNREALISTIC"}
         hard_ = hard_ | {"SL_TIGHT", "RVOL_LT_15"}
         c["grade"] = "A" if not codes else ("C" if any(x in hard_ for x in codes) else "B")
         qs_ = load_settings().get("quality") or {}
@@ -528,7 +540,7 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         for x in calls.values():
             if x.get("shadow") and x.get("variant") != "IMMEDIATE":
                 codes_ = x.get("qcodes") or []
-                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX"}
+                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY"}
                 x.update(shadow=False, variant=None, grade=("A" if not codes_ else "C" if any(k in hard_ for k in codes_) else "B"),
                          qtext=[QCODE_TXT.get(k, k) for k in codes_])
                 changed = True
@@ -1038,8 +1050,8 @@ def add_all_rounder(rows, now):
             c = _new("ALL ROUNDER", "All rounder", r, o, now, day)
             if c and c["id"] not in d["calls"]:
                 codes = (c.get("force_codes") or []) + quality_gate(c, d["calls"], now)
-                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", "SL_STREAK", "DAILY_MAX",
-                         "RISK_CAP", "T1_UNREALISTIC", "DAILY_LOSS_STOP", "SL_TIGHT", "RVOL_LT_15"}
+                hard_ = {"TIME_OPEN_NOISE", "AFTER_2PM", "COUNTER_TREND", "RANGE_DAY", 
+                         "RISK_CAP", "T1_UNREALISTIC", "SL_TIGHT", "RVOL_LT_15"}
                 c.update(grade="A" if not codes else ("C" if any(x in hard_ for x in codes) else "B"), qcodes=codes,
                          qtext=[QCODE_TXT.get(x, x) for x in codes])
                 if c["grade"] == "C":
@@ -1249,7 +1261,7 @@ def add_breakouts(rows, now):
     return n
 
 
-def add_simple(kind, src, rows, now, max_day=4):
+def add_simple(kind, src, rows, now, max_day=10 ** 6):
     """V2 modules (5-min ORB / Volume+OI) → நேரடி call. நாளைக்கு max · symbol+side-க்கு ஒன்று."""
     n = 0
     day = str(now.date())
@@ -1279,7 +1291,7 @@ def add_simple(kind, src, rows, now, max_day=4):
     return n
 
 
-def add_aipick(rows, now, max_day=5):
+def add_aipick(rows, now, max_day=10 ** 6):
     """🤖 AI Pick → call (feat + p_win save). நாளைக்கு max 5 · symbol-க்கு ஒன்று."""
     n = 0
     day = str(now.date())
@@ -1317,7 +1329,7 @@ def add_gu_classic(c0, ev, now, K, lite=False):
     with CALLS_LOCK:
         d = STORE.load()
         mine = [x for x in d["calls"].values() if x["date"] == day and x["kind"] == "GU-CLASSIC"]
-        if len(mine) >= K["max_day"] or any(x["symbol"] == c0["symbol"] for x in mine):
+        if any(x["symbol"] == c0["symbol"] for x in mine):        # v107: no daily cap
             return 0
         if lite and sum(1 for x in mine if (x.get("gu") or {}).get("lite")) >= K.get("lite_max", 3):
             return 0

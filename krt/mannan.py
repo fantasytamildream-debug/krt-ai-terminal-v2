@@ -21,9 +21,9 @@ import pandas as pd
 from . import v4 as V
 
 SEG = {
-    "CMD": {"kind": "MANNAN-CMD", "src": "👑 Mannan Commodity", "label": "🛢 Mannan Commodity", "max_day": 4, "min_score": 75, "min_agree": 2},
-    "IDX": {"kind": "MANNAN-IDX", "src": "👑 Mannan Index", "label": "📊 Mannan Index", "max_day": 3, "min_score": 75, "min_agree": 2},
-    "STK": {"kind": "MANNAN-STK", "src": "👑 Mannan Stock Options", "label": "📈 Mannan Stock Options", "max_day": 4, "min_score": 75, "min_agree": 2},
+    "CMD": {"kind": "MANNAN-CMD", "src": "👑 Mannan Commodity", "label": "🛢 Mannan Commodity", "max_day": 10 ** 6, "min_score": 75, "min_agree": 2},
+    "IDX": {"kind": "MANNAN-IDX", "src": "👑 Mannan Index", "label": "📊 Mannan Index", "max_day": 10 ** 6, "min_score": 75, "min_agree": 2},
+    "STK": {"kind": "MANNAN-STK", "src": "👑 Mannan Stock Options", "label": "📈 Mannan Stock Options", "max_day": 10 ** 6, "min_score": 75, "min_agree": 2},
 }
 KINDS = tuple(v["kind"] for v in SEG.values())
 CFG = {"meta_min_p": 0.50, "meta_min_n": 10, "bt_days": 3, "tp_r": 1.5, "bar_limit": 12, "nse_start": "09:45", "nse_end": "14:30",

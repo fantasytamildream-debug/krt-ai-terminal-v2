@@ -10,7 +10,7 @@ GOLDEN = score >= 88 + chart TAKE + >= 1 level broken + (AI Lab TAKE or proven m
 Honest: weights are rules, not a guarantee — the results table below shows the real win %.
 """
 OPEN = ("OPEN", "T1 HIT", "T2 HIT")
-CFG = {"pick": 75, "golden": 88, "max_day": 6}
+CFG = {"pick": 75, "golden": 88, "max_day": 10 ** 6}
 STATE = {"time": None, "rows": [], "new": []}
 
 

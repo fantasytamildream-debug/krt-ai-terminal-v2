@@ -7,7 +7,7 @@ CE (bullish): கடைசி 8 bars-ல் sell-side liquidity sweep (EQL sweep
 """
 import pandas as pd
 
-CFG = {"sweep_bars": 8, "vol_x": 1.5, "min_conf": 60, "max_day": 4, "start": "09:30", "end": "14:30", "n_stocks": 10}
+CFG = {"sweep_bars": 8, "vol_x": 1.5, "min_conf": 60, "max_day": 10 ** 6, "start": "09:30", "end": "14:30", "n_stocks": 10}
 STATE = {"time": None, "rows": [], "log": [], "err": None}
 
 

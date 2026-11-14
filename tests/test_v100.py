@@ -17,7 +17,8 @@ def test_sl_widen_instead_of_reject(monkeypatch):
     assert c["sl"] == 29.75 and c["targets"][0] == 40.25 and "10% → 15%" in c["sl_widened"]   # R-multiple அதே (1R → 1R)
     assert c["risk"] == round((35 - 29.75) * 700) and c["risk_ok"] is False         # ₹3,675 > 2,500 → warning
     big = {**c, "sl": 31.5, "targets": [38.5], "lot": 2000, "symbol": "X"}
-    assert CL.quality_v6(big, now)[0] == "Q_SL_TIGHT"                              # widen-க்கு risk ₹10,500 → reject
+    assert CL.quality_v6(big, now) is None and big["sl"] == 29.75                  # v107: widened anyway, big risk shown as a warning
+    assert big["risk_ok"] is False
 
 
 def test_footprint_grade_b():

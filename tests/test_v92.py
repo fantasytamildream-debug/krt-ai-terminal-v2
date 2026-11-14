@@ -87,7 +87,7 @@ def test_dsk_not_blocked_by_other_modules_loss(monkeypatch):
     assert not nt and net == 0                                                                    # DSK block ஆகாது
     calls += [{"id": f"d{i}", "date": day, "kind": "DSK", "status": "SL HIT", "pnl_lot": -2600} for i in range(2)]
     nt, net, _ = DS.notrade(calls, pd.Timestamp(f"{day} 12:30"), {}, "SIDEWAYS")
-    assert nt and net == -5200
+    assert not nt and net == -5200                                                            # v107: no loss stop — net still reported
 
 
 def test_chain_flow_buyers_sellers(monkeypatch):

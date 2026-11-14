@@ -71,14 +71,14 @@ def test_run_makes_dsk_call_and_notrade(monkeypatch):
     oi = {"oi_buildup": {"Long Built Up": [{"symbol": f"STK{i}"} for i in range(5)]}, "index": []}
     st = DS.run(hist + live, oi, now, {"dir": "UP"}, {"regime": "TRENDING", "use": ["Trend / Momentum"]})
     dsk = [c for c in fs.data["calls"].values() if c["kind"] == "DSK"]
-    assert len(dsk) == 3 and not st["notrade"]                                            # max 3/day
+    assert len(dsk) == 5 and not st["notrade"]                                            # v107: no daily cap
     assert all(c["entry"] == 10.2 and c["dsk"]["from"].startswith("L") for c in dsk)
     assert st["picks"] and st["picks"][0]["score"] >= 75 and any(p[0] == "🏦 Institutional" for p in st["picks"][0]["parts"])
     # no-trade: இன்று 2 DSK SL
     for c in dsk[:2]:
         c.update(status="SL HIT", pnl_lot=-2500, exit_time=f"{day} 11:30")
     st = DS.run(hist + list(fs.data["calls"].values()), oi, now + pd.Timedelta(minutes=40), {"dir": "UP"}, {"regime": "TRENDING", "use": ["Trend / Momentum"]})
-    assert any("SL" in x for x in st["notrade"]) and st["risk"]["lots"] == 0
+    assert not any("SL" in x for x in st["notrade"])                                      # v107: 2 SL no longer stops DSK (user choice)
 
 
 def test_against_market_lowers_score(monkeypatch):
