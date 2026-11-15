@@ -479,6 +479,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
     <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="jv">🤖 JARVIS</button>
     <button role="tab" data-p="cr">📈 Chart Room</button>
+    <button role="tab" data-p="dh">🏹 Dhasvanth <span id="dhCount"></span></button>
     <button role="tab" data-p="mm">👑 Money Machine</button>
     <button role="tab" data-p="gm">💥 Gamma Blast</button>
     <button role="tab" data-p="pt">📝 Paper Trade</button>
@@ -512,6 +513,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-cx" hidden></section>
   <section class="pane" id="p-jv" hidden></section>
   <section class="pane" id="p-cr" hidden></section>
+  <section class="pane" id="p-dh" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
   <section class="pane" id="p-mn" hidden></section>
   <section class="pane" id="p-lab" hidden></section>
@@ -2110,21 +2112,29 @@ function cotdHTML(s,compact){
 async function resultsAdd(){ const sy=($("rdSym")||{}).value||"", dt=($("rdDate")||{}).value||""; const j=await post("/api/results/add",{symbol:sy,date:dt}); alert(j.msg||""); load(); }
 function strikeFor(E,date,sym,side){ const k=((E.strikes||{})[`${date}|${sym}|${side}`]); return k&&k.strike?k:null; }
 function diaryHTML(s,compact){
-  const E=s.events||{}, R=(E.results||[]).filter(r=>!compact||r.days>=-1&&r.days<=3), today=String(s.now||"").slice(0,10);
-  const lab=d=>d===0?"🔴 TODAY":d===1?"🟠 TOMORROW":d>1?`in ${d} days`:d===-1?"நேற்று":`${-d} நாள் முன்`;
-  const row=r=>{ const sk=r.setup&&r.setup.side?strikeFor(E,today,r.symbol,r.setup.side):null;
-    return `<div class="drow d${Math.max(0,r.days)}"><div class="ctop"><b>${lab(r.days)} · ${esc(r.symbol)}</b><span class="hint">${esc(r.date)} · ${esc(r.src||"")}</span></div>
-     <div class="hint">${r.spot?`LTP ${n2(r.spot)} · `:""}${r.r20!=null?`20 நாள் ${r.r20>=0?"+":""}${r.r20}% · `:""}${r.near_high?"🔝 52w high அருகில் · ":""}${r.oi?`OI ${esc(r.oi)} · `:""}${r.implied?`<b>Options எதிர்பார்க்கும் move ±${r.implied.pct}%</b> (ATM ${n2(r.implied.strike)} straddle ₹${n2(r.implied.straddle)})`:""}${r.reaction!=null?` · <b class="${r.reaction>=0?'up':'dn'}">Result reaction ${r.reaction>=0?"+":""}${r.reaction}%</b>`:""}</div>
+  const E=s.events||{}, all=(E.results||[]), R=all.filter(r=>!compact||r.days>=-1&&r.days<=3), today=String(s.now||"").slice(0,10);
+  const lab=d=>d===0?"🔴 TODAY":d===1?"🟠 TOMORROW":d>1?`in ${d} days`:d===-1?"Yesterday":`${-d} days ago`;
+  const row=r=>{ const sk=r.setup&&r.setup.side?strikeFor(E,today,r.symbol,r.setup.side):null, ai=r.ai;
+    return `<div class="drow d${Math.max(0,r.days)}" style="font-size:12.5px"><div class="ctop"><b>${lab(r.days)} · ${esc(r.symbol)}</b>${ai&&ai.side?` <b class="${ai.side==="CE"?"up":"dn"}" style="border:1px solid currentColor;border-radius:6px;padding:0 6px;font-size:11px">${ai.side} view</b>`:""}<span class="hint">${esc(sDate?sDate(r.date,""):r.date)} · ${esc(r.src||"")}</span></div>
+     <div class="hint">${r.spot?`LTP ${n2(r.spot)} · `:""}${r.r20!=null?`20 days ${r.r20>=0?"+":""}${r.r20}% · `:""}${r.near_high?"🔝 near 52w high · ":""}${r.oi?`OI ${esc(r.oi)} · `:""}${r.sector&&r.sector.name?`sector ${esc(r.sector.name)}${r.sector.score!=null?" ("+r.sector.score+")":""} · `:""}${r.implied?`<b>Options expect ±${r.implied.pct}%</b> (ATM ${n2(r.implied.strike)} straddle ₹${n2(r.implied.straddle)})`:""}${r.reaction!=null?` · <b class="${r.reaction>=0?'up':'dn'}">Result reaction ${r.reaction>=0?"+":""}${r.reaction}%</b>`:""}${r.drift!=null?` · 3-day drift ${r.drift>=0?"+":""}${r.drift}%`:""}</div>
      <div class="hint">👉 ${esc(r.plan||"")}</div>
-     ${r.ai?`<div class="cpbox" style="margin:6px 0;font-size:13px"><div><b>🤖 AI pre-results view: <span class="${r.ai.side==="CE"?"up":r.ai.side==="PE"?"dn":""}">${esc(r.ai.lean)}</span></b> <small class="hint">confidence ${esc(r.ai.conf)} · rule-based, nobody knows the numbers</small></div>
-       ${(r.ai.why||[]).map(w=>`<div class="hint">• ${esc(w)}</div>`).join("")}${r.ai.warn?`<div style="color:#f59e0b">${esc(r.ai.warn)}</div>`:""}
-       <div class="hint">🎯 ${esc(r.ai.watch)}</div>${r.ai.side?`<div class="hint">Lean ${r.ai.side} — but only take it if results-day price confirms (the 15-min break above). If price breaks the other way, follow the price, not this view.</div>`:""}</div>`:""}
+     ${ai?`<div class="cpbox" style="margin:6px 0;font-size:12px"><div><b>🤖 AI: <span class="${ai.side==="CE"?"up":ai.side==="PE"?"dn":""}">${esc(ai.expect||ai.lean)}</span></b> <small class="hint">${esc(ai.lean)} · confidence ${esc(ai.conf)} · rule-based — nobody knows the numbers before they come</small></div>
+       ${(ai.why||[]).map(w=>`<div class="hint">• ${esc(w)}</div>`).join("")}${ai.warn?`<div style="color:#f59e0b">${esc(ai.warn)}</div>`:""}
+       ${ai.advance?`<div style="margin-top:3px"><b class="${ai.side==="CE"?"up":ai.side==="PE"?"dn":""}">🎯 ${esc(ai.advance)}</b></div>`:""}
+       <div class="hint">⏱ ${esc(ai.watch)}</div></div>`:""}
      ${r.setup?`<div><b class="${r.setup.side==="CE"?"up":r.setup.side==="PE"?"dn":""}">${esc(r.setup.txt)}</b>${sk?` · 🎯 <b>${esc(r.symbol)} ${n2(sk.strike)} ${r.setup.side}</b> (${esc(sk.moneyness||"")}) LTP ₹${n2(sk.ltp)} · SL ₹${n2(sk.prem_sl)} · T ₹${n2(sk.prem_target)}`:""}</div>`:""}</div>`; };
-  return `<div class="labbox diary"><h2>📅 Results Diary — முன்கூட்டியே தெரிஞ்சுக்க</h2>
+  const grp=(t,xs,open)=>xs.length?`<details ${open?"open":""} style="margin:6px 0"><summary><b>${t}</b> <small class="hint">(${xs.length})</small></summary>${xs.map(row).join("")}</details>`:"";
+  const T0=R.filter(r=>r.days===0), Y=R.filter(r=>r.days===-1), U=R.filter(r=>r.days>0).sort((a,b)=>a.days-b.days), P=R.filter(r=>r.days<-1);
+  const ce=U.filter(r=>r.ai&&r.ai.side==="CE").length, pe=U.filter(r=>r.ai&&r.ai.side==="PE").length;
+  const SRC=E.sources||{};
+  return `<div class="labbox diary" style="font-size:13px"><h2>📅 Results Diary <small class="hint">today · yesterday · upcoming (next 30 days) · AI view + CE / PE plan</small></h2>
+    <div class="cprow" style="flex-wrap:wrap;gap:6px;margin:4px 0"><span class="cpbox" style="padding:3px 8px">Today <b>${T0.length}</b></span><span class="cpbox" style="padding:3px 8px">Yesterday <b>${Y.length}</b></span><span class="cpbox" style="padding:3px 8px">Upcoming <b>${U.length}</b> · <b class="up">${ce} CE view</b> · <b class="dn">${pe} PE view</b></span></div>
+    ${Object.keys(SRC).length?`<div class="hint">Sources: ${Object.entries(SRC).map(([k,v])=>`${v.ok?"✅":"⚠"} ${esc(k)}${v.ok?` ${v.n}`:` (${esc(v.err||"")})`}`).join(" · ")}</div>`:""}
     ${E.nse_err?`<div class="hint">⚠ ${esc(E.nse_err)}</div>`:""}
-    ${R.length?R.map(row).join(""):'<div class="hint">இன்னும் results தேதி இல்லை — NSE / news-ல் வந்ததும் வரும், அல்லது கீழே சேர்க்கலாம்.</div>'}
-    ${compact?"":`<div class="labin" style="margin-top:6px"><input id="rdSym" placeholder="HAL"><input id="rdDate" type="date"><button class="pickbtn" onclick="resultsAdd()">➕ Results தேதி சேர்</button></div>`}
-    <div class="hint">Results-க்கு முன் naked overnight option வேண்டாம் (gap + IV crush). Result நாள் 9:15–9:30 high / low உடைஞ்ச பக்கம் volume-உடன் மட்டும்.</div></div>`; }
+    ${R.length?grp("🔴 Today's results",T0,true)+grp("🟠 Upcoming results",U,true)+grp("Yesterday's results",Y,!T0.length)+grp("Earlier (reaction recorded)",P,false)
+      :'<div class="hint">No results dates yet — they come from NSE / BSE / news automatically (checked every 30 min, weekends too), or add one below.</div>'}
+    ${compact?"":`<div class="labin" style="margin-top:6px"><input id="rdSym" placeholder="HAL"><input id="rdDate" type="date"><button class="pickbtn" onclick="resultsAdd()">➕ Add results date</button></div>`}
+    <div class="hint">How to use: no naked overnight option before results (gap + IV crush). On results day trade only the side whose first 15-min high / low breaks with volume. The AI view tells you which side to prepare for — the price confirms it.</div></div>`; }
 function preopenHTML(s){
   const E=s.events||{}, P=E.preopen||{}, today=String(s.now||"").slice(0,10); if(P.date!==today||!(P.rows||[]).length) return P.err?`<div class="labbox"><b>🌅 Pre-open</b> <span class="hint">${esc(P.err)}</span></div>`:"";
   return `<div class="labbox" style="border-color:#facc15"><h2>🌅 Pre-open watchlist <small class="hint">${esc(P.src||"")} · ${esc(P.time||"")} · gap 1–4% + OI / news பக்கம்</small></h2>
@@ -2825,6 +2835,50 @@ function hpHTML(s){ const H=s.highprofit||{}, M=H.modules||[], T=H.today||[], St
     ${(H.near||[]).length?`<div class="hint">Close to qualifying: ${H.near.map(m=>`${esc(m.module)} (${m.win}% · ${m.n} calls)`).join(" · ")}</div>`:""}
     <div class="hint">⚠ Past results don't guarantee the next trade — paper first.</div></div>`; }
 
+/* 🏹 V109 DHASVANTH — 9.5 checklist for the 5 best strategies (index · stock · commodity) */
+let DHM="All";
+const DHGC={"9.5 PRO":"#22c55e","TAKE":"#38bdf8","CAUTION":"#f59e0b","SKIP":"#ef4444","NO DATA":"#94a3b8"};
+function dhBadge(ev){ if(!ev) return `<span class="hint" style="font-size:11px">not graded (before Dhasvanth)</span>`; const c=DHGC[ev.grade]||"#94a3b8";
+  return `<b style="color:${c};border:1px solid ${c};border-radius:6px;padding:0 6px;font-size:11px">${esc(ev.grade)}</b> <small class="hint">${ev.rating!=null?ev.rating+"/10":"–"} · ${ev.known}/${ev.total} rules had data</small>`; }
+function dhRules(ev){ if(!ev) return ""; return `<details><summary class="hint">Checklist (${(ev.rules||[]).filter(r=>r.ok).length} ✓ · ${(ev.rules||[]).filter(r=>r.ok===false).length} ✗ · ${(ev.rules||[]).filter(r=>r.ok==null).length} no data)</summary>
+  ${(ev.rules||[]).map(r=>`<div class="hint" style="font-size:11.5px">${r.ok===true?"✅":r.ok===false?(r.crit?"⛔":"❌"):"⚪"} <b>${esc(r.name)}</b>${r.crit?' <small>(critical)</small>':""} — ${esc(r.why||"")}</div>`).join("")}</details>`; }
+function dhCard(c,s,showStrat){ const ev=c.ev, open=OPEN_ST.includes(c.status), pl=c.pnl_lot||0, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const col=ev?DHGC[ev.grade]:"var(--line)";
+  return `<div class="rrow" style="border:2px solid ${col};font-size:12.5px;${ev&&ev.grade==="9.5 PRO"?"box-shadow:0 0 14px rgba(34,197,94,.35)":""}">
+    <div class="ctop"><b>${showStrat?esc(c.sname)+" · ":""}<span class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${c.strike!=null?n2(c.strike):""} ${c.side}</span></b><span class="hint">${esc(c.market)} · ${esc(ampm(c.time))}</span></div>
+    <div>${dhBadge(ev)}</div>
+    <div class="cprow" style="margin:3px 0"><span>Entry <b>₹${n2(c.entry)}</b></span><span>SL <b class="dn">₹${n2(c.sl)}</b></span><span>T <b class="up">${(c.targets||[]).map((t,j)=>`${n2(t)}${(c.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")}</b></span></div>
+    <div class="cprow"><span class="hint">LTP ₹${n2(c.exit??c.ltp)} · ${esc(c.status||"")}</span><b class="${pl>=0?"up":"dn"}">${rs(pl)} / lot</b></div>
+    ${ev?`<div style="margin-top:3px"><b>${esc(ev.head)}</b></div>${(ev.tips||[]).map(t=>`<div class="hint">• ${esc(t)}</div>`).join("")}`:""}
+    ${dhRules(ev)} ${warnHTML(c.risk_warn)} ${paperBtn(c.id,open)} ${riseTag(c.id,s)}</div>`; }
+function dhStat(x){ return x&&x.n?`${x.n} closed · <b>${x.win}%</b> win · PF ${x.pf} · <b class="${x.exp>=0?"up":"dn"}">${x.exp>=0?"+":"−"}₹${n2(Math.abs(x.exp))}</b>/call${x.avg_r!=null?` · ${x.avg_r}R`:""}`:'<span class="hint">no closed calls</span>'; }
+function dhBox(b,s){ const mk=r=>DHM==="All"||r.market===DHM, T=(b.today||[]).filter(mk), H=(b.history||[]).filter(mk), St=b.stats||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  const bg=St.by_grade||{}, bm=St.by_market||{}, bd=St.by_day||{}, bsy=St.by_symbol||{};
+  const notHere=DHM!=="All"&&!(b.markets||[]).includes(DHM);
+  return `<div class="labbox" style="border:2px solid #a78bfa;font-size:12.5px"><h2 style="font-size:16px">${b.icon} ${esc(b.name)} <small class="hint">${(b.markets||[]).join(" · ")} · ${dhStat(St.all)}</small></h2>
+    <div class="hint">${esc(b.how)}</div>
+    <div class="cpbox" style="margin:6px 0;font-size:12px"><b>🤖 AI guidance</b>${(b.ai||[]).map(t=>`<div class="hint">• ${esc(t)}</div>`).join("")}</div>
+    <details><summary class="hint"><b>9.5 checklist</b> (${(b.rules||[]).length} extra rules + no-trade list + max 2 attempts/day + structure sizing)</summary>${(b.rules||[]).map((r,i)=>`<div class="hint">${i+1}. ${esc(r)}</div>`).join("")}<div class="hint">+ No-trade conditions (regime · news · volume · late time) · max 2 attempts per setup per day · lots = ₹2,500 ÷ structure risk.</div></details>
+    <h3 class="sec">Today's calls (${T.length}) <small class="hint">best grade first</small></h3>
+    ${notHere?`<div class="hint">${esc(b.name)} does not trade ${esc(DHM)} — it runs on ${(b.markets||[]).join(" / ")}.</div>`:T.length?`<div class="cards">${T.map(c=>dhCard(c,s,false)).join("")}</div>`:'<div class="hint">No call yet today.</div>'}
+    <details><summary><b>📋 Results</b> · last 30 days · ${dhStat(St.all)}</summary>
+      ${Object.values(bg).some(x=>x&&x.n)&&simpleTbl(Object.entries(bg).filter(([g,x])=>x&&x.n).map(([g,x])=>({g,...x})),[["Grade",r=>`<b style="color:${DHGC[r.g]}">${esc(r.g)}</b>`],["Closed",r=>r.n],["Win",r=>r.win+"%"],["PF",r=>r.pf],["₹/call",r=>`<b class="${r.exp>=0?'up':'dn'}">${rs(r.exp)}</b>`],["Avg R",r=>r.avg_r??"–"]])||""}
+      <div class="hint">Index: ${dhStat(bm.Index)} | Stock: ${dhStat(bm.Stock)} | Commodity: ${dhStat(bm.Commodity)}</div>
+      <div class="hint">Trend days: ${dhStat(bd.TREND)} | Range days: ${dhStat(bd.RANGE)}</div>
+      ${Object.keys(bsy).length?`<div class="hint">Per commodity: ${Object.entries(bsy).map(([k,v])=>`<b>${esc(k)}</b> ${dhStat(v)}`).join(" | ")}</div>`:""}
+      ${(St.weekly||[]).length?`<div class="hint" style="margin-top:4px"><b>Weekly R / expectancy</b></div>`+simpleTbl(St.weekly,[["Week",w=>esc(w.week)],["Closed",w=>w.n||0],["Win",w=>w.n?w.win+"%":"–"],["Avg R",w=>w.avg_r??"–"],["Expectancy",w=>w.n?rs(w.exp):"–"],["Net",w=>w.n?rs(w.net):"–"]]):""}
+      ${H.length?simpleTbl(H.slice(0,40),[["Date",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${c.strike!=null?n2(c.strike):""} ${c.side}</b><div class="hint">${esc(c.market)}</div>`],["Grade",c=>c.ev?`<b style="color:${DHGC[c.ev.grade]}">${esc(c.ev.grade)}</b> ${c.ev.rating??""}`:'<span class="hint">–</span>'],["Entry / SL",c=>`₹${n2(c.entry)} / <span class="dn">₹${n2(c.sl)}</span>`],["Exit",c=>n2(c.exit??c.ltp)],["P/L lot",c=>`<b class="${(c.pnl_lot||0)>=0?'up':'dn'}">${rs(c.pnl_lot)}</b>`],["Result",c=>esc(c.status||"")]],c=>(c.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">No closed calls in the last 30 days.</div>'}
+    </details></div>`; }
+function dhHTML(s){ const X=s.dhasvanth||{}; if(X.err) return `<div class="labbox"><b>🏹 Dhasvanth</b> <span class="dn">${esc(X.err)}</span></div>`;
+  const B=X.boxes||[], top=(X.top||[]).filter(r=>DHM==="All"||r.market===DHM);
+  try{ const n=(X.top||[]).length, el=$("dhCount"); if(el) el.textContent=n?n:""; }catch(e){}
+  return `<div class="labbox" style="border:3px solid #a78bfa;font-size:12.5px"><h2>🏹 DHASVANTH — the 5 best strategies, 9.5 checklist <small class="hint">${esc(X.time||"")} · every call graded once at signal time (frozen)</small></h2>
+    <div class="hint">Gamma Unwind Classic · ICT Silver Bullet · Index OI · Order Flow + Profile · 5-min ORB. Each call is checked against the extra rules you asked for. <b style="color:${DHGC["9.5 PRO"]}">9.5 PRO</b> = every rule with data passed · <b style="color:${DHGC.TAKE}">TAKE</b> = 7+/10, no critical fail · <b style="color:${DHGC.CAUTION}">CAUTION</b> = weak · <b style="color:${DHGC.SKIP}">SKIP</b> = a critical rule failed. Nothing is blocked — SKIP calls are still tracked so the results prove whether the filter helps. A rule with no data is shown ⚪ and never guessed.</div>
+    <div style="display:flex;gap:6px;margin:6px 0">${["All","Index","Stock","Commodity"].map(m=>`<button class="pickbtn ${DHM===m?"on":""}" onclick="DHM='${m}';$('p-dh').innerHTML=dhHTML(LAST_S)">${m}</button>`).join("")}</div>
+    <h3 class="sec">⭐ Top picks now (${top.length}) <small class="hint">open 9.5 PRO / TAKE calls from all 5 strategies</small></h3>
+    ${top.length?`<div class="cards">${top.map(c=>dhCard(c,s,true)).join("")}</div>`:'<div class="hint">No open 9.5 PRO / TAKE call right now. The boxes below show every call with its checklist.</div>'}</div>
+    ${B.map(b=>dhBox(b,s)).join("")}`; }
+
 /* 🤖 V101 AI BEST PICKS + 🪙 GOLDEN CALLS (English) */
 let BP_SEEN=null;
 function histTxt(h){ if(!h) return ""; const a=h.all||{}, k=h.strike||{};
@@ -3234,7 +3288,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v108";
+const APPV="v109";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3314,6 +3368,7 @@ function render(s){
   try{ waStateRender(s); }catch(e){}
   try{ $("callTable").innerHTML = SX("allCallsPL",()=>allCallsPL(s.full||{})); }catch(e){}
   try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
+  try{ $("p-dh").innerHTML = SX("dhHTML",()=>dhHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-ofp").innerHTML = SX("fpGroup",()=>fpGroup(s)); }catch(e){ console.error(e); }

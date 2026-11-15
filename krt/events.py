@@ -31,18 +31,58 @@ def _nse(path):
     return r.json()
 
 
+def _pdate(v):
+    try:
+        return pd.Timestamp(str(v).strip()).date()
+    except Exception:
+        return None
+
+
 def nse_calendar(fno):
-    """NSE event calendar → [{symbol, date}] (F&O மட்டும், financial results)."""
+    """NSE event calendar → [{symbol, date}] (F&O only, financial results)."""
     out = []
     for x in _nse("/api/event-calendar") or []:
         sym, purp = str(x.get("symbol") or "").upper(), str(x.get("purpose") or "") + " " + str(x.get("bm_desc") or "")
-        if sym in fno and re.search(r"result", purp, re.I):
-            try:
-                d = pd.Timestamp(x.get("date")).date()
-            except Exception:
-                continue
+        d = _pdate(x.get("date"))
+        if sym in fno and d and re.search(r"result", purp, re.I):
             out.append({"symbol": sym, "date": str(d), "src": "NSE"})
     return out
+
+
+def nse_board(fno):
+    """NSE board-meeting intimations (results are decided at a board meeting) → [{symbol, date}]."""
+    out = []
+    js = _nse("/api/corporate-board-meetings?index=equities") or []
+    for x in (js.get("data") if isinstance(js, dict) else js) or []:
+        sym = str(x.get("bm_symbol") or x.get("symbol") or "").upper()
+        purp = str(x.get("bm_purpose") or "") + " " + str(x.get("bm_desc") or "")
+        d = _pdate(x.get("bm_date") or x.get("date"))
+        if sym in fno and d and re.search(r"result", purp, re.I):
+            out.append({"symbol": sym, "date": str(d), "src": "NSE board"})
+    return out
+
+
+def bse_forthcoming(fno):
+    """BSE 'forthcoming results' list (backup when NSE blocks cloud servers). BSE scrip id = NSE symbol for most F&O stocks."""
+    import requests
+    h = {**UA, "Referer": "https://www.bseindia.com/", "Origin": "https://www.bseindia.com"}
+    r = requests.get("https://api.bseindia.com/BseIndiaAPI/api/Corpforthresults/w", headers=h, timeout=15)
+    r.raise_for_status()
+    js = r.json()
+    rows = js if isinstance(js, list) else (js.get("Table") or js.get("data") or []) if isinstance(js, dict) else []
+    out = []
+    for x in rows:
+        if not isinstance(x, dict):
+            continue
+        k = {str(a).lower(): v for a, v in x.items()}
+        sym = str(k.get("short_name") or k.get("scrip_id") or k.get("symbol") or "").upper().strip()
+        d = _pdate(k.get("meeting_date") or k.get("result_date") or k.get("date"))
+        if sym in fno and d:
+            out.append({"symbol": sym, "date": str(d), "src": "BSE"})
+    return out
+
+
+SOURCES = (("NSE calendar", nse_calendar), ("NSE board meetings", nse_board), ("BSE forthcoming", bse_forthcoming))
 
 
 DATE_RX = re.compile(r"\b(?:on|dated?)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|"
@@ -90,17 +130,28 @@ def implied_move(ag, inst, sym, spot, now):
 
 
 def refresh_calendar(store, fno, news_items, today):
-    """NSE (6 மணி நேரத்துக்கு ஒருமுறை) + news (ஒவ்வொரு run) → STORE results_cal-ல் merge (manual entries எப்போதும் இருக்கும்)."""
+    """NSE + NSE board meetings + BSE (each every 2 h when it works, retry in 30 min when it fails) + news headlines (every run)
+    → merged into STORE results_cal (manual entries always stay). Runs every day, weekends too, so Monday's list is ready."""
     from .calls import CALLS_LOCK
     found = []
-    if time.time() - CACHE["nse_t"] > 6 * 3600:
-        CACHE["nse_t"] = time.time()
+    src = STATE.setdefault("src", {})
+    for name, fn in SOURCES:
+        nxt = CACHE.get("next|" + name, 0)
+        if time.time() < nxt:
+            continue
         try:
-            found += nse_calendar(fno)
-            STATE["nse_err"] = None
+            got = fn(fno)
+            src[name] = {"ok": True, "n": len(got), "time": time.strftime("%H:%M")}
+            CACHE["next|" + name] = time.time() + 2 * 3600
+            found += got
         except Exception as e:
-            STATE["nse_err"] = f"NSE calendar கிடைக்கல ({str(e)[:60]}) — news + manual மட்டும்"
-    found += news_dates(news_items, today)
+            src[name] = {"ok": False, "err": str(e)[:70], "time": time.strftime("%H:%M")}
+            CACHE["next|" + name] = time.time() + 1800
+    nd = news_dates(news_items, today)
+    src["News headlines"] = {"ok": True, "n": len(nd), "time": time.strftime("%H:%M")}
+    found += nd
+    bad = [k for k, v in src.items() if not v.get("ok")]
+    STATE["nse_err"] = (f"{', '.join(bad)} not reachable from the server right now — using the other sources + news + manual" if bad else None)
     with CALLS_LOCK:
         D = store.load()
         C = D.setdefault("results_cal", {})
@@ -109,10 +160,21 @@ def refresh_calendar(store, fno, news_items, today):
             if k not in C:
                 C[k] = {**x, "added": str(today)}
                 store.dirty = True
+            elif x["src"] != "news" and C[k].get("src") == "news":
+                C[k]["src"] = x["src"]                    # confirmed by an exchange
+                store.dirty = True
         for k in [k for k, v in C.items() if v["date"] < str(today - dt.timedelta(days=10))]:
             C.pop(k, None)
             store.dirty = True
     return C
+
+
+def fno_names(bars, inst):
+    """F&O stock list — from scan bars, else from the instrument master (so the calendar works right after a restart / on weekends)."""
+    names = set((bars or {}).keys())
+    if not names:
+        names = {k for k in ((inst or {}).get("opts") or {}) if k not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX", "NIFTYNXT50")}
+    return names
 
 
 def add_manual(store, sym, date):
@@ -166,6 +228,17 @@ def outlook(row, cl, past):
         why.append(f"past results: {up}/{len(reacts)} up days · average move ±{avg}%")
         if len(reacts) >= 3:
             sc += 1 if up / len(reacts) >= 0.67 else -1 if up / len(reacts) <= 0.33 else 0
+    sec = row.get("sector")
+    if sec and sec.get("score") is not None:
+        if sec["score"] >= 60:
+            sc += 1
+            why.append(f"sector {sec['name']} strong today (mood {sec['score']})")
+        elif sec["score"] <= 40:
+            sc -= 1
+            why.append(f"sector {sec['name']} weak today (mood {sec['score']})")
+    drift = [p.get("drift") for p in past if p.get("drift") is not None][-4:]
+    if len(drift) >= 2:
+        why.append(f"after past results the stock moved {', '.join(f'{x:+}%' for x in drift)} over the next 3 days")
     warn = None
     if r20 is not None and im and r20 >= 2 * im:
         warn = "⚠ already ran more than 2× the expected move — 'buy the rumour, sell the news' risk (a good result can still fall)"
@@ -176,7 +249,15 @@ def outlook(row, cl, past):
     watch = ("Results day: wait 9:15–9:30. 5-min close ABOVE the first 15-min high with volume ≥1.5× → CE (ATM / 1 ITM). "
              "Close BELOW the 15-min low with volume → PE. Target ≈ the options-implied move"
              + (f" (±{im}%)" if im else "") + ". Do not buy options the day BEFORE results — IV crush can cut premium 20–40% even if you are right.")
-    return {"lean": lean, "side": side, "score": sc, "why": why, "warn": warn, "watch": watch, "normal": norm, "ratio": big,
+    expect = ("POSITIVE reaction more likely" if lean == "LEAN UP" else "NEGATIVE reaction more likely" if lean == "LEAN DOWN"
+              else "MIXED — could go either way")
+    if side:
+        adv = (f"Advance view: {side}. Safest: buy {side} only AFTER results, when the 5-min candle closes "
+               f"{'above the first 15-min high' if side == 'CE' else 'below the first 15-min low'} with volume. "
+               f"If you take it before results: 1 lot only, next-month ATM / 1-ITM strike, and accept that IV crush can cut 20–40% even if the view is right.")
+    else:
+        adv = "Advance view: no side — signals are mixed. Do not take a position before results; trade only the results-day 15-min break."
+    return {"lean": lean, "side": side, "score": sc, "expect": expect, "advance": adv, "why": why, "warn": warn, "watch": watch, "normal": norm, "ratio": big,
             "past": reacts, "conf": "low" if abs(sc) <= 1 else "medium" if abs(sc) <= 3 else "higher"}
 
 
@@ -197,7 +278,7 @@ def diary(store, ag, inst, now, full=None, live=True):
     for k, x in sorted(C.items(), key=lambda kv: kv[1]["date"]):
         d = pd.Timestamp(x["date"]).date()
         days = (d - today).days
-        if days > 7 or days < -3:
+        if days > 30 or days < -3:
             continue
         s = x["symbol"]
         b = bars.get(s) or {}
@@ -207,6 +288,14 @@ def diary(store, ag, inst, now, full=None, live=True):
         r20 = round((cl[-1] / cl[-21] - 1) * 100, 2) if len(cl) > 21 else None
         hi52 = max((b.get("h") or [0])[-250:]) if b.get("h") else None
         row = {**x, "days": days, "spot": spot, "r20": r20, "oi": oi.get(s), "near_high": bool(hi52 and spot and (hi52 - spot) / hi52 <= 0.03)}
+        try:
+            from .money import SECTOR as _SEC
+            from .mood import STATE as _MS
+            sn = _SEC.get(s)
+            sr = next((z for z in _MS.get("sectors") or [] if z.get("sector") == sn), None) if sn else None
+            row["sector"] = {"name": sn, "score": (sr or {}).get("score")} if sn else None
+        except Exception:
+            row["sector"] = None
         ik = f"{s}|{today}"
         if live and ag and spot and 0 <= days <= 3 and ik not in IM:
             try:
@@ -215,9 +304,9 @@ def diary(store, ag, inst, now, full=None, live=True):
                 IM[ik] = None
         row["implied"] = IM.get(ik)
         if days > 1:
-            row["plan"] = "Results-க்கு முன் — பெரிய position வேண்டாம். Expected move-ஐ விட stock ஏற்கனவே ஓடியிருந்தா 'buy rumour sell news' ஆகலாம்."
+            row["plan"] = "Before results — no big position. If the stock already ran more than the expected move, 'buy the rumour, sell the news' can happen."
         elif days == 1:
-            row["plan"] = "நாளை results — இன்று overnight naked option வேண்டாம் (gap + IV crush). Results வந்த பிறகு direction confirm ஆனா மட்டும்."
+            row["plan"] = "Results tomorrow — no overnight naked option today (gap + IV crush). Trade only after results confirm the direction."
         elif days in (0, -1):
             hm = now.strftime("%H:%M")
             rk = f"{s}|{today}"
@@ -227,24 +316,31 @@ def diary(store, ag, inst, now, full=None, live=True):
             if r and spot:
                 vr = q.get("vol_ratio") or 0
                 if spot > r["h"] and vr >= 1.5:
-                    row["setup"] = {"side": "CE", "txt": f"✅ Results reaction ⬆ — முதல் 15-min high {r['h']} மேல் + volume {vr}× → CE"}
+                    row["setup"] = {"side": "CE", "txt": f"✅ Results reaction UP — above the first 15-min high {r['h']} with volume {vr}× → CE"}
                 elif spot < r["l"] and vr >= 1.5:
-                    row["setup"] = {"side": "PE", "txt": f"✅ Results reaction ⬇ — முதல் 15-min low {r['l']} கீழ் + volume {vr}× → PE"}
+                    row["setup"] = {"side": "PE", "txt": f"✅ Results reaction DOWN — below the first 15-min low {r['l']} with volume {vr}× → PE"}
                 else:
-                    row["setup"] = {"side": None, "txt": f"⏳ {r['h']} மேல் (CE) / {r['l']} கீழ் (PE) 5-min close + volume ≥1.5× வரும் வரை காத்திருங்க"}
-            row["plan"] = "Results நாள் — முதல் 15 நிமிடம் (9:15–9:30) பாருங்க, அதன் high / low உடைஞ்ச பக்கம் மட்டும் (volume-உடன்)."
+                    row["setup"] = {"side": None, "txt": f"⏳ Wait for a 5-min close above {r['h']} (CE) or below {r['l']} (PE) with volume ≥1.5×"}
+            row["plan"] = "Results day — watch the first 15 minutes (9:15–9:30); trade only the side whose high / low breaks, with volume."
             if days == -1 and len(cl) >= 2:
                 row["reaction"] = round((cl[-1] / cl[-2] - 1) * 100, 2)
         else:
             if len(cl) >= 2:
                 row["reaction"] = round((cl[-1] / cl[-2] - 1) * 100, 2)
-            row["plan"] = "Results முடிஞ்சது."
+            row["plan"] = "Results done."
+        if days <= -3 and len(cl) >= 4:
+            row["drift"] = round((cl[-1] / cl[-4] - 1) * 100, 2)
         RH = store.load().setdefault("results_hist", {})
         if row.get("reaction") is not None and days < 0:              # remember every reaction → next quarter's analysis uses it
             L = RH.setdefault(s, [])
             if not any(p["date"] == x["date"] for p in L):
                 L.append({"date": x["date"], "reaction": row["reaction"], "r20": r20})
                 store.dirty = True
+            if row.get("drift") is not None:
+                for p_ in L:
+                    if p_["date"] == x["date"] and p_.get("drift") is None:
+                        p_["drift"] = row["drift"]
+                        store.dirty = True
         if days >= 0:
             row["ai"] = outlook(row, cl, [p for p in RH.get(s, []) if p["date"] != x["date"]])
         out.append(row)

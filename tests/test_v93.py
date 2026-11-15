@@ -69,7 +69,7 @@ def test_diary_plan_and_result_day_setup(monkeypatch):
     EV.STATE["r15"] = {}
     now = pd.Timestamp("2026-11-10 09:35")
     rows = {r["symbol"]: r for r in EV.diary(fs, None, {}, now, {}, live=True)}
-    assert rows["HAL"]["days"] == 2 and "பெரிய position வேண்டாம்" in rows["HAL"]["plan"]
+    assert rows["HAL"]["days"] == 2 and "no big position" in rows["HAL"]["plan"]
     assert rows["TATAPOWER"]["days"] == 0 and rows["TATAPOWER"]["setup"]["side"] is None and "404" in rows["TATAPOWER"]["setup"]["txt"]
     FS.C["live_q"]["TATAPOWER"].update(ltp=406, vol_ratio=2.1)
     rows = {r["symbol"]: r for r in EV.diary(fs, None, {}, now + pd.Timedelta(minutes=20), {}, live=True)}
