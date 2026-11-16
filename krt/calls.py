@@ -669,7 +669,9 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                         ", ".join(QCODE_TXT.get(x, x) for x in codes))
                 return None
             n_day = sum(1 for x in calls.values() if x["date"] == c["date"] and not x.get("hold_until") and not x.get("shadow"))
-            if n_day >= qs_.get("max_total_calls_day", 12):
+            if n_day >= qs_.get("max_total_calls_day", 12) and not QV6.get("no_limits"):
+                # v111: this old 12/day cap counted EVERY call (picks, MCX, Movers…) and silently blocked the deep-scan modules —
+                # 5-min ORB (none since 11 Nov), Index OI (none since 2 Nov), Breakout… Best Mode quality gate replaces it.
                 _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, "DAILY_TOTAL", now)
                 return None
         c["qcodes"] = codes

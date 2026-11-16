@@ -2872,6 +2872,7 @@ function dhBox(b,s){ const mk=r=>DHM==="All"||r.market===DHM, T=(b.today||[]).fi
     <details><summary class="hint"><b>9.5 checklist</b> (${(b.rules||[]).length} extra rules + no-trade list + max 2 attempts/day + structure sizing)</summary>${(b.rules||[]).map((r,i)=>`<div class="hint">${i+1}. ${esc(r)}</div>`).join("")}<div class="hint">+ No-trade conditions (regime · news · volume · late time) · max 2 attempts per setup per day · lots = ₹2,500 ÷ structure risk.</div></details>
     <h3 class="sec">Today's calls (${T.length}) <small class="hint">best grade first</small></h3>
     ${notHere?`<div class="hint">${esc(b.name)} does not trade ${esc(DHM)} — it runs on ${(b.markets||[]).join(" / ")}.</div>`:T.length?`<div class="cards">${T.map(c=>dhCard(c,s,false)).join("")}</div>`:'<div class="hint">No call yet today.</div>'}
+    ${(b.rejects||[]).length?`<details><summary class="hint">🔍 Why no call — signals blocked today (${b.rejects.length})</summary>${b.rejects.map(r=>`<div class="hint">${esc(r.time||"")} · <b>${esc(r.symbol||"")}</b> · ${esc(r.code||"")} ${r.detail?"— "+esc(r.detail):""}</div>`).join("")}</details>`:(T.length?"":'<div class="hint">🔍 No signal from this scanner today (nothing was blocked — the setup simply has not formed).</div>')}
     <details><summary><b>📋 Results</b> · last 30 days · ${dhStat(St.all)}</summary>
       ${Object.values(bg).some(x=>x&&x.n)&&simpleTbl(Object.entries(bg).filter(([g,x])=>x&&x.n).map(([g,x])=>({g,...x})),[["Grade",r=>`<b style="color:${DHGC[r.g]}">${esc(r.g)}</b>`],["Closed",r=>r.n],["Win",r=>r.win+"%"],["PF",r=>r.pf],["₹/call",r=>`<b class="${r.exp>=0?'up':'dn'}">${rs(r.exp)}</b>`],["Avg R",r=>r.avg_r??"–"]])||""}
       <div class="hint">Index: ${dhStat(bm.Index)} | Stock: ${dhStat(bm.Stock)} | Commodity: ${dhStat(bm.Commodity)}</div>
@@ -2906,7 +2907,7 @@ function bestPicksBox(s){
       ${paperBtn(p.id,open)} ${riseTag(p.id,s)}</div>`; };
   return `<div class="labbox" style="border:2px solid #fbbf24;font-size:13px"><h2>🤖 AI BEST PICKS — what to take now <small class="hint">${esc(B.time||"")} · checks every minute · max ${(B.cfg||{}).max_day||6}/day</small></h2>
     <div class="hint">Every open call is scored with ALL analyses (Sniper score · chart 15 methods · AI Lab · prev day/week/month high-low break · volume · footprint · entry state). Score 75+ = PICK (time shown when picked) · 88+ with chart TAKE + level break = 🪙 GOLDEN. Push + voice when a new one comes.</div>
-    ${T.length?`<div class="cards">${T.map(card).join("")}</div>`:'<div class="hint">No pick yet today — nothing has reached 75+ with a clean entry. Calls below are not strong enough right now.</div>'}
+    ${T.length?`<div class="cards">${[...T].sort((a,b)=>(b.golden?1:0)-(a.golden?1:0)||(OPEN_ST.includes(b.status)?1:0)-(OPEN_ST.includes(a.status)?1:0)||String(b.time).localeCompare(String(a.time))).map(card).join("")}</div>`:'<div class="hint">No pick yet today — nothing has reached 75+ with a clean entry. Calls below are not strong enough right now.</div>'}
     <details ${T.length?"":"open"}><summary><b>📋 Results — all picks</b> · ${A.n||0} closed · win ${A.win??"–"}% · ${rs(A.net)} · 🪙 golden ${G.n||0} closed · win ${G.win??"–"}% · ${rs(G.net)}</summary>
     ${H.length?simpleTbl(H.slice(0,60),[["Date / time",p=>`${sDate(p.date,"")} ${esc(ampm(p.time))}`],["Pick",p=>`${p.golden?"🪙 ":""}<b class="${p.side==='CE'?'up':'dn'}">${esc(p.symbol)} ${n2(p.strike)} ${p.side}</b>`],["Score",p=>p.score],["Entry / SL",p=>`₹${n2(p.entry)} / <span class="dn">₹${n2(p.sl)}</span>`],["T1 / T2 / T3",p=>(p.targets||[]).map((t,j)=>`${n2(t)}${(p.hits||[]).some(h=>String(h).startsWith("T"+(j+1)+" "))?" ✅":""}`).join(" / ")],["LTP / Exit",p=>n2(p.exit??p.ltp)],["P/L lot",p=>`<b class="${(p.pnl_lot||0)>=0?'up':'dn'}">${rs(p.pnl_lot)}</b>`],["Result",p=>esc(p.status||"")]],p=>OPEN_ST.includes(p.status)?"":(p.pnl_lot||0)>0?"uprow":"slrow"):'<div class="hint">Results will appear here as picks close.</div>'}</details></div>`; }
 
@@ -3299,7 +3300,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v110";
+const APPV="v111";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

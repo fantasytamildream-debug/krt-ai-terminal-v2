@@ -813,8 +813,13 @@ def report(D, now):
         for r in rows:
             weeks.setdefault(_week(r["date"]), []).append(r)
         st["weekly"] = [{"week": w, **_stats(v)} for w, v in sorted(weeks.items(), reverse=True)[:8]]
+        try:
+            from .calls import SKIPPED as _SK
+            rej = [dict(r) for r in (_SK.get("log") or []) if _SK.get("day") == day and strat_of({"source": r.get("source"), "kind": r.get("kind")}) == S["key"]][-12:]
+        except Exception:
+            rej = []
         boxes.append({**{k: S[k] for k in ("key", "name", "icon", "markets", "how", "rules")}, "today": today, "history": hist[:60], "stats": st,
-                      "ai": box_ai(S, today, st)})
+                      "ai": box_ai(S, today, st), "rejects": rej[::-1]})
         top += [dict(r, strategy=S["key"], sname=S["name"]) for r in today if r["ev"] and r["ev"]["grade"] in ("9.5 PRO", "TAKE") and r["status"] in OPEN]
     top.sort(key=lambda r: (GORD.get(r["ev"]["grade"], 5), -(r["ev"].get("rating") or 0)))
     return {"time": STATE["time"], "boxes": boxes, "top": top[:10], "cfg": CFG}
