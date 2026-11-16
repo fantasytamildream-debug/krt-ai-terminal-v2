@@ -1067,7 +1067,7 @@ function renderFull(s){
   try{ $("p-gk").innerHTML = gokiHTML(f); }catch(e){ console.error(e); $("p-gk").innerHTML='<div class="cempty">Goki: '+esc(e.message)+'</div>'; }
   try{ $("p-mm").innerHTML = SX("mmHTML",()=>mmHTML(f)); }catch(e){ console.error(e); }
   const typing_=document.activeElement&&["brQ","fbQ"].includes(document.activeElement.id);      /* v104.1: never redraw under the user's fingers */
-  if(!typing_) try{ $("aiTop").innerHTML = SX("riserHTML",()=>riserHTML(s)) + SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
+  if(!typing_) try{ $("aiTop").innerHTML = SX("bestModeHTML",()=>bestModeHTML(s)) + SX("riserHTML",()=>riserHTML(s)) + SX("brainBox",()=>brainBox(s)) + (((s.fable||{}).cfg||{}).key?SX("fableBox",()=>fableBox(s)):"") + SX("bestPicksBox",()=>bestPicksBox(s)) + SX("aiHTML",()=>aiHTML(f)); $("strongBelow").innerHTML = SX("strongHTML",()=>strongHTML(f)); }catch(e){ console.error(e); }      /* v94: AI Picks முதலில் · Strong Break கீழே */
   try{ $("cotdTop").innerHTML = cotdHTML(s,true); }catch(e){ console.error(e); }      /* v94: 2-வது — Call of the Day */
   $("p-lb").innerHTML = SX("earlyHTML",()=>earlyHTML(f)) + bsHTML + SX("moversHTML",()=>moversHTML(f)) + SX("smartHTML",()=>smartHTML(f)) + SX("picksHTML",()=>picksHTML(f)) + SX("jackpotMovers",()=>jackpotMovers(f)) + SX("allCallsPL",()=>allCallsPL(f)) + SX("v4FastHTML",()=>v4FastHTML()) + momHTML(f) + SX("healthHTML",()=>healthHTML(s,f)) + SX("healthModHTML",()=>healthModHTML(f)) + (ARt.length?`<h2 class="sec up">🏅 ALL ROUNDER</h2>${ARt.slice(0,4).map(arCard).join("")}`:"") + (()=>{const T=((f.tracking||{}).today||[]).filter(c=>(c.sources||[c.source]).includes("All rounder")); return `<h2 class="sec up">🏅 இன்றைய All Rounder calls — ranking</h2>`+(T.length?callsKpi(T)+callsTbl(T,true):'<div class="empty">இன்று All Rounder call (TAKE) இன்னும் வரல. TAKE = 3+ modules + confidence ≥50% + risk ≤₹2,500 + T1 realistic.</div>')})() + `${elJ.length?`<h2 class="sec up">🟢👑 ELITE JACKPOT</h2>${elJ.map(r=>eliteCard(r,"Elite")).join("")}`:""}${guEnt.length?`<h2 class="sec">🚀 GAMMA-UNWIND PRO ENTRY</h2>${guEnt.map(x=>`<div class="row strong"><b>${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}</b> <span class="when">⏱ ${esc(x.time)}</span> · ${esc(x.engine)} · Entry ${n2(x.entry)} · SL ${n2(x.sl)} · ${x.targets.map((t,i)=>"T"+(i+1)+" "+n2(t)).join(" · ")} <span class="hint">(${x.score}/100)</span></div>`).join("")}`:""}${gtrig.length?`<h2 class="sec">💥 Gamma Blast TRIGGERED</h2>${gtrig.map(gammaCard).join("")}`:""}<h2 class="sec">📐 Patterns — breakout ஆனது</h2>${trig.length?trig.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
     <h2 class="sec">⏳ Breakout-க்கு அருகில்</h2>${near.length?near.slice(0,6).map(patRow).join(""):`<div class="empty">இப்போ இல்லை.</div>`}
@@ -1730,9 +1730,13 @@ function capSet(v){ try{ localStorage.setItem("krt_cap", String(+v||100000)); }c
 async function paperGo(o){
   const lots=prompt(`📝 Paper trade: ${o.symbol} ${n2(o.strike)} ${o.side}\nஎத்தனை lot? (1 lot = ${o.lot})\nEntry = இப்போ LTP · SL ≤ ₹2,500/lot · T1 ₹2K · T2 ₹4K · T3 ₹6K`,"1");
   if(lots===null) return;
+  toast(`⏳ Paper: ${esc(o.symbol)} ${n2(o.strike)} ${o.side} …`);
   const j=await post("/api/pick",Object.assign({},o,{lots:Math.max(1,parseInt(lots)||1)}));
-  alert((j.ok?"✅ ":"⚠ ")+(j.msg||"பதில் வரல"));
-  if(j.ok){ await load(); goTab("pt"); }
+  if(!j.ok){ alert("⚠ "+(j.msg||"No reply")); return; }
+  toast(`✅ Paper trade added · ${esc(o.symbol)} ${n2(o.strike)} ${o.side} @ ₹${n2((j.call||{}).entry??o.ltp)}`);
+  try{ const T=((LAST_S||{}).full||{}).tracking; if(T&&j.call){ T.today=[j.call,...(T.today||[]).filter(c=>c.id!==j.call.id)]; } }catch(e){}   /* ⚡ v110: show it instantly */
+  goTab("pt"); try{ $("p-pt").innerHTML=hpHTML(LAST_S)+paperHTML(LAST_S.full||{}); }catch(e){}
+  load();
 }
 function paperFromCall(id){
   const c=CALLMAP.get(id); if(!c){ alert("Call கிடைக்கல — refresh பண்ணுங்க"); return; }
@@ -1742,7 +1746,7 @@ function paperFromGoki(i){
   const r=((((LAST_S||{}).full||{}).goki||{}).top||[])[i]; if(!r||!r.option||!r.option.token){ alert("Strike / token இல்லை"); return; }
   const o=r.option; paperGo({symbol:r.symbol,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:o.lot,ltp:o.ltp,sl:(r.rp||{}).sl,from_src:"Goki "+r.scanner,src_modules:["Goki "+r.scanner]});
 }
-async function paperExit(id){ if(!confirm("இப்போ LTP-ல் exit பண்ணணுமா?")) return; const j=await post("/api/pick/exit",{id}); alert(j.msg); setTimeout(load,800); }
+async function paperExit(id){ if(!confirm("Exit this paper trade now at LTP?")) return; const j=await post("/api/pick/exit",{id}); toast((j.ok?"✅ ":"⚠ ")+esc(j.msg||"")); load(); }
 function paperHTML(f){
   const T=f.tracking||{}, m=new Map(); [...(T.history||[]),...(T.today||[])].forEach(c=>{if(c.kind==="PICK") m.set(c.id,c)});
   const all=[...m.values()].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
@@ -2835,6 +2839,13 @@ function hpHTML(s){ const H=s.highprofit||{}, M=H.modules||[], T=H.today||[], St
     ${(H.near||[]).length?`<div class="hint">Close to qualifying: ${H.near.map(m=>`${esc(m.module)} (${m.win}% · ${m.n} calls)`).join(" · ")}</div>`:""}
     <div class="hint">⚠ Past results don't guarantee the next trade — paper first.</div></div>`; }
 
+/* 🏆 v110 BEST MODE — what the quality filter hid today, and the proof */
+function bestModeHTML(s){ const F=s.filtered||{}; if(!F.on) return ""; const H=F.hidden||{}, S=F.shown||{}, b=F.breadth;
+  const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
+  return `<div class="labbox" style="border:2px solid #22c55e;font-size:12.5px"><b>🏆 BEST MODE ON</b> <small class="hint">no count limit — only quality. NIFTY ${F.nifty!=null?(F.nifty>=0?"+":"")+F.nifty+"%":"–"} ${F.live?"(live)":"(scan)"} · breadth ${b?`${b[0]} up / ${b[1]} down`:"–"}</small>
+   <div class="hint">Shown today: <b>${S.n||0}</b> calls · ${S.closed||0} closed · ${S.win||0} won · <b class="${(S.net||0)>=0?"up":"dn"}">${rs(S.net)}</b> &nbsp;|&nbsp; Hidden by the filter: <b>${H.n||0}</b> · ${H.closed||0} closed · ${H.win||0} won · <b class="${(H.net||0)>=0?"up":"dn"}">${rs(H.net)}</b> ${H.closed?((H.net||0)<0?"→ filter saved you money ✅":"→ filter cost money today ⚠"):""}</div>
+   <div class="hint">Hidden = weak module · duplicate idea · stock CE when most stocks fall · stock PE unless a clear down day · volume &lt;1.5× · 3 SL in a row on a side · MCX after 1:30 PM.</div>
+   ${(F.rows||[]).length?`<details><summary class="hint">🚫 Hidden calls today (${F.rows.length}) — tracked, not shown</summary>${simpleTbl(F.rows,[["Time",c=>esc(ampm(c.time))],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${c.strike!=null?n2(c.strike):""} ${c.side}</b><div class="hint">${esc(c.source||"")}</div>`],["Why hidden",c=>`<span class="hint">${esc(c.shadow_why||"")}</span>`],["P/L lot",c=>`<b class="${(c.pnl_lot||0)>=0?'up':'dn'}">${rs(c.pnl_lot)}</b>`],["Status",c=>esc(c.status||"")]])}</details>`:""}</div>`; }
 /* 🏹 V109 DHASVANTH — 9.5 checklist for the 5 best strategies (index · stock · commodity) */
 let DHM="All";
 const DHGC={"9.5 PRO":"#22c55e","TAKE":"#38bdf8","CAUTION":"#f59e0b","SKIP":"#ef4444","NO DATA":"#94a3b8"};
@@ -3288,7 +3299,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v109";
+const APPV="v110";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3388,7 +3399,8 @@ function render(s){
   $("angelForm").style.display = s.hosted ? "none" : "";
   $("ceState").textContent = s.chartink?.ce_saved ? "· saved" : "· auto";
   $("peState").textContent = s.chartink?.pe_saved ? "· saved" : "· auto";
-  clearTimeout(pollT); pollT = setTimeout(load, (s.market_open || (s.mcx||{}).open) ? 10000 : 30000);
+  const _paperOpen=(((s.full||{}).tracking||{}).today||[]).some(c=>c.kind==="PICK"&&OPEN_ST.includes(c.status));
+  clearTimeout(pollT); pollT = setTimeout(load, (s.market_open || (s.mcx||{}).open) ? (_paperOpen&&!(($("p-pt")||{}).hidden)?5000:10000) : 30000);
 }
 async function load(){
   let data=null;

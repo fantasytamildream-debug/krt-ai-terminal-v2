@@ -262,7 +262,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
     except Exception:
         pass
     why = quality_v6(c, now)
-    if why and why[0] in ("Q_MODULE_PAUSED", "Q_LEARNED"):
+    if why and why[0] in SHADOW_CODES:
         c.update(shadow=True, shadow_why=why[1])     # main list-ல் வராது · paper-ல் track ஆகும் → optimizer recover பார்க்கும்
         return c
     if why:
@@ -303,8 +303,82 @@ def proven_sources(d, now_ts=None):
     return ok     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
 
 
+SHADOW_CODES = ("Q_MODULE_PAUSED", "Q_LEARNED", "Q_WEAK_MODULE", "Q_BREADTH", "Q_COUNTER_LIVE", "Q_DUP_ANY", "Q_SIDE_BRAKE",
+                "Q_STOCK_PE", "Q_LOW_VOL", "Q_MCX_LATE")
+BEST = {"on": True, "weak_n": 15, "breadth_min": 0.9, "counter": 0.4, "brake_n": 3, "brake_min": 45, "side_stop": -7500}
+
+
+def breadth_now():
+    """Live F&O breadth from the quote cache: (up, down) counts, or None."""
+    try:
+        from .fullscan import C as _C
+        q = [v.get("pct") for v in (_C.get("live_q") or {}).values() if v.get("pct") is not None]
+    except Exception:
+        return None
+    if len(q) < 50:
+        return None
+    return sum(1 for x in q if x > 0), sum(1 for x in q if x < 0)
+
+
+def best_gate(c, d, now):
+    """🏆 v110 BEST-SETUPS gate — quality only, NO count limit. A failing call becomes a shadow call (not shown in the main list,
+    still tracked) so we can prove the filter. → None or (code, reason)."""
+    if not BEST["on"]:
+        return None
+    is_idx = c["symbol"] in IDX_SYMS
+    proven_sources(d)
+    m = PROVEN["rows"].get(c.get("source") or c["kind"])
+    if m and m["n"] >= BEST["weak_n"] and (m["w"] <= m["l"] or (m["w"] / m["l"] if m["l"] else 9) < 1.0):
+        return ("Q_WEAK_MODULE", f"{c.get('source')} has lost money over {m['n']} closed calls (net ₹{m['w'] - m['l']:,.0f}) — watch-only")
+    if not is_idx:
+        vr = c.get("vol_ratio")
+        if vr is not None and float(vr) < 1.5:
+            return ("Q_LOW_VOL", f"volume only {vr}× normal — low-volume stock calls won 6% in your history")
+        np_ = MARKET.get("nifty_pct") or 0
+        if c.get("side") == "PE":
+            b0 = breadth_now()
+            clear_down = np_ <= -0.3 and b0 and b0[1] >= 1.5 * b0[0]
+            if not clear_down:
+                return ("Q_STOCK_PE", f"stock PE lost ₹-1,003/call over 212 calls — only on a clear down day (NIFTY ≤ −0.3% and 1.5× more stocks falling)")
+        if (c.get("side") == "CE" and np_ <= -BEST["counter"]) or (c.get("side") == "PE" and np_ >= BEST["counter"]):
+            return ("Q_COUNTER_LIVE", f"NIFTY {np_:+.2f}% (live) — against the market")
+        b = breadth_now()
+        if b:
+            up, dn = b
+            if c.get("side") == "CE" and up < dn * BEST["breadth_min"]:
+                return ("Q_BREADTH", f"breadth {up} up / {dn} down — most stocks falling, no stock CE")
+            if c.get("side") == "PE" and dn < up * BEST["breadth_min"]:
+                return ("Q_BREADTH", f"breadth {up} up / {dn} down — most stocks rising, no stock PE")
+    day = c["date"]
+    live = [x for x in d["calls"].values() if x["date"] == day and x.get("kind") != "PICK" and not x.get("shadow") and x["status"] != "VOID"]
+    if is_idx:
+        same = [x for x in live if x["symbol"] == c["symbol"] and x.get("side") == c.get("side") and x["status"] in OPEN]
+        pv = PROVEN["set"]
+        upgrade = (c.get("source") in pv) and not any(x.get("source") in pv for x in same)   # a proven module may still add its call
+        if same and not upgrade:
+            return ("Q_DUP_ANY", f"{c['symbol']} {c.get('side')} already open from another module — one trade per idea")
+    elif any(x["symbol"] == c["symbol"] and x.get("side") == c.get("side") for x in live):
+        return ("Q_DUP_ANY", f"{c['symbol']} {c.get('side')} already called today — one call per stock per side")
+    lane = [x for x in live if (x["symbol"] in IDX_SYMS) == is_idx and x.get("side") == c.get("side") and x["status"] not in OPEN and x.get("exch") != "MCX"]
+    lane.sort(key=lambda x: str(x.get("exit_time") or ""))
+    net = sum(x.get("pnl_lot") or 0 for x in lane)
+    if net <= BEST["side_stop"]:
+        return ("Q_SIDE_BRAKE", f"{c.get('side')} side lost ₹{-net:,.0f} today — no more {c.get('side')} {'index' if is_idx else 'stock'} calls today")
+    last = lane[-BEST["brake_n"]:]
+    if len(last) == BEST["brake_n"] and all((x.get("pnl_lot") or 0) < 0 for x in last):
+        try:
+            ago = (now - pd.Timestamp(str(last[-1].get("exit_time"))[:19])).total_seconds() / 60
+        except Exception:
+            ago = 0
+        if ago < BEST["brake_min"]:
+            return ("Q_SIDE_BRAKE", f"last {BEST['brake_n']} {c.get('side')} calls hit SL — {c.get('side')} paused for {BEST['brake_min'] - int(ago)} more min")
+    return None
+
+
 def quality_v6(c, now):
     """→ None (pass) அல்லது (code, காரணம்)."""
+    if BEST["on"] and c.get("kind") in ("MCX", "MANNAN-CMD") and now.hour * 60 + now.minute >= 13 * 60 + 30:
+        return ("Q_MCX_LATE", "MCX calls after 1:30 PM lost ₹-1,276/call (56 calls) — watch-only; MCX 9:00–1:30 made +₹58,593")
     if not QV6["on"] or c.get("kind") in ("PICK", "MCX", "MANNAN-CMD") or c.get("hold_until"):
         return None
     if str(c.get("kind", "")).startswith("POWER"):
@@ -350,6 +424,9 @@ def quality_v6(c, now):
         d = STORE.load()
     except Exception:
         return None
+    bg = best_gate(c, d, now)
+    if bg:
+        return bg
     day = c["date"]
     live = [x for x in d["calls"].values() if x["date"] == day and x["kind"] != "PICK" and x["status"] != "VOID" and not x.get("hold_until") and not x.get("shadow")]
     if c["symbol"] in IDX_SYMS:
@@ -449,6 +526,92 @@ def _gu_call(sig, now, day):
     tg(f"🚀 GU {eng} ENTRY tracked: {c['symbol']} {c['strike']:g} {c['side']} @ {e} · SL {sl} · " +
        " · ".join(f"T{i+1} {t}" for i, t in enumerate(c["targets"])), f"trk|{c['id']}")
     return c
+
+
+def _apply_px(c, ltp, now, tg):
+    """Core price tracking for one OPEN call: LTP, MFE/MAE, SL, T1/T2/T3 (+trailing). → (changed, closed).
+    Shared by the 30-sec deep tracker and the v110 5-sec fast tracker (paper trades update fast + better SL fills)."""
+    changed = False
+    try:
+        age = (now - pd.Timestamp(c.get("signal_time") or f"{c['date']} {c['time']}")).total_seconds()
+    except Exception:
+        age = 9e9
+    if not c.get("seen") and not c.get("hits") and c.get("kind") != "PICK" and age <= 180 and ltp <= c["sl"]:
+        c.update(seen=1, status="VOID", ltp=ltp, exit=ltp, exit_time=str(now), pnl_lot=0,
+                 void_why=f"stale entry — premium was already ₹{ltp} (below SL ₹{c['sl']}) when the call came")
+        return True, True
+    c["seen"] = 1
+    c["ltp"] = ltp
+    c["updated"] = now.strftime("%d-%m %H:%M")
+    c["max_ltp"] = max(c.get("max_ltp") or c["entry"], ltp)
+    c["min_ltp"] = min(c.get("min_ltp") or c["entry"], ltp)
+    c["mfe_pct"] = round((c["max_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
+    c["mae_pct"] = round((c["min_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
+    gu_ = c["kind"].startswith("GU") or c["kind"] == "GAMMA-UNWIND"
+    if ltp <= c["sl"] and not (c.get("no_sl_before_t1") and not c["hits"]):
+        c["hits"].append(f"SL {now:%d-%m %H:%M}")
+        # Trail SL (T1 பின்) = stop order — SL விலையில் exit (paper). முதல் SL = LTP-ல்.
+        _close(c, "SL HIT" if not c["hits"][:-1] else "TRAIL SL", (c["sl"] if c["hits"][:-1] else ltp), str(now))
+        if gu_:
+            tg(f"GAMMA-UNWIND exit: {c['symbol']} {c['strike']} {c['side']} @ {ltp} ({c['status']}) P/L/lot ₹{c['pnl_lot']}")
+        changed = True
+        return True, True
+    for i, tgt in enumerate(c["targets"], 1):
+        if ltp >= tgt and not any(h.startswith(f"T{i} ") for h in c["hits"]):
+            c["hits"].append(f"T{i} {now:%d-%m %H:%M}")
+            c["status"] = f"T{i} HIT"
+            if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
+                c["sl"] = lock_price(c["entry"], c["targets"][0], c.get("lot"))  # T1 பின் SL → entry + ₹1,000 lock
+                c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL lock (entry–T1 நடு, min ₹1,000)"})
+                if gu_:
+                    tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
+            if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):
+                c["sl"] = c["targets"][0]
+                c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T2 → SL T1"})
+                if gu_:
+                    tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
+            if c["kind"] in IMPORTANT_KINDS and not gu_:
+                tg(f"✅ T{i} HIT · {c['kind']} · {c['symbol']} {c['strike']:g} {c['side']} @ ₹{ltp} (entry ₹{c['entry']})\n" +
+                   (f"👉 SL → entry ₹{c['entry']}" if i == 1 else f"👉 SL → T1 ₹{c['targets'][0]}" if i == 2 else "👉 T3 — full exit"), f"t{i}|{c['id']}")
+            if gu_:
+                tg(f"GAMMA-UNWIND T{i} HIT ✅ {c['symbol']} {c['strike']} {c['side']} @ {ltp}" + (" · SL → entry" if i == 1 else ""))
+            changed = True
+    if c["status"] == f"T{len(c['targets'])} HIT":
+        _close(c, f"T{len(c['targets'])} DONE", ltp, str(now))
+        return True, True
+    return changed, False
+
+
+def fast_track(ag, now):
+    """⚡ v110: every 5 sec — ONE quote call for only the OPEN calls / paper trades → LTP, SL, T1/T2/T3, P&L.
+    (The deep tracker runs every 30 sec; paper trades used to lag up to 40 sec and SL exits filled late.)"""
+    with CALLS_LOCK:
+        d = STORE.load()
+        opn = [(c["id"], c.get("exch") or "NFO", str(c["token"])) for c in d["calls"].values() if c.get("status") in OPEN and c.get("token")]
+    if not opn:
+        return 0
+    req = {}
+    for _, ex, tk in opn:
+        if tk not in req.setdefault(ex, []):
+            req[ex].append(tk)
+    qs = ag.quotes(req) or {}                         # API call OUTSIDE the lock
+    n = 0
+    with CALLS_LOCK:
+        d = STORE.load()
+        for cid, _, tk in opn:
+            c = d["calls"].get(cid)
+            if not c or c.get("status") not in OPEN:
+                continue
+            ltp = _f((qs.get(tk) or {}).get("ltp"))
+            if not ltp:
+                continue
+            _, closed = _apply_px(c, ltp, now, tg)
+            if not closed:
+                c["pnl_lot"] = round((c["ltp"] - c["entry"]) * c["lot"])
+            n += 1
+        if n:
+            STORE.dirty = True
+    return n
 
 
 def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patterns, gamma, gu, elite=(), elite_hold=(),
@@ -769,44 +932,11 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         q = qs.get(c["token"])
         ltp = _f(q.get("ltp")) if q else 0
         if ltp:
-            c["ltp"] = ltp
-            c["updated"] = now.strftime("%d-%m %H:%M")
-            c["max_ltp"] = max(c.get("max_ltp") or c["entry"], ltp)
-            c["min_ltp"] = min(c.get("min_ltp") or c["entry"], ltp)
-            c["mfe_pct"] = round((c["max_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
-            c["mae_pct"] = round((c["min_ltp"] - c["entry"]) / c["entry"] * 100, 1) if c["entry"] else 0
+            ch_, closed_ = _apply_px(c, ltp, now, tg)
+            changed = changed or ch_
+            if closed_:
+                continue
             gu_ = c["kind"].startswith("GU") or c["kind"] == "GAMMA-UNWIND"
-            if ltp <= c["sl"] and not (c.get("no_sl_before_t1") and not c["hits"]):
-                c["hits"].append(f"SL {now:%d-%m %H:%M}")
-                # Trail SL (T1 பின்) = stop order — SL விலையில் exit (paper). முதல் SL = LTP-ல்.
-                _close(c, "SL HIT" if not c["hits"][:-1] else "TRAIL SL", (c["sl"] if c["hits"][:-1] else ltp), str(now))
-                if gu_:
-                    tg(f"GAMMA-UNWIND exit: {c['symbol']} {c['strike']} {c['side']} @ {ltp} ({c['status']}) P/L/lot ₹{c['pnl_lot']}")
-                changed = True
-                continue
-            for i, tgt in enumerate(c["targets"], 1):
-                if ltp >= tgt and not any(h.startswith(f"T{i} ") for h in c["hits"]):
-                    c["hits"].append(f"T{i} {now:%d-%m %H:%M}")
-                    c["status"] = f"T{i} HIT"
-                    if i == 1 and (c.get("trail_after_t1") or SIMPLE_EXIT):
-                        c["sl"] = lock_price(c["entry"], c["targets"][0], c.get("lot"))  # T1 பின் SL → entry + ₹1,000 lock
-                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T1 → SL lock (entry–T1 நடு, min ₹1,000)"})
-                        if gu_:
-                            tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']}")
-                    if i == 2 and (c.get("trail_after_t2") or SIMPLE_EXIT):
-                        c["sl"] = c["targets"][0]
-                        c.setdefault("revisions", []).append({"t": now.strftime("%H:%M"), "sl": c["sl"], "why": "T2 → SL T1"})
-                        if gu_:
-                            tg(f"🔁 Trailing stop update: {c['symbol']} {c['strike']:g} {c['side']} SL → {c['sl']} (T1)")
-                    if c["kind"] in IMPORTANT_KINDS and not gu_:
-                        tg(f"✅ T{i} HIT · {c['kind']} · {c['symbol']} {c['strike']:g} {c['side']} @ ₹{ltp} (entry ₹{c['entry']})\n" +
-                           (f"👉 SL → entry ₹{c['entry']}" if i == 1 else f"👉 SL → T1 ₹{c['targets'][0]}" if i == 2 else "👉 T3 — full exit"), f"t{i}|{c['id']}")
-                    if gu_:
-                        tg(f"GAMMA-UNWIND T{i} HIT ✅ {c['symbol']} {c['strike']} {c['side']} @ {ltp}" + (" · SL → entry" if i == 1 else ""))
-                    changed = True
-            if c["status"] == f"T{len(c['targets'])} HIT":
-                _close(c, f"T{len(c['targets'])} DONE", ltp, str(now))
-                continue
             if not SIMPLE_EXIT and c.get("exit_at") and any(h.startswith(f"T{c['exit_at']} ") for h in c["hits"]):
                 _close(c, f"T{c['exit_at']} EXIT", ltp, str(now))
                 changed = True
@@ -1062,9 +1192,10 @@ def add_all_rounder(rows, now):
                 flag[k] = c["id"]
                 STORE.dirty = True
                 n += 1
-                tg(f"🏅 ALL ROUNDER · {a['count']} modules\n{a['symbol']} {o.get('strike', ''):g} {a['side']}\n"
-                   f"Entry ₹{c['entry']} · SL ₹{c['sl']} · " + " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) +
-                   f"\nConfidence {a['confidence']}% · " + ", ".join(a["modules"].keys()) + "\n(Paper/alert only)", f"ar|{c['id']}")
+                if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                    tg(f"🏅 ALL ROUNDER · {a['count']} modules\n{a['symbol']} {o.get('strike', ''):g} {a['side']}\n"
+                       f"Entry ₹{c['entry']} · SL ₹{c['sl']} · " + " · ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) +
+                       f"\nConfidence {a['confidence']}% · " + ", ".join(a["modules"].keys()) + "\n(Paper/alert only)", f"ar|{c['id']}")
         if n:
             STORE.save(force=True)
     return n
@@ -1098,9 +1229,10 @@ def add_machine(rows, now):
             d["calls"][c["id"]] = c
             STORE.dirty = True
             n += 1
-            tg(f"💰 2K PROFIT MACHINE\n{m['symbol']} {m['strike']:g} {m['side']} · expiry {m['expiry']}\nEntry ₹{m['entry']} · SL ₹{m['sl']} · "
-               f"T1 ₹{m['targets'][0]} (≈₹2,000/lot)\nScore {m['score']} · " + ", ".join(m["why"][:3]) + "\n(Paper/alert only — guarantee இல்லை)",
-               f"mc|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"💰 2K PROFIT MACHINE\n{m['symbol']} {m['strike']:g} {m['side']} · expiry {m['expiry']}\nEntry ₹{m['entry']} · SL ₹{m['sl']} · "
+                   f"T1 ₹{m['targets'][0]} (≈₹2,000/lot)\nScore {m['score']} · " + ", ".join(m["why"][:3]) + "\n(Paper/alert only — guarantee இல்லை)",
+                   f"mc|{c['id']}")
         if n:
             STORE.save(force=True)
     return n
@@ -1176,8 +1308,9 @@ def add_goki(rows, now):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"👑 GOKI MANNAN JACKPOT\n{r['symbol']} {o.get('strike'):g} {r['side']} · {r['scanner']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · "
-               f"T1 ₹{c['targets'][0]} / T2 ₹{c['targets'][1]} / T3 ₹{c['targets'][2]}\nScore {r['score']} (paper/alert only)", f"goki|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"👑 GOKI MANNAN JACKPOT\n{r['symbol']} {o.get('strike'):g} {r['side']} · {r['scanner']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · "
+                   f"T1 ₹{c['targets'][0]} / T2 ₹{c['targets'][1]} / T3 ₹{c['targets'][2]}\nScore {r['score']} (paper/alert only)", f"goki|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
@@ -1222,7 +1355,8 @@ def add_movers(rows, now):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"🚀 TOP MOVER · {r['symbol']} {o.get('strike'):g} {r['side']} ({r['pct']:+.2f}%, vol {r['vol_ratio']}×)\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"mov|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"🚀 TOP MOVER · {r['symbol']} {o.get('strike'):g} {r['side']} ({r['pct']:+.2f}%, vol {r['vol_ratio']}×)\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"mov|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
@@ -1254,7 +1388,8 @@ def add_breakouts(rows, now):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"{'📈' if r['side'] == 'CE' else '📉'} {src} {r['stars']}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"bo|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"{'📈' if r['side'] == 'CE' else '📉'} {src} {r['stars']}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"bo|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
@@ -1284,7 +1419,8 @@ def add_simple(kind, src, rows, now, max_day=10 ** 6):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"⚡ {src} {r.get('stars', 3)}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"v2|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"⚡ {src} {r.get('stars', 3)}★ · {r['symbol']} {o.get('strike'):g} {r['side']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"v2|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
@@ -1315,7 +1451,8 @@ def add_aipick(rows, now, max_day=10 ** 6):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"🤖 AI PICK · {r['symbol']} {o.get('strike'):g} {r['side']} · win வாய்ப்பு {round((r.get('p') or 0) * 100)}%\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"ai|{c['id']}")
+            if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+                tg(f"🤖 AI PICK · {r['symbol']} {o.get('strike'):g} {r['side']} · win வாய்ப்பு {round((r.get('p') or 0) * 100)}%\nEntry ₹{c['entry']} · SL ₹{c['sl']} · T1 ₹{c['targets'][0]} (paper)", f"ai|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)
@@ -1351,8 +1488,9 @@ def add_gu_classic(c0, ev, now, K, lite=False):
         d["calls"][c["id"]] = c
         STORE.dirty = True
         STORE.save(force=True)
-        tg(f"🎯 GU CLASSIC{' LITE' if lite else ''} TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
-           + " / ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + f"\nOI −{ev['drop']}% · hold ≤5 நாள் · {c['hold_until']} exit\n(alert only · not advice)", f"guc|{c['id']}")
+        if not c.get("shadow"):  # v110: filtered (shadow) calls send no alert
+            tg(f"🎯 GU CLASSIC{' LITE' if lite else ''} TRADE ALERT\n{c0['symbol']} {c0['strike']:g} {c0['side']} · expiry {c0['expiry']}\nEntry ₹{c['entry']} · SL ₹{c['sl']} (stock zone ₹{ev.get('ul_sl')})\n"
+               + " / ".join(f"T{i+1} ₹{t}" for i, t in enumerate(c["targets"])) + f"\nOI −{ev['drop']}% · hold ≤5 நாள் · {c['hold_until']} exit\n(alert only · not advice)", f"guc|{c['id']}")
     return 1
 
 

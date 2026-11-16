@@ -307,7 +307,7 @@ def to_calls(rows, now):
             c = _new("MCX", f"🛢 {b['name']}", rr, opt, now, day)
             if not c or c["id"] in d["calls"]:
                 continue
-            c["shadow"] = False                                           # v107: never hidden
+            c["shadow"] = bool(c.get("shadow") and str(c.get("shadow_why", "")).startswith("MCX calls after"))   # v110: only the late-MCX filter hides
             if b.get("risk_warn"):
                 c.setdefault("risk_warn", []).append(b["risk_warn"])
             c.update(grade="A" if (b["score"] >= 85 and b.get("stage") == "CONFIRMED") else "B", qcodes=[], qtext=[], mcx={"commodity": o.get("commodity"), "fut_px": r["px"]},
@@ -315,8 +315,9 @@ def to_calls(rows, now):
             d["calls"][c["id"]] = c
             mine.append(c)
             n += 1
-            tg(f"🛢 COMMODITY CALL · {o.get('commodity')} {o['strike']:g} {b['side']} (exp {o['expiry']})\n{b['name']} · score {b['score']}\n"
-               f"Entry ₹{p['entry']} · SL ₹{p['sl']} · T1/T2/T3 {' / '.join(str(t) for t in p['targets'])}\nRisk ≈ ₹{p['risk_rs']:,}/lot (paper)", f"mcx|{c['id']}")
+            if not c["shadow"]:
+                tg(f"🛢 COMMODITY CALL · {o.get('commodity')} {o['strike']:g} {b['side']} (exp {o['expiry']})\n{b['name']} · score {b['score']}\n"
+                   f"Entry ₹{p['entry']} · SL ₹{p['sl']} · T1/T2/T3 {' / '.join(str(t) for t in p['targets'])}\nRisk ≈ ₹{p['risk_rs']:,}/lot (paper)", f"mcx|{c['id']}")
         if n:
             STORE.dirty = True
             STORE.save(force=True)

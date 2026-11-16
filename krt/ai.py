@@ -103,6 +103,13 @@ def predict(f):
 def market_risk(live_q, res, now):
     """🚨 Crash / big move possible — NIFTY % · 5-நிமிட வேகம் · breadth (F&O stocks) · V4 regime / GEX."""
     npct = next((x.get("pct") for x in res.get("index") or [] if x.get("index") == "NIFTY"), 0) or 0
+    try:                                         # v110: live tick NIFTY % (≤ 30 s old) beats the deep-scan value
+        import time as _tm
+        from .calls import MARKET as _MK
+        if _MK.get("nifty_live_t") and _tm.time() - _MK["nifty_live_t"] < 30:
+            npct = _MK.get("nifty_pct") or 0
+    except Exception:
+        pass
     H = STATE["nifty_hist"]
     t = now.timestamp() if hasattr(now, "timestamp") else 0
     H.append((t, npct))
@@ -139,7 +146,7 @@ def market_dir(npct, vel, up, dn, pred=None):
         s += 1 if npct > 0 else -1
     pd_ = (pred or {}).get("dir")
     if pd_ in ("UP", "DOWN"):
-        s += 2 if pd_ == "UP" else -2
+        s += 1 if pd_ == "UP" else -1          # v110: prediction is right only ~48% of the time → 1 vote, not 2
     return "UP" if s >= 2 else "DOWN" if s <= -2 else None
 
 

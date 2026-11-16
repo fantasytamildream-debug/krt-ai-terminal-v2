@@ -788,7 +788,9 @@ def run_full(ag, prog=lambda m: None) -> dict:
     try:
         from .calls import MARKET as _MK
         _MK["trend"] = trend
-        _MK["nifty_pct"] = next((x.get("pct") for x in (idx or []) if x.get("index") == "NIFTY"), None)
+        import time as _tm
+        if not (_MK.get("nifty_live_t") and _tm.time() - _MK["nifty_live_t"] < 30):     # v110: don't overwrite the live tick value
+            _MK["nifty_pct"] = next((x.get("pct") for x in (idx or []) if x.get("index") == "NIFTY"), None)
         track = update_calls(ag, session, now, live, best, orb_up[:3] + orb_dn[:3], voi["CE"] + voi["PE"], idx, swing,
                              patterns=[p_ for p_ in pat_pick if p_["status"] in ("CONFIRMED", "TRIGGERED") and p_["vol_ratio"] >= 1.5],
                              gamma=[g for g in gamma["index"] + gamma["stocks"] if g["status"] == "TRIGGERED"],

@@ -72,4 +72,4 @@ def test_riser_detects_climb_once():
 
 def test_commodity_risk_is_warning_not_block():
     src = open("krt/commodity.py", encoding="utf-8").read()
-    assert 'b["risk_warn"] = f"⚠ risk' in src and 'c["shadow"] = False' in src
+    assert 'b["risk_warn"] = f"⚠ risk' in src and 'only the late-MCX filter hides' in src

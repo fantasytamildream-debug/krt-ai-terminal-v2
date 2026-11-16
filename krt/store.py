@@ -121,6 +121,38 @@ class Store:
         self.local.write_text(body, encoding="utf-8")
         if blocked:
             return                       # GitHub history load ஆகாம remote-ல் எழுதவே கூடாது (overwrite ஆபத்து) — dirty-ஆ இருக்கும், அடுத்த முறை
+        if self.remote and not os.getenv("PYTEST_CURRENT_TEST") and os.getenv("KRT_SYNC_SAVE") != "1":
+            # ⚡ v110: GitHub upload (3 MB, 1–30 s) runs in a background thread — it used to run inside CALLS_LOCK and froze
+            # Paper Trade clicks, status and every loop while it uploaded. Local file is already written above.
+            self._pending = body
+            self.dirty, self.last_save = False, time.time()
+            if not getattr(self, "_up_busy", False):
+                self._up_busy = True
+                threading.Thread(target=self._uploader, daemon=True).start()
+            return
+        if self.remote:
+            self._put(body)
+            if self.error:
+                return
+        self.dirty, self.last_save = False, time.time()
+
+    def _uploader(self):
+        try:
+            while getattr(self, "_pending", None) is not None:
+                body, self._pending = self._pending, None
+                self._put(body)
+                if self.error:
+                    self.dirty = True                 # retry on the next save cycle
+                    if self._pending is None:
+                        break
+        finally:
+            self._up_busy = False
+            if getattr(self, "_pending", None) is not None and not self.error:   # a save arrived while we were finishing
+                self._up_busy = True
+                threading.Thread(target=self._uploader, daemon=True).start()
+
+    def _put(self, body):
+        """GitHub PUT with sha handling (sets self.error on failure)."""
         if self.remote:
             try:
                 p = {"message": f"KRT {self.path} update", "content": base64.b64encode(body.encode("utf-8")).decode()}
@@ -141,7 +173,6 @@ class Store:
             except Exception as e:
                 self.error = f"GitHub save: {e}"
                 return
-        self.dirty, self.last_save = False, time.time()
 
 
 STORE = Store()

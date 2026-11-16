@@ -363,6 +363,25 @@ def v4_backtest(days):
         v4.STATE["bt_running"] = False
 
 
+def paper_fast_loop():
+    """⚡ v110: every 5 sec — LTP / SL / targets / P&L for OPEN calls + paper trades (one quote call)."""
+    global ANGEL
+    while True:
+        time.sleep(5)
+        try:
+            t = now_ist()
+            from krt import commodity as CM
+            if not angel_configured() or not (market_open(t) or CM.mcx_open(t)) or GOKI_RUN.get("running"):
+                continue
+            from krt.angel_api import Angel
+            from krt.calls import fast_track
+            ANGEL = ANGEL or Angel()
+            fast_track(ANGEL, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None).floor("s"))
+        except Exception:
+            traceback.print_exc()
+            time.sleep(10)
+
+
 def ticker():
     """Market நேரத்தில் 30 sec-க்கு ஒருமுறை live price / option LTP / T1-SL update (deep scan நடந்தாலும்)."""
     global ANGEL
@@ -487,7 +506,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v109"
+APP_VERSION = "v110"
 EVC = {"t": 0, "d": None}
 
 
@@ -801,6 +820,29 @@ def dhas_run(t):
 
 
 DHC = {"t": 0, "d": None}
+FLC = {"t": 0, "d": None}
+
+
+def filtered_state():
+    """🏆 v110 BEST MODE — today's calls the quality filter hid (still tracked) + proof: filtered vs shown P&L."""
+    if time.time() - FLC["t"] < 10:
+        return FLC["d"]
+    try:
+        from krt.calls import STORE as _S, BEST, breadth_now, MARKET, OPEN as _OP
+        day = str(now_ist().date())
+        cs = [c for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("kind") != "PICK" and c.get("status") != "VOID"]
+        sh = [c for c in cs if c.get("shadow")]
+        ok = [c for c in cs if not c.get("shadow")]
+        st = lambda L: {"n": len(L), "closed": sum(1 for c in L if c.get("status") not in _OP), "win": sum(1 for c in L if c.get("status") not in _OP and (c.get("pnl_lot") or 0) > 0),
+                        "net": round(sum(c.get("pnl_lot") or 0 for c in L))}
+        rows = [{k: c.get(k) for k in ("id", "time", "symbol", "strike", "side", "source", "entry", "sl", "ltp", "status", "pnl_lot", "shadow_why")}
+                for c in sorted(sh, key=lambda c: c.get("time") or "", reverse=True)]
+        b = breadth_now()
+        FLC.update(t=time.time(), d={"on": BEST["on"], "rows": rows[:80], "hidden": st(sh), "shown": st(ok), "breadth": b, "nifty": MARKET.get("nifty_pct"),
+                                     "live": bool(MARKET.get("nifty_live_t") and time.time() - MARKET["nifty_live_t"] < 30)})
+    except Exception as e:
+        FLC.update(t=time.time(), d={"err": str(e)[:150]})
+    return FLC["d"]
 
 
 def dhas_state():
@@ -841,8 +883,13 @@ def brain_run(t):
         calls = dict(D["calls"])
     BRC["t"] = 0
     if new and os.environ.get("BRAIN_AUTO_PAPER", "1") == "1":         # Brain "takes" its own picks — on PAPER only
+        day_ = str(t.date())
+        held = {(x.get("symbol"), x.get("side")) for x in calls.values() if x.get("kind") == "PICK" and x.get("date") == day_}
         for p in new:
             c = calls.get(p["id"]) or {}
+            if (c.get("symbol"), c.get("side")) in held or c.get("shadow"):
+                continue                                # v110: one paper trade per stock + side per day (no 2nd / 3rd copy)
+            held.add((c.get("symbol"), c.get("side")))
             try:
                 add_pick({**{k: c.get(k) for k in ("symbol", "side", "strike", "expiry", "contract", "token", "exch", "lot")}, "sl": c.get("sl"),
                           "from_src": "🧠 Brain", "src_modules": ["🧠 Brain"]}, c.get("ltp"), t, 1)
@@ -1264,6 +1311,12 @@ def tick_loop():
                     TICK["items"][n] = {"ltp": float(q["ltp"]), "pct": round(float(q.get("percentChange") or 0), 2),
                                         "chg": round(float(q.get("netChange") or 0), 2), "mcx": n not in INDEX_SPOT and n != "INDIA VIX"}
             TICK.update(t=real_hms(), err=None)
+            try:                                     # v110: market filters use LIVE NIFTY % (was Friday's % until the deep scan finished)
+                from krt.calls import MARKET as _MKT
+                if (TICK["items"].get("NIFTY") or {}).get("ltp") and nse:
+                    _MKT.update(nifty_pct=TICK["items"]["NIFTY"]["pct"], nifty_live_t=time.time())
+            except Exception:
+                pass
         except Exception as e:
             TICK["err"] = str(e)[:120]
             time.sleep(5)
@@ -1541,7 +1594,7 @@ class H(BaseHTTPRequestHandler):
                 **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                          "full_running", "full_last", "progress")}, "full": full_,
                 "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(),
+                "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "filtered": filtered_state(),
                 "riser": __import__("krt.riser", fromlist=["x"]).report(str(now_ist().date())),
                 "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                 "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
@@ -1657,7 +1710,7 @@ class H(BaseHTTPRequestHandler):
             c, msg = add_pick(d, ltp, pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None), d.get("lots") or 1)
             if c:
                 _snap_put(c)       # அடுத்த scan-க்கு காத்திருக்காம Paper Trade tab-ல் உடனே தெரியும்
-            return self._send(200, _json({"ok": bool(c), "msg": msg, "id": (c or {}).get("id")}))
+            return self._send(200, _json({"ok": bool(c), "msg": msg, "id": (c or {}).get("id"), "call": c}))
         if self.path == "/api/chart/scan":
             def _go():
                 try:
@@ -1820,6 +1873,7 @@ if __name__ == "__main__":
     threading.Thread(target=chart_loop, daemon=True).start()
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
+    threading.Thread(target=paper_fast_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=fable_loop, daemon=True).start()
     threading.Thread(target=light_loop, daemon=True).start()

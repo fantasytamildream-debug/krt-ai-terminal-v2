@@ -66,11 +66,13 @@ def test_index_lane_not_starved_by_stock_calls(monkeypatch):
     fs.data["calls"]["n1"] = {"id": "n1", "date": day, "symbol": "NIFTY", "side": "CE", "kind": "V4", "source": "V4 💎 VWAP Mean Reversion", "status": "OPEN", "pnl_lot": 0}
     now = pd.Timestamp(f"{day} 11:00")
     sb = {"date": day, "symbol": "NIFTY", "side": "CE", "kind": "V4", "source": "V4 ⚡ ICT Silver Bullet", "entry": 100, "sl": 90}
-    assert CL.quality_v6(sb, now) is None                                                     # Silver Bullet NIFTY still comes
+    assert CL.quality_v6(sb, now)[0] == "Q_DUP_ANY"                                            # v110: one open trade per index+side
+    CL.PROVEN.update(t=__import__("time").time(), set={"V4 ⚡ ICT Silver Bullet"})
+    assert CL.quality_v6(sb, now) is None                                                     # …unless a proven module adds it
     assert CL.quality_v6(dict(sb, symbol="SENSEX", source="V4 🥇 Order Flow + Profile"), now) is None
     st = {"date": day, "symbol": "TCS", "side": "CE", "kind": "MOVERS", "source": "Top Movers", "entry": 100, "sl": 85}
     assert CL.quality_v6(st, now) is None                                                     # v107: no daily cap — 13th stock call comes
-    assert CL.quality_v6(dict(st, symbol="STK3"), now)[0] == "Q_DUP"                          # same stock twice is still blocked
+    assert CL.quality_v6(dict(st, symbol="STK3"), now)[0].startswith("Q_DUP")                          # same stock twice is still blocked
     CL.SKIPPED.update(day=day, log=[{"time": "10:05", "symbol": "NIFTY", "source": "Index OI", "code": "Q_SL_TIGHT", "detail": ""}])
     D = CL.index_diag(fs.data, now)
     assert D["NIFTY"]["calls"][0]["source"].startswith("V4") and D["NIFTY"]["rejects"][0]["code"] == "Q_SL_TIGHT" and D["SENSEX"]["calls"] == []
