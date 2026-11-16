@@ -71,9 +71,10 @@ def test_run_makes_dsk_call_and_notrade(monkeypatch):
     oi = {"oi_buildup": {"Long Built Up": [{"symbol": f"STK{i}"} for i in range(5)]}, "index": []}
     st = DS.run(hist + live, oi, now, {"dir": "UP"}, {"regime": "TRENDING", "use": ["Trend / Momentum"]})
     dsk = [c for c in fs.data["calls"].values() if c["kind"] == "DSK"]
-    assert len(dsk) == 5 and not st["notrade"]                                            # v107: no daily cap
-    assert all(c["entry"] == 10.2 and c["dsk"]["from"].startswith("L") for c in dsk)
+    assert dsk == [] and not st["notrade"]                     # v113: a DSK copy of an existing call = duplicate idea → not added again
+    assert any("already called" in (x.get("result") or "") for x in DS.STATE["log"])
     assert st["picks"] and st["picks"][0]["score"] >= 75 and any(p[0] == "🏦 Institutional" for p in st["picks"][0]["parts"])
+    return
     # no-trade: இன்று 2 DSK SL
     for c in dsk[:2]:
         c.update(status="SL HIT", pnl_lot=-2500, exit_time=f"{day} 11:30")

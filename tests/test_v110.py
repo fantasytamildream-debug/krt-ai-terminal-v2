@@ -145,3 +145,48 @@ def test_store_upload_is_async(monkeypatch, tmp_path):
         time.sleep(0.05)
     time.sleep(0.1)
     assert seen == ["s1"] and st.sha == "s2"
+
+
+def test_status_is_cached_shared_and_gzipped(monkeypatch):
+    import gzip
+    import io
+    import json
+    import server
+    server.STC.update(t=0, b=None, gz=None)
+
+    class H(server.Handler if hasattr(server, "Handler") else object):
+        pass
+    h = object.__new__([c for c in vars(server).values() if isinstance(c, type) and hasattr(c, "_send_status")][0])
+    out = io.BytesIO()
+    sent = {}
+    h.wfile, h.path = out, "/api/status"
+    h.headers = {"Accept-Encoding": "gzip, deflate"}
+    h.send_response = lambda code: sent.setdefault("code", code)
+    h.send_header = lambda k, v: sent.__setitem__(k, v)
+    h.end_headers = lambda: None
+    h.do_GET() if not hasattr(h, "_do_GET") else h._do_GET()
+    assert sent.get("Content-Encoding") == "gzip" and json.loads(gzip.decompress(out.getvalue()))["version"] == server.APP_VERSION
+    t0 = server.STC["t"]
+    out.truncate(0)
+    out.seek(0)
+    h.do_GET() if not hasattr(h, "_do_GET") else h._do_GET()
+    assert server.STC["t"] == t0                                                      # second poll within 3 s → same cached bytes
+    assert server.mem_guard("test") > 0
+
+
+def test_v113_market_ok_bigplayer_and_coach(fs, monkeypatch):
+    from krt import bigplayer as BPL, coach as CO
+    monkeypatch.setattr(CL, "breadth_now", lambda: (69, 148))
+    assert "breadth" in CL.market_ok({"symbol": "ITC", "side": "CE", "vol_ratio": 2})
+    assert CL.market_ok({"symbol": "NIFTY", "side": "CE"}) is None
+    rows = [{"symbol": "ITC", "side": "CE", "kind": "Long Built Up", "oi_chg_pct": 4.9, "accel": 0.8, "vr": 2.6, "pct": 1.2, "flow": "buyers adding"},
+            {"symbol": "TCS", "side": "CE", "kind": "Short Covering", "oi_chg_pct": -3, "vr": 2, "pct": 2}]
+    R = BPL.radar(rows, [{"symbol": "ITC", "side": "CE", "status": "NEAR", "level": 293.2}],
+                  [{"symbol": "ITC", "side": "CE", "strike": 295, "entry": 5.1, "sl": 3.9, "targets": [7, 8], "expiry": "2026-11-25"}], [], (150, 60), 0.5)
+    assert len(R) == 1 and R[0]["symbol"] == "ITC" and R[0]["score"] >= 75 and "CE strike 295" in R[0]["action"] and R[0]["plan"]["strike"] == 295
+    c = {"status": "OPEN", "entry": 10, "sl": 8, "targets": [12, 14], "ltp": 10.1, "vol_ratio": 3, "side": "CE"}
+    assert CO.advise(c, None, "CE", {"state": "RISING"}, True)["tag"] == "JACKPOT"
+    assert CO.advise(dict(c, ltp=10.9), None)["tag"] == "WAIT"
+    assert CO.advise(c, "breadth 69 up / 148 down")["tag"] == "AVOID"
+    assert CO.advise(dict(c, ltp=10.6, max_ltp=11.5), None)["tag"] == "EXIT"
+    assert CO.advise(dict(c, status="T1 HIT", hits=["T1 10:30"], ltp=12.2), None)["tag"] == "HOLD"

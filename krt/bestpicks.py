@@ -106,6 +106,9 @@ def run(D, now, sniper_rows, charts_table, lab_auto, levels, live_q, guides, pro
     for c in calls:
         if c.get("date") != day or c.get("status") not in OPEN or c.get("shadow") or c.get("kind") == "PICK":
             continue
+        from .calls import market_ok as _mok
+        if c["id"] not in J and _mok(c):              # v113: a NEW pick must pass the live market check (old picks stay tracked)
+            continue
         q = sq.get(c["id"]) or {}
         ul = ((live_q or {}).get(c["symbol"]) or {}).get("ltp") or c.get("ul_price")
         r = score_one(c, q, ct.get(c["id"]), (lab_auto or {}).get(c["id"]), (levels or {}).get(c["symbol"]), ul, (guides or {}).get(c["symbol"]),

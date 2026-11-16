@@ -19,12 +19,18 @@ def candidates(calls, now):
         cv = ((e.get("chain") or {}).get("verdict")) or ""
         if e.get("status") != "OK" or (e.get("confidence") or 0) < CFG["min_conf"] or cv.startswith("⛔") or not e.get("token"):
             continue
+        from .calls import market_ok as _mok
+        if _mok({"symbol": e["symbol"], "side": e["side"], "vol_ratio": e.get("vr") or e.get("vol_ratio"), "exch": e.get("exch")}):
+            continue
         out.append({"src": e.get("src"), "symbol": e["symbol"], "side": e["side"], "strike": e.get("strike"), "expiry": e.get("expiry"), "lot": e.get("lot"),
                     "token": e["token"], "exch": e.get("exch", "NFO"), "contract": e.get("contract"), "entry": e.get("ltp") or e.get("entry"), "sl": e.get("sl"),
                     "targets": list(e.get("targets") or []), "conf": e.get("confidence"), "why": [w for w in [e.get("text")] + list(e.get("why") or [])[:2] if w],
                     "chain": cv})
     for c in calls:
         if c.get("date") != day or c.get("status") != "OPEN" or c.get("shadow") or c.get("kind") == "PICK" or c.get("exch") == "MCX" or not c.get("token"):
+            continue
+        from .calls import market_ok as _mok
+        if _mok(c):                                  # v113: re-check the live market (breadth / NIFTY / stock-PE rule) at pick time
             continue
         conf = None
         if c.get("kind") == "DSK":

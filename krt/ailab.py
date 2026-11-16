@@ -576,9 +576,16 @@ def report(calls, full, risk):
     from .calls import STORE
     byid = {c["id"]: c for c in calls}
     day = max((c.get("date") or "" for c in calls), default="")
+    oi_ = oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"), [c for c in calls if c.get("date") == day], (risk or {}).get("dir"))
+    try:
+        from .bigplayer import radar
+        from .calls import breadth_now, MARKET
+        big = radar(oi_, (STATE.get("prebreak") or {}).get("rows"), (STATE.get("enter") or {}).get("rows"), [c for c in calls if c.get("date") == day],
+                    breadth_now(), MARKET.get("nifty_pct"))
+    except Exception as e:
+        big = [{"symbol": "—", "side": "", "score": 0, "stage": "ERR", "why": [str(e)[:80]], "action": "radar error", "against": False}]
     return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "enter": STATE.get("enter") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
-            "oi": oi_flow((full or {}).get("oi_buildup"), FS.C.get("live_q"), [c for c in calls if c.get("date") == day], (risk or {}).get("dir")),
-            "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
+            "oi": oi_, "big": big, "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
 
 
 # ───────────────────────── 🤖 AUTO LAB — ஒவ்வொரு call-க்கும் தானா history check ─────────────────────────

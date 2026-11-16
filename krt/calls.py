@@ -375,6 +375,30 @@ def best_gate(c, d, now):
     return None
 
 
+def market_ok(c):
+    """🛡 v113: the LIVE market check, re-run at the moment a pick / Call of the Day / Brain paper / DSK / Machine takes a call
+    (a call made when breadth was fine may be picked later when it has turned). → None (ok) or a reason."""
+    if not BEST["on"] or c.get("exch") == "MCX" or c.get("symbol") in IDX_SYMS:
+        return None
+    vr = c.get("vol_ratio")
+    if vr is not None and float(vr) < 1.5:
+        return f"volume only {vr}×"
+    np_ = MARKET.get("nifty_pct") or 0
+    side = c.get("side")
+    if (side == "CE" and np_ <= -BEST["counter"]) or (side == "PE" and np_ >= BEST["counter"]):
+        return f"NIFTY {np_:+.2f}% against the trade"
+    b = breadth_now()
+    if b:
+        up, dn = b
+        if side == "CE" and up < dn * BEST["breadth_min"]:
+            return f"breadth {up} up / {dn} down — most stocks falling"
+        if side == "PE" and not (np_ <= -0.3 and dn >= 1.5 * up):
+            return f"stock PE only on a clear down day (breadth {up}/{dn}, NIFTY {np_:+.2f}%)"
+    elif side == "PE":
+        return "stock PE only on a clear down day"
+    return None
+
+
 def quality_v6(c, now):
     """→ None (pass) அல்லது (code, காரணம்)."""
     if BEST["on"] and c.get("kind") in ("MCX", "MANNAN-CMD") and now.hour * 60 + now.minute >= 13 * 60 + 30:

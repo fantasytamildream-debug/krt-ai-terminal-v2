@@ -309,6 +309,13 @@ def run(calls, full, now, risk=None, brain=None, live=True):
             for r in [r for r in rows if r["stage"] == "CONFIRMED"]:
                 if len(mine) >= CFG["max_day"] or any(x["symbol"] == r["symbol"] for x in mine):
                     continue
+                from .calls import best_gate as _bg, market_ok as _mok
+                probe = {"date": day, "symbol": r["symbol"], "side": r["side"], "kind": "DSK", "source": "🎯 DSK", "exch": r.get("exch") or "NFO",
+                         "vol_ratio": (D["calls"].get(r.get("id") or "") or {}).get("vol_ratio")}
+                why_ = _mok(probe) or (_bg(probe, D, now) or (None, None))[1]
+                if why_:                                    # v113: DSK used to bypass the quality gate (ABB PE / APLAPOLLO CE leaked)
+                    STATE["log"].insert(0, {"time": hm, "symbol": r["symbol"], "result": f"⛔ skipped — {why_}"})
+                    continue
                 if r.get("enter"):                          # ENTER list item → நேரடி DSK call (strike + plan ஏற்கனவே)
                     e = r["enter"]
                     ltp_ = e.get("ltp") or e["entry"]

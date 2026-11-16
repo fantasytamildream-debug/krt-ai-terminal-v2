@@ -2062,16 +2062,17 @@ def _machine_pool(rows):
     from .store import STORE
     from .calls import OPEN as _OPEN
     pool = []
-    for a in rows:
-        o = a.get("option") or {}
-        if (o.get("plan") or {}).get("entry") and o.get("token"):
-            pool.append(dict(src="AR", a=a, o=o, lv=a.get("live") or {}))
+    # v113: All rounder rows are no longer machine candidates (All rounder won ~10% of its calls) — only today's shown calls
+    #       from modules that passed the Best Mode gate, re-checked against the live market.
     now = _now()
     day = str(now.date())
     edge = (STORE.data or {}).get("edge") or {}
     for c in ((STORE.data or {}).get("calls") or {}).values():
-        if (c["date"] != day or c["status"] not in _OPEN or c.get("shadow") or c.get("hold_until") or c["kind"] == "MACHINE"
+        if (c["date"] != day or c["status"] not in _OPEN or c.get("shadow") or c.get("hold_until") or c["kind"] in ("MACHINE", "PICK")
                 or c.get("grade") not in ("A", "B") or c["hits"]):
+            continue
+        from .calls import market_ok as _mok
+        if _mok(c):
             continue
         srcs = c.get("sources") or [c.get("source")]
         if all(edge.get(s_) == "NEGATIVE" for s_ in srcs):
@@ -2131,8 +2132,8 @@ def machine_pick(rows, res):
             sc += 15; why.append(f"Volume {vr}×")
         elif vr >= 1.5:
             sc += 8
-        elif vr < 1.0:
-            bad.append(f"Volume {vr}× மிகக் குறைவு")
+        elif vr < 1.5:
+            bad.append(f"Volume {vr}× too low (needs 1.5×)")
         else:
             soft.append(f"Volume {vr}×")
         if lv.get("entry_now"):
@@ -2150,7 +2151,9 @@ def machine_pick(rows, res):
         if "SL_TIGHT" in rc:
             bad.append("Lot பெரிசு — ₹2,500 SL மிக நெருக்கம்")
         if not (a.get("pro_chk") or {}).get("NIFTY direction எதிர் இல்லை", True):
-            soft.append("NIFTY direction எதிர்")
+            bad.append("against NIFTY direction")          # v113: hard skip (was a soft −8)
+        if neg and not pos:
+            bad.append("from a losing setup: " + ", ".join(neg))
         sc = max(0, min(100, sc - 8 * len(soft) - 20 * len(bad)))
         t1_hit = (lv.get("t_hits") or [False])[0] or ltp >= tg_[0]
         if bad:
