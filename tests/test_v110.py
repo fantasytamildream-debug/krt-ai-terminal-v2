@@ -190,3 +190,22 @@ def test_v113_market_ok_bigplayer_and_coach(fs, monkeypatch):
     assert CO.advise(c, "breadth 69 up / 148 down")["tag"] == "AVOID"
     assert CO.advise(dict(c, ltp=10.6, max_ltp=11.5), None)["tag"] == "EXIT"
     assert CO.advise(dict(c, status="T1 HIT", hits=["T1 10:30"], ltp=12.2), None)["tag"] == "HOLD"
+
+
+def test_v114_bigvol_spikes_and_radar_boost():
+    import numpy as np
+    from krt import bigvol as BV, bigplayer as BPL
+    idx = pd.date_range("2026-11-16 09:15", periods=30, freq="15min")
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0}, index=idx)
+    df.iloc[25, [3, 4]] = [100.9, 5000]          # close near the high + 5× volume → BUY spike
+    df.iloc[28, [3, 4]] = [100.8, 9000]
+    sp = BV.spikes(df)
+    assert sp[0]["side"] == "BUY" and sp[0]["mult"] >= 2.5 and len(sp) == 2
+    bias, label, td = BV.verdict(sp, "2026-11-16")
+    assert bias == "CE" and "big buyers" in label and len(td) == 2
+    BV.CACHE["ITC"] = (__import__("time").time(), {"symbol": "ITC", "spikes": sp, "bias": bias, "label": label, "today": td})
+    rows = [{"symbol": "ITC", "side": "CE", "kind": "Long Built Up", "oi_chg_pct": 2.5, "vr": 1.6, "pct": 1.0},
+            {"symbol": "ITC", "side": "PE", "kind": "Short Built Up", "oi_chg_pct": 2.5, "vr": 1.6, "pct": -1.0}]
+    R = {r["side"]: r for r in BPL.radar(rows, [], [], [], (120, 80), 0.3)}
+    assert R["CE"]["score"] - R["PE"]["score"] >= 30 and any("🐋" in w for w in R["CE"]["why"]) and R["CE"]["bigvol"]
+    BV.CACHE.clear()

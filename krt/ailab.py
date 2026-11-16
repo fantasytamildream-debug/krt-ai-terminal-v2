@@ -584,8 +584,13 @@ def report(calls, full, risk):
                     breadth_now(), MARKET.get("nifty_pct"))
     except Exception as e:
         big = [{"symbol": "—", "side": "", "score": 0, "stage": "ERR", "why": [str(e)[:80]], "action": "radar error", "against": False}]
+    try:
+        from .bigvol import STATE as _BV
+        bigvol = {"time": _BV.get("time"), "rows": _BV.get("rows") or []}
+    except Exception:
+        bigvol = {}
     return {"prebreak": STATE["prebreak"], "auto": STATE.get("auto") or {}, "enter": STATE.get("enter") or {}, "battle": b, "learning": learning(calls), "brain": regime_brain(full, risk, b),
-            "oi": oi_, "big": big, "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
+            "oi": oi_, "big": big, "bigvol": bigvol, "picks": picks_journal(byid, STORE.load().get("ailab_picks") or {})}
 
 
 # ───────────────────────── 🤖 AUTO LAB — ஒவ்வொரு call-க்கும் தானா history check ─────────────────────────

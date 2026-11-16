@@ -2283,10 +2283,18 @@ function bigHTML(s){ const B=(s.lab||{}).big||[]; const sc={"BREAKING OUT":"#22c
    ${B.length?`<div class="cards">${B.map(r=>`<div class="rrow" style="border:2px solid ${r.against?"#ef4444":sc[r.stage]||"var(--line)"}">
      <div class="ctop"><b class="${r.side==='CE'?'up':'dn'}">${esc(r.symbol)} → ${r.side}${r.plan&&r.plan.strike?` ${n2(r.plan.strike)}`:""}</b><span class="hint"><b style="color:${sc[r.stage]||"#94a3b8"}">${esc(r.stage)}</b> · score <b>${r.score}</b>/100</span></div>
      <div class="hint">${(r.why||[]).map(esc).join(" · ")}</div>${r.flow?`<div class="hint">${esc(r.flow)}</div>`:""}
+     ${(r.bigvol||[]).length?`<div class="hint">🐋 ${r.bigvol.map(v=>`<b style="color:${v.side==="BUY"?"#22c55e":v.side==="SELL"?"#ef4444":"#f59e0b"}">${esc(v.side)}</b> ${v.mult}× ${esc(v.time.slice(5))}`).join(" · ")}</div>`:""}
      ${r.plan?`<div class="cprow"><span>Entry <b>₹${n2(r.plan.entry??r.plan.ltp)}</b></span><span>SL <b class="dn">₹${n2(r.plan.sl)}</b></span><span>T <b class="up">${(r.plan.targets||[]).map(n2).join(" / ")}</b></span><span class="hint">exp ${esc(r.plan.expiry||"")} · ${esc(r.plan.from||"")}</span></div>`:""}
      <div style="margin-top:3px"><b>${esc(r.action)}</b></div>
      ${r.plan&&r.plan.id?paperBtn(r.plan.id,true):""}</div>`).join("")}</div>`:'<div class="hint">No fresh build-up with volume right now (needs Long / Short Built Up with OI rising). Updates every few minutes during market hours.</div>'}
+   ${bigVolHTML(s)}
    <div class="hint">OI + volume show large positions being built — they can't prove who traded, and a breakout can fail. Size by the SL.</div></div>`; }
+function bigVolHTML(s){ const V=((s.lab||{}).bigvol||{}), R=V.rows||[]; const col=x=>x==="BUY"?"#22c55e":x==="SELL"?"#ef4444":"#f59e0b";
+  return `<details ${R.length?"open":""} style="margin-top:6px"><summary><b>🐋 Big-player volume (15-min spikes)</b> <small class="hint">${esc(V.time||"")} · spike = volume ≥2.5× the 20-candle average and the biggest of the last 20 · BUY / SELL / ABSORB from where the candle closed</small></summary>
+   ${R.length?simpleTbl(R,[["Stock",r=>`<b>${esc(r.symbol)}</b>`],["Big players",r=>`<b class="${r.bias==="CE"?"up":r.bias==="PE"?"dn":""}">${r.bias?r.bias+" side":"—"}</b><div class="hint">${esc(r.label)}</div>`],
+     ["Today",r=>(r.today||[]).length?r.today.map(v=>`<b style="color:${col(v.side)}">${esc(v.side)}</b> ${v.mult}× ${esc(v.time.slice(11))}`).join("<br>"):'<span class="hint">none today</span>'],
+     ["Recent spikes",r=>(r.spikes||[]).slice(0,4).map(v=>`<span style="color:${col(v.side)}">${esc(v.side)}</span> ${v.mult}× ₹${n2(v.price)} <small class="hint">${esc(v.time.slice(5))}</small>`).join("<br>")]])
+    :'<div class="hint">Scanning during market hours (every 5 min, OI-buildup + pre-breakout + open-call stocks).</div>'}</details>`; }
 function labHTML(s){
   LABSTRK=[];
   const A=s.lab||{}, PB=(A.prebreak||{}), BR=A.brain||{}, BT=A.battle||{}, LE=A.learning||{}, OI=A.oi||[];
@@ -3313,7 +3321,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v113";
+const APPV="v114";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

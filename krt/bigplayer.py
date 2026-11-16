@@ -56,6 +56,23 @@ def radar(oi_rows, prebreak_rows, enter_rows, calls, breadth=None, nifty_pct=Non
             why.append(f"price only {pct:+.2f}% — still quiet")
         if late:
             sc -= 15
+        bv = None
+        try:
+            from .bigvol import get as _bvget
+            bv = _bvget(sym)
+        except Exception:
+            bv = None
+        if bv and bv.get("spikes"):
+            sp0 = bv["spikes"][0]
+            if bv.get("bias") == side:
+                sc += 20
+                why.append(f"🐋 {bv['label']} (last {sp0['side']} {sp0['mult']}× at {sp0['time'][11:]})")
+            elif bv.get("bias") and bv["bias"] != side:
+                sc -= 20
+                why.append(f"🐋 big-player volume on the OTHER side ({bv['label']})")
+            elif "absorption" in (bv.get("label") or ""):
+                sc += 8
+                why.append("🐋 absorption spikes — big volume, price held")
         p = pb.get(sym)
         brk = False
         if p and p.get("side") == side:
@@ -99,6 +116,7 @@ def radar(oi_rows, prebreak_rows, enter_rows, calls, breadth=None, nifty_pct=Non
         else:
             act = "⚪ Early / weak — not enough evidence yet."
         out.append({"symbol": sym, "side": side, "score": sc, "stage": stage, "why": why, "action": act, "plan": plan, "level": lvl,
+                    "bigvol": (bv or {}).get("spikes", [])[:3],
                     "pct": pct, "vr": vr, "oi_chg_pct": r.get("oi_chg_pct"), "flow": r.get("flow"), "against": against})
     out.sort(key=lambda x: (x["stage"] == "LATE", x["against"], -x["score"]))
     return out[:15]
