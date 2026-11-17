@@ -2866,14 +2866,15 @@ function jvAlertsUI(s){ const A=s.jv_alerts||[]; let b=document.getElementById("
     document.body.appendChild(b);
     const p=document.createElement("div"); p.id="jvaPanel"; p.style.cssText="display:none;position:fixed;right:16px;bottom:126px;width:min(520px,92vw);max-height:70vh;overflow:auto;z-index:9999;background:#0f172a;border:2px solid #38bdf8;border-radius:14px;padding:12px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.6)";
     document.body.appendChild(p); }
-  const col=a=>a.k==="adv"?"#fbbf24":a.side==="BUY"||a.side==="CE"?"#22c55e":a.side==="SELL"||a.side==="PE"?"#ef4444":a.side==="ABSORB"?"#f59e0b":"#94a3b8";
+  const col=a=>a.k==="combo"?"#fde047":a.k==="adv"?"#fbbf24":a.side==="BUY"||a.side==="CE"?"#22c55e":a.side==="SELL"||a.side==="PE"?"#ef4444":a.side==="ABSORB"?"#f59e0b":"#94a3b8";
   const keys=A.map(a=>a.t+a.txt); if(JVA_SEEN===null) JVA_SEEN=new Set(keys);
-  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)); fresh.slice(0,3).forEach(a=>{ try{ toast((a.k==="adv"?"🐋 ADVANCE · ":"🐋 ")+a.txt); }catch(e){}
+  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)); fresh.slice(0,3).forEach(a=>{ try{ toast((a.k==="combo"?"🟡 JARVIS · ":a.k==="adv"?"🐋 ADVANCE · ":"🐋 ")+a.txt); }catch(e){}
     try{ if(window.Notification&&Notification.permission==="granted") new Notification("🐋 JARVIS "+a.t, {body:a.txt}); }catch(e){} }); keys.forEach(k=>JVA_SEEN.add(k));
   b.innerHTML=`🐋 JARVIS ${A.length?`<span style="background:#ef4444;border-radius:10px;padding:0 6px;font-size:11px">${A.length}</span>`:""}`;
   document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">big players + every new call · today</span></div>
    <div class="hint" style="margin:4px 0"><a href="#" onclick="try{Notification.requestPermission()}catch(e){};return false">🔔 enable notifications</a></div>
-   ${A.length?A.map(a=>`<div style="padding:5px 0;border-bottom:1px solid #1e293b"><span class="hint">${esc(a.t)}</span> <b style="color:${col(a)}">${a.k==="whale"?"🐋":a.k==="adv"?"🐋⭐":"📣"}</b> <span style="color:${col(a)}">${esc(a.txt)}</span> <small class="hint">${esc(a.d||"")}</small></div>`).join(""):'<div class="hint">No alerts yet today.</div>'}`; }
+   ${A.length?A.map(a=>a.k==="combo"?`<div style="padding:7px;margin:5px 0;border:2px solid #fde047;border-radius:10px;background:rgba(253,224,71,.12)"><b style="color:#fde047;font-size:14px">🟡 JARVIS: ${esc(a.txt)}</b> <small class="hint">${esc(a.d||"")}</small>${a.id?" "+paperBtn(a.id,true):""}</div>`
+     :`<div style="padding:5px 0;border-bottom:1px solid #1e293b"><span class="hint">${esc(a.t)}</span> <b style="color:${col(a)}">${a.k==="whale"?"🐋":a.k==="adv"?"🐋⭐":"📣"}</b> <span style="color:${col(a)}">${esc(a.txt)}</span> <small class="hint">${esc(a.d||"")}</small></div>`).join(""):'<div class="hint">No alerts yet today.</div>'}`; }
 function jarvisHTML(s){
   const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
@@ -2885,6 +2886,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${(s.jv_alerts||[]).filter(a=>a.k==="combo").length?`<div class="labbox" style="border:3px solid #fde047;background:rgba(253,224,71,.08);font-size:13.5px"><h2 style="color:#fde047">🟡 JARVIS: BUY — call + big players on the same side</h2>${(s.jv_alerts||[]).filter(a=>a.k==="combo").slice(0,8).map(a=>`<div style="margin:5px 0"><b>${esc(a.t)}</b> · <b style="color:#fde047">${esc(a.txt)}</b> ${a.id?paperBtn(a.id,true):""}</div>`).join("")}<div class="hint">A module's call AND a big-player BUY (CE) / SELL (PE) spike on the same stock today. Still follow the SL.</div></div>`:""}
    ${SX("advHTML",()=>advHTML(s))}
    ${SX("jvVerdictHTML",()=>jvVerdictHTML(s))}
    ${SX("brainHTML",()=>jbBrainHTML(s))}
@@ -3405,7 +3407,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v118";
+const APPV="v119";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

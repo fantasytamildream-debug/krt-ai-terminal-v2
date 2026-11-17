@@ -368,7 +368,9 @@ def bigvol_loop():
     """🐋 v115: every minute — whole F&O market 15-min big-player volume sweep (only after a new candle closes) + all MCX commodities."""
     from krt import commodity as CM
     while True:
-        time.sleep(60)
+        n_ = pd.Timestamp.now(tz="Asia/Kolkata")         # v119: wake 15 s after every 5-min candle closes → whole market at once
+        nxt = n_.floor("5min") + pd.Timedelta(minutes=5, seconds=15)
+        time.sleep(max(5.0, (nxt - n_).total_seconds()))
         try:
             t = now_ist()
             nse, mcx = market_open(t), CM.mcx_open(t)
@@ -389,7 +391,11 @@ def bigvol_loop():
             inst_ = load_inst(ROOT / "data" / "cache")
             t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
             BV.sweep(ANGEL, inst_, t0, list(dict.fromkeys(pri)), _b, mcx_only=not nse)
-            if nse and t0.minute % 5 == 1 and "09:20" <= t0.strftime("%H:%M") <= "14:30":     # 🐋 v118: advance calls every 5 min
+            try:
+                jv_combo_push(_b)                         # 🟡 v119: big players + an open call on the same side → yellow BUY alert
+            except Exception:
+                traceback.print_exc()
+            if nse and "09:20" <= t0.strftime("%H:%M") <= "14:30":     # 🐋 v118: advance calls every 5 min
                 from krt import advance as ADV
                 from krt.calls import market_ok
                 ADV.run(ANGEL, inst_, t0, oi, BV.get, FSm.C.get("live_q") or {}, market_ok, _b)
@@ -541,7 +547,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v118"
+APP_VERSION = "v119"
 EVC = {"t": 0, "d": None}
 
 
@@ -848,6 +854,44 @@ def adv_state():
         return {"err": str(e)[:100]}
 
 
+JVC = {"pushed": set()}
+
+
+def jv_combos():
+    """🟡 Big-player spike TODAY on a stock that has an OPEN call on the same side (BUY→CE, SELL→PE) → strongest alert."""
+    from krt import bigvol as BV
+    from krt.calls import STORE as _S, OPEN as _OP
+    day = str(now_ist().date())
+    calls = [c for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("status") in _OP and not c.get("shadow")
+             and c.get("kind") != "PICK"]
+    by = {}
+    for c in calls:
+        by.setdefault((c["symbol"], c["side"]), c)
+    out = []
+    for r in BV.FEED.values():
+        if r["date"] != day or r["side"] not in ("BUY", "SELL"):
+            continue
+        c = by.get((r["symbol"], "CE" if r["side"] == "BUY" else "PE"))
+        if not c:
+            continue
+        out.append({"key": f"{c['id']}|{r['time']}", "t": r["time"][11:16], "d": day, "k": "combo", "side": c["side"], "id": c["id"],
+                    "txt": f"BUY {c['symbol']} {c.get('strike') or ''} {c['side']} — {c.get('source')} call + big {r['side']} {r['mult']}× at {r['time'][11:16]} "
+                           f"@ ₹{r['price']:g} · entry ₹{c.get('entry')} · SL ₹{c.get('sl')} · T1 ₹{(c.get('targets') or ['–'])[0]} · LTP ₹{c.get('ltp')}"})
+    out.sort(key=lambda a: a["t"], reverse=True)
+    return out
+
+
+def jv_combo_push(send):
+    for a in jv_combos():
+        if a["key"] in JVC["pushed"]:
+            continue
+        JVC["pushed"].add(a["key"])
+        try:
+            send("🟡 JARVIS: " + a["txt"], "combo|" + a["key"], True)
+        except Exception:
+            pass
+
+
 def jv_alerts():
     """🔔 v118 JARVIS alert feed (like the bell panel): big-player spikes + every new call today, newest first."""
     out = []
@@ -869,7 +913,11 @@ def jv_alerts():
     except Exception as e:
         out.append({"t": "", "d": "", "k": "err", "txt": str(e)[:80]})
     out.sort(key=lambda a: a["t"], reverse=True)
-    return out[:80]
+    try:
+        out = jv_combos()[:20] + out                      # 🟡 combos always on top
+    except Exception:
+        pass
+    return out[:100]
 
 
 def jbrain_state():

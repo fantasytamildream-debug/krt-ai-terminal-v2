@@ -11,7 +11,7 @@ import time
 
 import pandas as pd
 
-CFG = {"mult": 2.5, "look": 20, "days": 3, "iv": "FIVE_MINUTE", "bar": 5, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 40, "feed_days": 2, "feed_max": 600, "push_mult": 5.0}
+CFG = {"mult": 2.5, "look": 20, "days": 3, "iv": "FIVE_MINUTE", "bar": 5, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 260, "feed_days": 2, "feed_max": 600, "push_mult": 5.0}
 FEED = {}                # "SYM|time" → spike row (whole F&O market + MCX) for the JARVIS 🐋 table
 SW = {"cursor": 0, "time": None, "scanned": 0, "universe": 0, "pushed": set()}
 CACHE = {}               # symbol → (ts, result)
@@ -164,7 +164,11 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             if not tok:
                 continue
             try:
-                df = ag.candles("NSE", tok, CFG["iv"], now - pd.Timedelta(days=CFG["days"]), now)
+                try:
+                    df = ag.candles("NSE", tok, CFG["iv"], now - pd.Timedelta(days=CFG["days"]), now)
+                except Exception:
+                    time.sleep(1.0)                   # rate-limit hiccup → one retry so no stock is missed
+                    df = ag.candles("NSE", tok, CFG["iv"], now - pd.Timedelta(days=CFG["days"]), now)
                 df = df[df.index <= lc] if df is not None and len(df) else df          # only CLOSED candles
                 sp = spikes(df)
                 bias, label, td = verdict(sp, str(now.date()))
@@ -176,7 +180,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             n += 1
             if sym in uni:
                 SW["cursor"] = (uni.index(sym) + 1) % max(len(uni), 1)
-            time.sleep(0.4)                           # Angel candle-API rate limit
+            time.sleep(0.34)                          # Angel candle-API limit ≈3/s → whole market in ~80 s
     try:
         from .commodity import FR as _MFR
         for name, v in list(_MFR.items()):

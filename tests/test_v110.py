@@ -305,3 +305,23 @@ def test_v118_advance_candidates_and_5min_spikes():
     assert not rows and watch and "late" in " ".join(watch[0]["why_not"])
     rows, _ = ADV.candidates(oi, lambda s: bv, {"PGEL": {"ltp": 100.6, "pct": 1.2}}, pd.Timestamp("2026-11-17 14:30"))
     assert rows == []                                        # spike older than 60 min → not fresh
+
+
+def test_v119_combo_alert(monkeypatch):
+    import server
+    from krt import bigvol as BV, calls as CL
+    from tests.test_mannan import FakeStore
+    f = FakeStore()
+    monkeypatch.setattr(CL, "STORE", f)
+    day = str(server.now_ist().date())
+    f.data["calls"] = {"c1": {"id": "c1", "date": day, "symbol": "POLICYBZR", "side": "PE", "strike": 1040, "status": "OPEN", "kind": "INTRADAY",
+                              "source": "5-min ORB", "entry": 30, "sl": 25, "targets": [35], "ltp": 31}}
+    BV.FEED.clear()
+    BV.FEED["POLICYBZR|x"] = {"symbol": "POLICYBZR", "exch": "NSE", "time": f"{day} 13:40", "date": day, "side": "SELL", "mult": 3.2, "price": 1044.6, "opt": None}
+    BV.FEED["TCS|x"] = {"symbol": "TCS", "exch": "NSE", "time": f"{day} 13:40", "date": day, "side": "BUY", "mult": 3.2, "price": 2400, "opt": None}
+    C = server.jv_combos()
+    assert len(C) == 1 and C[0]["txt"].startswith("BUY POLICYBZR 1040 PE") and "big SELL 3.2× at 13:40" in C[0]["txt"]
+    sent = []
+    server.jv_combo_push(lambda *a: sent.append(a)); server.jv_combo_push(lambda *a: sent.append(a))
+    assert len(sent) == 1 and server.jv_alerts()[0]["k"] == "combo"
+    BV.FEED.clear()
