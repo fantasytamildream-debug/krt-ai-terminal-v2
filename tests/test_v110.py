@@ -209,3 +209,36 @@ def test_v114_bigvol_spikes_and_radar_boost():
     R = {r["side"]: r for r in BPL.radar(rows, [], [], [], (120, 80), 0.3)}
     assert R["CE"]["score"] - R["PE"]["score"] >= 30 and any("🐋" in w for w in R["CE"]["why"]) and R["CE"]["bigvol"]
     BV.CACHE.clear()
+
+
+def test_v115_whole_market_sweep_feed_and_strike():
+    from krt import bigvol as BV
+    BV.CACHE.clear(); BV.FEED.clear(); BV.SW.update(cursor=0, pushed=set())
+    idx = pd.date_range("2026-11-17 09:15", periods=30, freq="15min")
+
+    def mk(buy):
+        df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0}, index=idx)
+        df.iloc[26, [3, 4]] = [100.9 if buy else 99.1, 9000]
+        return df
+
+    class AG:
+        n = 0
+
+        def candles(self, ex, tok, iv, a, b):
+            AG.n += 1
+            return mk(tok == "1")
+    inst = {"fno": ["ITC", "TCS"], "eq": {"ITC": "1", "TCS": "2"},
+            "opts": {"ITC": [["t1", "ITC25NOV300CE", "2026-11-25", 300.0, "CE", 1600, "NFO"], ["t2", "ITC25NOV300PE", "2026-11-25", 300.0, "PE", 1600, "NFO"]],
+                     "TCS": [["t3", "TCS25NOV100PE", "2026-11-25", 100.0, "PE", 175, "NFO"]]}}
+    sent = []
+    now = pd.Timestamp("2026-11-17 16:20")
+    BV.sweep(AG(), inst, now, send=lambda *a: sent.append(a))
+    R = BV.feed_report()
+    by = {r["symbol"]: r for r in R["rows"]}
+    assert by["ITC"]["side"] == "BUY" and by["ITC"]["opt"]["side"] == "CE" and by["ITC"]["opt"]["strike"] == 300
+    assert by["TCS"]["side"] == "SELL" and by["TCS"]["opt"]["side"] == "PE" and by["TCS"]["date"] == "2026-11-17"
+    assert R["summary"]["buy"] == 1 and R["summary"]["sell"] == 1 and len(sent) == 2
+    n0 = AG.n
+    BV.sweep(AG(), inst, now + pd.Timedelta(minutes=5))
+    assert AG.n == n0                                      # no re-fetch until a new 15-min candle closes
+    BV.CACHE.clear(); BV.FEED.clear()

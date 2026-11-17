@@ -365,28 +365,29 @@ def v4_backtest(days):
 
 
 def bigvol_loop():
-    """🐋 v114: every 5 min — 15-min big-player volume spikes for OI-buildup stocks, pre-breakout stocks and open-call stocks (≤12 fetches/run)."""
+    """🐋 v115: every minute — whole F&O market 15-min big-player volume sweep (only after a new candle closes) + all MCX commodities."""
+    from krt import commodity as CM
     while True:
         time.sleep(60)
         try:
             t = now_ist()
-            if not angel_configured() or not market_open(t) or mem_high():
+            nse, mcx = market_open(t), CM.mcx_open(t)
+            if not angel_configured() or not (nse or mcx) or mem_high():
                 continue
             from krt import bigvol as BV, ailab as AL, fullscan as FSm
             from krt.angel_api import Angel
             from krt.instruments import load as load_inst
             from krt.calls import STORE as _S, OPEN as _OP
+            from krt.notify import both as _b
             day = str(t.date())
             oi = AL.oi_flow((STATE.get("full") or {}).get("oi_buildup"), FSm.C.get("live_q"))
-            syms = [r["symbol"] for r in oi if r.get("kind") in ("Long Built Up", "Short Built Up")][:10]
-            syms += [r["symbol"] for r in (AL.STATE.get("prebreak") or {}).get("rows") or [] if r.get("status") in ("NEAR", "BREAKING")][:5]
-            syms += [c["symbol"] for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("status") in _OP
-                     and c.get("exch") != "MCX" and c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")][:8]
-            syms = list(dict.fromkeys(syms))[:20]
+            pri = [r["symbol"] for r in oi if r.get("kind") in ("Long Built Up", "Short Built Up")][:10]
+            pri += [c["symbol"] for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("status") in _OP
+                    and c.get("exch") != "MCX" and c["symbol"] not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")][:8]
             global ANGEL
             ANGEL = ANGEL or Angel()
-            BV.refresh(ANGEL, load_inst(ROOT / "data" / "cache"), syms, t.tz_localize(None) if getattr(t, "tzinfo", None) else t)
-            time.sleep(240)
+            BV.sweep(ANGEL, load_inst(ROOT / "data" / "cache"), t.tz_localize(None) if getattr(t, "tzinfo", None) else t,
+                     list(dict.fromkeys(pri)), _b, mcx_only=not nse)
         except Exception:
             traceback.print_exc()
             time.sleep(120)
@@ -535,7 +536,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v114"
+APP_VERSION = "v115"
 EVC = {"t": 0, "d": None}
 
 
@@ -805,6 +806,14 @@ def jarvis_run(t):
 
 
 JVC = {"t": 0, "d": None}
+
+
+def bigvol_state():
+    try:
+        from krt import bigvol as BV
+        return BV.feed_report()
+    except Exception as e:
+        return {"err": str(e)[:100]}
 
 
 def jarvis_state():
@@ -1715,7 +1724,7 @@ class H(BaseHTTPRequestHandler):
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                    "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "filtered": filtered_state(),
+                    "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "bigvol": bigvol_state(), "filtered": filtered_state(),
                     "riser": riser_state(),
                     "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),

@@ -2794,6 +2794,20 @@ function jvCard(r,JS_){ JS_=JS_||LAST_S||{}; const pl=r.plan||{}, v=r.val||{}, P
     <details><summary><b>🔍 Why this score</b></summary>${Object.entries(P).map(([k,val])=>`<div class="cprow" style="font-size:12px"><span style="width:160px">${esc(((JS_.jarvis||{}).names||{})[k]||k)}</span><span style="flex:1;margin:0 6px;background:#222;border-radius:4px;height:8px;align-self:center"><i style="display:block;height:8px;border-radius:4px;width:${val==null?0:val/(((JS_.jarvis||{}).weights||{})[k]||1)*100}%;background:#a78bfa"></i></span><b>${val==null?"no data":val+"/"+(((JS_.jarvis||{}).weights||{})[k]||"")}</b></div>`).join("")}
       ${(r.against||[]).length?`<div class="hint dn">Disagrees: ${r.against.map(esc).join(", ")}</div>`:""}${(r.missing||[]).length?`<div class="hint">No data (scored 0, not guessed): ${r.missing.map(esc).join(", ")}</div>`:""}</details>
     <div style="margin-top:6px">${r.id===JVSEL?"":`<button class="pickbtn" onclick='jvPick(${JSON.stringify(r.id).replace(/'/g,"&#39;")})'>📈 Show chart</button>`} ${paperBtn(r.id)}</div></div>`; }
+/* 🐋 v115 BIG PLAYERS — whole F&O market + MCX: who is buying / selling, with the strike to watch */
+let WHF="All";
+function whaleHTML(s){ const W=s.bigvol||{}, R=(W.rows||[]).filter(r=>WHF==="All"||(WHF==="Stocks"&&r.exch!=="MCX")||(WHF==="Commodity"&&r.exch==="MCX")||r.side===WHF), S=W.summary||{};
+  const col=x=>x==="BUY"?"#22c55e":x==="SELL"?"#ef4444":"#f59e0b", dt=t=>{ try{ const d=new Date(t.replace(" ","T")+":00+05:30"); return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",timeZone:"Asia/Kolkata"})+" · "+d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"}); }catch(e){ return t; } };
+  return `<div class="labbox" style="border:2px solid #38bdf8;font-size:12.5px"><h2>🐋 Big Players — who is buying / selling <small class="hint">whole F&O market + MCX · 15-min candles · ${esc(W.time||"waiting for market hours")} · ${W.scanned||0}/${W.universe||0} stocks scanned</small></h2>
+   <div class="hint">${S.date?`${esc(S.date)}: <b style="color:#22c55e">🐋 ${S.buy||0} big BUY</b> · <b style="color:#ef4444">🐋 ${S.sell||0} big SELL</b> · <b style="color:#f59e0b">${S.absorb||0} absorb</b> · `:""}Big = 15-min volume ≥2.5× the 20-candle average and the biggest of the last 20. BUY = candle closed in its top 40% → watch the CE · SELL = closed in its bottom 40% → watch the PE · ABSORB = big volume, price held.</div>
+   <div style="display:flex;gap:6px;margin:6px 0;flex-wrap:wrap">${["All","BUY","SELL","Stocks","Commodity"].map(m=>`<button class="pickbtn ${WHF===m?"on":""}" onclick="WHF='${m}';$('p-jv').innerHTML=jarvisHTML(LAST_S)">${m}</button>`).join("")}</div>
+   ${R.length?`<div style="max-height:460px;overflow:auto">${simpleTbl(R.slice(0,150),[["Date · time",r=>`<b>${esc(dt(r.time))}</b>`],
+      ["Stock",r=>`<b style="color:${col(r.side)}">🐋 ${esc(r.symbol)}</b>${r.exch==="MCX"?' <small class="hint">MCX</small>':""}`],
+      ["Big players",r=>`<b style="color:${col(r.side)}">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORBING"}</b>`],
+      ["Volume",r=>`<b>${r.mult}×</b> avg`],["Price",r=>`₹${n2(r.price)}${r.now?`<div class="hint">now ₹${n2(r.now)}</div>`:""}`],
+      ["Strike to watch",r=>r.opt?`<b style="color:${col(r.side)}">${esc(r.symbol)} ${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">exp ${esc(r.opt.expiry)}${r.opt.lot?` · lot ${r.opt.lot}`:""}</div>`:'<span class="hint">wait for the breakout side</span>']],
+      r=>r.side==="BUY"?"uprow":r.side==="SELL"?"slrow":"")}</div>`:'<div class="hint">No big-player spikes yet — the sweep runs every minute in market hours (all F&O stocks after each 15-min candle closes; MCX commodities too).</div>'}
+   <div class="hint">⚠ A spike shows big volume, not who traded or why. Take the CE / PE only when price confirms (breaks the spike candle's high for BUY / low for SELL) and size by the SL.</div></div>`; }
 function jarvisHTML(s){
   const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
@@ -2805,6 +2819,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${SX("whaleHTML",()=>whaleHTML(s))}
    ${E.length?`<div class="cards">${E.map(r=>jvCard(r,s)).join("")}</div>`:`<div class="labbox" style="text-align:center;border:2px dashed #a78bfa"><b style="font-size:17px">${esc(J.no_trade||"NO TRADE — WAITING FOR HIGH-QUALITY CONFIRMATION")}</b><div class="hint">JARVIS never forces calls. A setup needs score 80+, all 10 validation checks without a fail, and real targets.</div></div>`}
    ${sel?`<div class="labbox"><h2>📈 ${esc(sel.symbol)} ${n2(sel.strike)} ${sel.side} — AI-annotated chart</h2><div id="jvChartBox">${jvChart(sel)}</div></div>`:""}
    <div class="labbox"><h2>🏆 Top 10 AI-ranked opportunities <small class="hint">90+ elite · 80–89 strong · 70–79 watchlist · below 70 avoid — quality score, not win probability</small></h2>
@@ -3321,7 +3336,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v114";
+const APPV="v115";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
