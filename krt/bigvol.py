@@ -11,7 +11,7 @@ import time
 
 import pandas as pd
 
-CFG = {"mult": 2.5, "look": 20, "days": 6, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 40, "feed_days": 2, "feed_max": 500, "push_mult": 8.0}
+CFG = {"mult": 2.5, "look": 20, "days": 3, "iv": "FIVE_MINUTE", "bar": 5, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 40, "feed_days": 2, "feed_max": 600, "push_mult": 5.0}
 FEED = {}                # "SYM|time" → spike row (whole F&O market + MCX) for the JARVIS 🐋 table
 SW = {"cursor": 0, "time": None, "scanned": 0, "universe": 0, "pushed": set()}
 CACHE = {}               # symbol → (ts, result)
@@ -30,11 +30,15 @@ def spikes(df, mult=CFG["mult"], look=CFG["look"]):
         if not avg:
             continue
         x = float(v.iloc[i])
+        ts = df.index[i]
+        if getattr(ts, "hour", None) == 9 and getattr(ts, "minute", None) in (0, 15):
+            continue                              # the opening candle is always huge — not a big-player signal
         if x >= mult * avg and x >= float(w.max()):
             h, l, c = float(df["high"].iloc[i]), float(df["low"].iloc[i]), float(df["close"].iloc[i])
             pos = (c - l) / (h - l) if h > l else 0.5
             side = "BUY" if pos >= 0.6 else "SELL" if pos <= 0.4 else "ABSORB"
-            out.append({"time": str(df.index[i])[:16], "side": side, "mult": round(x / avg, 1), "price": round(c, 2), "pos": round(pos, 2)})
+            out.append({"time": str(df.index[i])[:16], "side": side, "mult": round(x / avg, 1), "price": round(c, 2), "pos": round(pos, 2),
+                        "high": round(h, 2), "low": round(l, 2)})
     return out[::-1][:CFG["keep"]]
 
 
@@ -69,7 +73,7 @@ def refresh(ag, inst, symbols, now):
             continue
         try:
             end = pd.Timestamp(now)
-            df = ag.candles("NSE", tok, "FIFTEEN_MINUTE", end - pd.Timedelta(days=CFG["days"]), end)
+            df = ag.candles("NSE", tok, CFG["iv"], end - pd.Timedelta(days=CFG["days"]), end)
             sp = spikes(df)
             bias, label, td = verdict(sp, today)
             CACHE[sym] = (time.time(), {"symbol": sym, "spikes": sp, "bias": bias, "label": label, "today": td})
@@ -91,8 +95,8 @@ def get(sym):
 
 def _last_closed(now):
     """Start time of the last fully closed 15-min candle (NSE / MCX candles start at :00/:15/:30/:45)."""
-    t = pd.Timestamp(now).floor("15min")
-    return t - pd.Timedelta(minutes=15)
+    t = pd.Timestamp(now).floor(f"{CFG['bar']}min")
+    return t - pd.Timedelta(minutes=CFG["bar"])
 
 
 def strike_for(inst, sym, side, px, mcx=False):
@@ -125,7 +129,7 @@ def _feed_add(sym, sp, exch, inst, px_now, send=None):
         row = {"symbol": sym, "exch": exch, "time": x["time"], "date": x["time"][:10], "side": x["side"], "mult": x["mult"], "price": x["price"],
                "now": px_now, "opt": strike_for(inst, sym, side, px_now or x["price"], exch == "MCX") if side else None}
         FEED[k] = row
-        if send and x["time"][:10] == today and x["mult"] >= CFG["push_mult"] and k not in SW["pushed"] and side:
+        if send and x["time"][:10] == today and x["mult"] >= CFG["push_mult"] and k not in SW["pushed"] and side and exch != "MCX":
             SW["pushed"].add(k)
             o = row["opt"] or {}
             try:
@@ -160,7 +164,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             if not tok:
                 continue
             try:
-                df = ag.candles("NSE", tok, "FIFTEEN_MINUTE", now - pd.Timedelta(days=CFG["days"]), now)
+                df = ag.candles("NSE", tok, CFG["iv"], now - pd.Timedelta(days=CFG["days"]), now)
                 df = df[df.index <= lc] if df is not None and len(df) else df          # only CLOSED candles
                 sp = spikes(df)
                 bias, label, td = verdict(sp, str(now.date()))
@@ -176,7 +180,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
     try:
         from .commodity import FR as _MFR
         for name, v in list(_MFR.items()):
-            m15 = (v[1] or {}).get("15M") if v else None
+            m15 = (v[1] or {}).get("5M") if v else None
             if m15 is None or len(m15) < 25:
                 continue
             m15 = m15[m15.index <= lc]

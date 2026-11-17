@@ -214,7 +214,7 @@ def test_v114_bigvol_spikes_and_radar_boost():
 def test_v115_whole_market_sweep_feed_and_strike():
     from krt import bigvol as BV
     BV.CACHE.clear(); BV.FEED.clear(); BV.SW.update(cursor=0, pushed=set())
-    idx = pd.date_range("2026-11-17 09:15", periods=30, freq="15min")
+    idx = pd.date_range("2026-11-17 13:55", periods=30, freq="5min")
 
     def mk(buy):
         df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0}, index=idx)
@@ -239,8 +239,8 @@ def test_v115_whole_market_sweep_feed_and_strike():
     assert by["TCS"]["side"] == "SELL" and by["TCS"]["opt"]["side"] == "PE" and by["TCS"]["date"] == "2026-11-17"
     assert R["summary"]["buy"] == 1 and R["summary"]["sell"] == 1 and len(sent) == 2
     n0 = AG.n
-    BV.sweep(AG(), inst, now + pd.Timedelta(minutes=5))
-    assert AG.n == n0                                      # no re-fetch until a new 15-min candle closes
+    BV.sweep(AG(), inst, now + pd.Timedelta(minutes=2))
+    assert AG.n == n0                                      # no re-fetch until a new 5-min candle closes
     BV.CACHE.clear(); BV.FEED.clear()
 
 
@@ -286,3 +286,22 @@ def test_v117_index_oi_early_veto_and_verdict(fs):
     assert JB.verdict(dict(ok, val={"decision": "REJECT", "fails": ["Entry still valid"]}))[0] == "DON'T TAKE"
     assert JB.verdict(dict(ok, module="👑 Money Machine"))[0] == "DON'T TAKE"
     JB.STATE.update(avoid=[], regime=None, regime_used=None)
+
+
+def test_v118_advance_candidates_and_5min_spikes():
+    from krt import advance as ADV, bigvol as BV
+    idx = pd.date_range("2026-11-17 09:15", periods=40, freq="5min")
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0}, index=idx)
+    df.iloc[0, 4] = 50000                                   # opening candle — must be ignored
+    df.iloc[30, [3, 4]] = [100.9, 6000]
+    sp = BV.spikes(df)
+    assert len(sp) == 1 and sp[0]["time"].endswith("11:45") and sp[0]["low"] == 99.0
+    bv = {"spikes": sp}
+    oi = [{"symbol": "PGEL", "side": "CE", "kind": "Long Built Up", "oi_chg_pct": 3.1}]
+    now = pd.Timestamp("2026-11-17 12:05")
+    rows, watch = ADV.candidates(oi, lambda s: bv, {"PGEL": {"ltp": 100.6, "pct": 1.2, "vol_ratio": 2.2}}, now)
+    assert len(rows) == 1 and rows[0]["sl"] == round(99.0 * 0.998, 2) and rows[0]["big"][0]["mult"] >= 3
+    rows, watch = ADV.candidates(oi, lambda s: bv, {"PGEL": {"ltp": 103.0, "pct": 4.0}}, now)
+    assert not rows and watch and "late" in " ".join(watch[0]["why_not"])
+    rows, _ = ADV.candidates(oi, lambda s: bv, {"PGEL": {"ltp": 100.6, "pct": 1.2}}, pd.Timestamp("2026-11-17 14:30"))
+    assert rows == []                                        # spike older than 60 min → not fresh
