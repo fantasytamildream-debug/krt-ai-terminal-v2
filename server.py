@@ -13,7 +13,7 @@ from krt.config import load_settings
 # ───────────── v106 SELF-HEAL: new krt modules missing / uploaded to the wrong place ─────────────
 # GitHub does not unzip, Windows renames duplicates to "brain (1).py", files land in the repo root …
 # 1) search the whole project for a misplaced copy and load it as krt.<name>; 2) brain.py: fall back to the copy embedded below.
-NEW_MODS = ["brain", "mood", "bestpicks", "fable", "sqs", "crash", "spreads", "combo", "footprint", "methods", "highprofit", "riser", "jarvis", "dhasvanth", "bigplayer", "coach", "bigvol"]
+NEW_MODS = ["brain", "mood", "bestpicks", "fable", "sqs", "crash", "spreads", "combo", "footprint", "methods", "highprofit", "riser", "jarvis", "dhasvanth", "bigplayer", "coach", "bigvol", "jarvis_brain"]
 _EMBED = {"brain": "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"}   # snapshot of krt/brain.py at v106 (real file wins when present)
 HEAL = {"moved": {}, "embedded": [], "missing": []}
 
@@ -536,7 +536,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v115"
+APP_VERSION = "v116"
 EVC = {"t": 0, "d": None}
 
 
@@ -788,6 +788,32 @@ def jarvis_ctx(D, t, srows, integ):
             "crash": CRH.report(), "integrity": integ, "results": EV.STATE.get("results") or [], "ticks": TICK.get("items") or {}}
 
 
+def jbrain_run(t):
+    """🧠 v116 JARVIS Brain — regime, strategy×regime learning, lessons, mistake journal, level maps (read-only, no lock)."""
+    from krt import jarvis_brain as JB, fullscan as FSm
+    from krt.calls import STORE as _S, MARKET, breadth_now, OPEN as _OP
+    from krt.crash import STATE as _CRS
+    from krt.chartroom import STATE as CRS
+    D = _S.load()
+    calls = list((D.get("calls") or {}).values())
+    day = str(t.date())
+    lab = lab_report() or {}
+    bv = bigvol_state() or {}
+    dh = dhas_state() or {}
+    bp = bp_state() or {}
+    syms = [c["symbol"] for c in calls if c.get("date") == day and c.get("status") in _OP and c.get("exch") != "MCX"
+            and c["symbol"] not in JB.IDX and not c.get("shadow")]
+    syms += [r["symbol"] for r in (lab.get("big") or [])[:5] if r.get("symbol")]
+    syms += [r["symbol"] for r in (bv.get("rows") or [])[:6] if r.get("exch") != "MCX"]
+    full = STATE.get("full") or {}
+    JB.run(calls, t.tz_localize(None) if getattr(t, "tzinfo", None) else t, {
+        "nifty_pct": MARKET.get("nifty_pct"), "breadth": breadth_now(), "trend": full.get("trend"), "crash": dict(_CRS) if isinstance(_CRS, dict) else {},
+        "levels": FSm.C.get("levels") or {}, "live_q": FSm.C.get("live_q") or {}, "orb": FSm.C.get("orb") or {}, "bars": FSm.C.get("bars") or {},
+        "charts": {(x.get("call") or {}).get("symbol"): x.get("analysis") or {} for x in CRS.get("charts") or []},
+        "level_syms": list(dict.fromkeys(syms))[:10], "bigvol": bv, "radar": lab.get("big") or [], "dhas_top": dh.get("top") or [],
+        "best": bp.get("today") or []})
+
+
 def jarvis_run(t):
     from krt import jarvis as JV
     from krt.calls import STORE as _S, CALLS_LOCK
@@ -806,6 +832,14 @@ def jarvis_run(t):
 
 
 JVC = {"t": 0, "d": None}
+
+
+def jbrain_state():
+    try:
+        from krt import jarvis_brain as JB
+        return JB.report()
+    except Exception as e:
+        return {"err": str(e)[:100]}
 
 
 def bigvol_state():
@@ -1282,6 +1316,7 @@ def light_loop():
                 _step("mood", lambda: mood_run(t))
                 _step("brain", lambda: brain_run(t))
                 if not mem_high():                             # v112: under memory pressure skip the optional AI layers this minute
+                    _step("jarvis_brain", lambda: jbrain_run(t))   # 🧠 regime + learning + mistakes + level maps
                     _step("jarvis", lambda: jarvis_run(t))     # 🤖 JARVIS — Boss of the Boss calls
                     _step("dhasvanth", lambda: dhas_run(t))    # 🏹 DHASVANTH — 9.5 checklist for the 5 best strategies
                 mem_guard("light")
@@ -1724,7 +1759,7 @@ class H(BaseHTTPRequestHandler):
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                    "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "bigvol": bigvol_state(), "filtered": filtered_state(),
+                    "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "bigvol": bigvol_state(), "jbrain": jbrain_state(), "filtered": filtered_state(),
                     "riser": riser_state(),
                     "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
@@ -1805,8 +1840,9 @@ class H(BaseHTTPRequestHandler):
             from krt import v4
             return self._send(200, _json({"ok": True, "settings": v4.save_settings(d)}))
         if self.path == "/api/jarvis/ask":                  # 🤖 answers from JARVIS's current scan (no lock, no API)
-            from krt import jarvis as JV
-            return self._send(200, _json({"ok": True, "answer": JV.answer(d.get("q") or "", now_ist())}))
+            from krt import jarvis as JV, jarvis_brain as JB
+            q_ = d.get("q") or ""
+            return self._send(200, _json({"ok": True, "answer": JB.answer(q_, lambda x: JV.answer(x, now_ist()))}))
         if self.path == "/api/brain/ask":                   # 🧠 free, instant — reads Brain's live verdicts (no lock, no API)
             from krt import brain as BR
             from krt.ai import STATE as _AST

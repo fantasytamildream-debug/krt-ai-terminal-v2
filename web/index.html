@@ -2788,6 +2788,7 @@ function jvCard(r,JS_){ JS_=JS_||LAST_S||{}; const pl=r.plan||{}, v=r.val||{}, P
       <div><span class="hint">Trade type</span><br><b>Intraday</b></div><div><span class="hint">Confirmation</span><br><b>${esc(r.status)}</b> · signal ${esc(r.time)} IST</div></div>
     <div class="cprow" style="flex-wrap:wrap;gap:6px">${T.map((t,i)=>`<span class="cpbox" style="padding:3px 8px">T${i+1} <b class="up">₹${n2(t.prem)}</b> <small class="hint">${t.ul?n2(t.ul)+" · ":""}${esc(t.why)}</small></span>`).join("")}${T.length<5?`<span class="hint">only ${T.length} defensible target(s) — no made-up levels</span>`:""}</div>
     <div style="margin-top:4px"><b>Analysis:</b> ${(r.why||[]).map(esc).join(" · ")||"module signal"} <span class="hint">· ${esc(r.module||"")}</span></div>
+    ${(r.brain||{}).notes&&r.brain.notes.length?`<div class="hint">🧠 Learned (${r.brain.delta>=0?"+":""}${r.brain.delta} pts): ${r.brain.notes.map(esc).join(" · ")}</div>`:""}
     ${(r.flags||[]).length?`<div style="color:#f59e0b">⚠ Event risk: ${r.flags.map(esc).join(" · ")}</div>`:""}
     <details><summary><b>🛡 Independent validation — ${esc(v.decision)}</b> (${(v.checks||[]).filter(c=>c.status==="PASS").length}/10 pass)</summary>${(v.checks||[]).map(c=>`<div class="hint">${ic[c.status]} ${esc(c.name)} — ${esc(c.detail)}</div>`).join("")}</details>
     <details><summary><b>🧭 Entry & exit advisor</b></summary>${(r.advice||[]).map(a=>`<div class="hint">• ${esc(a)}</div>`).join("")}</details>
@@ -2808,6 +2809,31 @@ function whaleHTML(s){ const W=s.bigvol||{}, R=(W.rows||[]).filter(r=>WHF==="All
       ["Strike to watch",r=>r.opt?`<b style="color:${col(r.side)}">${esc(r.symbol)} ${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">exp ${esc(r.opt.expiry)}${r.opt.lot?` · lot ${r.opt.lot}`:""}</div>`:'<span class="hint">wait for the breakout side</span>']],
       r=>r.side==="BUY"?"uprow":r.side==="SELL"?"slrow":"")}</div>`:'<div class="hint">No big-player spikes yet — the sweep runs every minute in market hours (all F&O stocks after each 15-min candle closes; MCX commodities too).</div>'}
    <div class="hint">⚠ A spike shows big volume, not who traded or why. Take the CE / PE only when price confirms (breaks the spike candle's high for BUY / low for SELL) and size by the SL.</div></div>`; }
+/* 🧠 v116 JARVIS BRAIN — regime · strategy for this market · auto-learning · mistake journal · level maps */
+function jbLevelCard(m){ const rs=v=>v==null?"–":"₹"+n2(v);
+  return `<div class="rrow" style="border:2px solid ${m.bias==="CE"?"#22c55e":m.bias==="PE"?"#ef4444":"#a78bfa"};font-size:12px">
+   <div class="ctop"><b>${esc(m.symbol)} ₹${n2(m.px)}</b><span class="hint">AI score <b>${m.score}/100</b> · ${m.bias?`<b class="${m.bias==="CE"?"up":"dn"}">${m.bias} side</b>`:"no side"}</span></div>
+   <div><b style="color:#fbbf24">PRIORITY:</b> ${esc(m.priority)}${m.mtf?` · <span class="hint">MTF ${esc(m.mtf)}</span>`:""}</div>
+   <div class="cprow" style="gap:10px;flex-wrap:wrap"><span>🟢 BUY ABOVE <b>${rs(m.buy_above)}</b></span><span>🔴 SELL BELOW <b>${rs(m.sell_below)}</b></span><span>🎯 <b>${rs(m.target)}</b></span><span>R:R <b>${m.rr??"–"}</b></span><span>Qty (₹2,500 risk) <b>${m.qty??"–"}</b></span></div>
+   <table style="width:100%;font-size:11.5px;margin-top:4px">${(m.rows||[]).map(r=>`<tr><td><b>${esc(r.level)}</b> ${n2(r.price)}</td><td style="color:${r.broken?(r.hi?"#22c55e":"#ef4444"):(r.hi?"#f59e0b":"#22c55e")}">${esc(r.status)}</td></tr>`).join("")}</table></div>`; }
+function jbBrainHTML(s){ const B=s.jbrain||{}; if(B.err) return `<div class="labbox">🧠 ${esc(B.err)}</div>`; const R=B.regime||{}, M=B.mistakes||{};
+  const rc={"TRENDING UP":"#22c55e","TRENDING DOWN":"#ef4444","RANGE":"#f59e0b","VOLATILE":"#a78bfa"}[R.label]||"#94a3b8";
+  return `<div class="labbox" style="border:2px solid ${rc};font-size:12.5px"><h2>🧠 JARVIS Brain <small class="hint">knows the whole terminal · learns from every closed call · re-learned ${esc(B.learned_at||"–")} from ${B.n_learned||0} closed calls</small></h2>
+   <div style="font-size:15px"><b>Market now: <span style="color:${rc}">${esc(R.label||"–")}</span></b> <span class="hint">${(R.why||[]).map(esc).join(" · ")}</span></div>
+   <div><b>👉 ${esc(B.advice||"")}</b></div>
+   <div class="cprow" style="align-items:flex-start;gap:12px;margin-top:6px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px"><b class="up">✅ Use in this market</b> <small class="hint">(your results in ${esc(B.regime_used||R.label||"this")} markets, 8+ calls${B.regime_used&&B.regime_used!==R.label?" — no history for "+esc(R.label)+" yet, using the closest":""})</small>
+      ${(B.use||[]).length?(B.use||[]).map(r=>`<div class="hint">• <b>${esc(r.module)}</b> — ${r.win}% win · <b class="up">₹${n2(r.exp)}</b>/call · ${r.n} calls</div>`).join(""):'<div class="hint">not enough history in this regime yet</div>'}</div>
+    <div style="flex:1;min-width:260px"><b class="dn">⛔ Avoid in this market</b>
+      ${(B.avoid||[]).length?(B.avoid||[]).map(r=>`<div class="hint">• <b>${esc(r.module)}</b> — ${r.win}% win · <b class="dn">₹${n2(r.exp)}</b>/call · ${r.n} calls</div>`).join(""):'<div class="hint">none</div>'}</div></div>
+   <details style="margin-top:6px"><summary><b>📚 Auto-learned rules (${(B.lessons||[]).length})</b> <small class="hint">applied to every JARVIS score · re-learned every 30 min from new results, so mistakes correct themselves</small></summary>
+     ${(B.lessons||[]).map(L=>`<div class="hint">${esc(L.text)}</div>`).join("")||'<div class="hint">needs 15+ closed calls per factor</div>'}</details>
+   <details ${M.n?"open":""} style="margin-top:6px"><summary><b>🩹 Mistake journal — today ${M.n||0} SL (${(M.loss||0)<0?"−":""}₹${n2(Math.abs(M.loss||0))})</b></summary>
+     ${(M.top||[]).length?`<div class="hint">Most common: ${(M.top||[]).map(([k,v])=>`<b>${esc(k)}</b> ×${v}`).join(" · ")}</div>`:""}
+     ${(M.next_time||[]).length?`<div><b>Next time:</b> ${(M.next_time||[]).map(esc).join(" · ")}</div>`:""}
+     ${(M.rows||[]).map(r=>`<div class="hint">${esc(r.time||"")} <b class="${r.side==="CE"?"up":"dn"}">${esc(r.symbol)} ${r.strike!=null?n2(r.strike):""} ${esc(r.side||"")}</b> (${esc(r.source||"")}) ₹${n2(r.pnl)} — ${r.why.map(esc).join(" · ")}</div>`).join("")}</details>
+   ${(B.levels||[]).length?`<h3 class="sec">📐 Level map — PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL · ORB</h3><div class="cards">${B.levels.map(jbLevelCard).join("")}</div>`:""}
+   <div class="hint">Ask JARVIS below: "market?" · "which strategy?" · "mistakes?" · "big players?" · "ITC levels" · "best now?"</div></div>`; }
 function jarvisHTML(s){
   const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
@@ -2819,6 +2845,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${SX("brainHTML",()=>jbBrainHTML(s))}
    ${SX("whaleHTML",()=>whaleHTML(s))}
    ${E.length?`<div class="cards">${E.map(r=>jvCard(r,s)).join("")}</div>`:`<div class="labbox" style="text-align:center;border:2px dashed #a78bfa"><b style="font-size:17px">${esc(J.no_trade||"NO TRADE — WAITING FOR HIGH-QUALITY CONFIRMATION")}</b><div class="hint">JARVIS never forces calls. A setup needs score 80+, all 10 validation checks without a fail, and real targets.</div></div>`}
    ${sel?`<div class="labbox"><h2>📈 ${esc(sel.symbol)} ${n2(sel.strike)} ${sel.side} — AI-annotated chart</h2><div id="jvChartBox">${jvChart(sel)}</div></div>`:""}
@@ -3336,7 +3363,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v115";
+const APPV="v116";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

@@ -240,12 +240,17 @@ def scan(ctx, now):
         raw = sum(v or 0 for v in P.values())
         pl = plan5(c, a, ctx)
         val = validate(c, a, pl, ctx, now)
-        sc = max(0, raw - 3 * len(val["warns"]))
+        try:                                              # 🧠 v116: learned lessons + strategy-in-this-regime record
+            from .jarvis_brain import adjust as _badj
+            bd, bnotes = _badj(c)
+        except Exception:
+            bd, bnotes = 0, []
+        sc = max(0, min(100, raw + bd - 3 * len(val["warns"])))
         bad = sorted([k for k, v in P.items() if v is not None and v < W[k] * 0.4], key=lambda k: P[k] / W[k])
         rows.append({"id": c["id"], "symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "expiry": c.get("expiry"), "exch": c.get("exch"),
                      "contract": c.get("contract"), "ltp": c.get("ltp"), "entry": c.get("entry"), "sl": c.get("sl"), "lot": c.get("lot"), "token": c.get("token"),
                      "time": c.get("time"), "module": c.get("source_label") or c.get("source"), "raw": raw, "score": sc, "rating": rating(sc),
-                     "parts": P, "missing": miss, "why": why[:5], "against": [NAME[k] for k in bad[:3]], "plan": pl, "val": val,
+                     "parts": P, "missing": miss, "why": why[:5], "brain": {"delta": bd, "notes": bnotes[:5]}, "against": [NAME[k] for k in bad[:3]], "plan": pl, "val": val,
                      "risk": "LOW" if (pl["entry"] - pl["sl"]) * float(c.get("lot") or 1) <= 2500 else "MEDIUM" if (pl["entry"] - pl["sl"]) * float(c.get("lot") or 1) <= 4000 else "HIGH",
                      "flags": risk_flags(c, ctx, now), "advice": [x for x in advice(c, pl, val) if x],
                      "status": "Confirmed" if val["decision"] == "APPROVE" else "Pending" if val["decision"] == "DOWNGRADE" else "Rejected",

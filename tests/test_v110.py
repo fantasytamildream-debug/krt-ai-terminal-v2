@@ -242,3 +242,30 @@ def test_v115_whole_market_sweep_feed_and_strike():
     BV.sweep(AG(), inst, now + pd.Timedelta(minutes=5))
     assert AG.n == n0                                      # no re-fetch until a new 15-min candle closes
     BV.CACHE.clear(); BV.FEED.clear()
+
+
+def test_v116_jarvis_brain_regime_learning_mistakes_levels_ask():
+    from krt import jarvis_brain as JB
+    assert JB.regime(0.6, (150, 60), "TRENDING UP")["label"] == "TRENDING UP"
+    assert JB.regime(0.54, (76, 117))["label"] == "VOLATILE"
+    assert JB.regime(0.05, (100, 100))["label"] == "RANGE"
+    calls = []
+    for i in range(20):
+        calls.append({"id": f"a{i}", "date": "2026-11-1%d" % (i % 9), "time": "10:10", "symbol": "SBIN", "side": "CE", "source": "Index OI", "kind": "INTRADAY",
+                      "regime": "TRENDING UP", "status": "T1 HIT" if False else ("TRAIL SL" if i % 4 else "SL HIT"), "pnl_lot": 1500 if i % 4 else -1000, "vol_ratio": 2.6})
+        calls.append({"id": f"b{i}", "date": "2026-11-1%d" % (i % 9), "time": "10:10", "symbol": "TCS", "side": "CE", "source": "Top Movers", "kind": "MOVERS",
+                      "regime": "TRENDING UP", "status": "SL HIT", "pnl_lot": -2000, "vol_ratio": 1.2, "mfe_pct": 0.5})
+    M, L = JB.learn(calls)
+    use, avoid = JB.for_regime(M, "TRENDING UP")
+    assert use[0]["module"] == "Index OI" and avoid[0]["module"] == "Top Movers"
+    assert any(x["factor"] == "volume" and x["value"] == "<1.5×" and x["pts"] < 0 for x in L)
+    d_bad, notes = JB.adjust({"source": "Top Movers", "symbol": "TCS", "side": "CE", "vol_ratio": 1.1, "time": "10:30"}, L, M, "TRENDING UP")
+    d_good, _ = JB.adjust({"source": "Index OI", "symbol": "SBIN", "side": "CE", "vol_ratio": 2.8, "time": "10:30"}, L, M, "TRENDING UP")
+    assert d_bad < 0 and d_good > d_bad + 10 and notes
+    mj = JB.mistakes([dict(calls[1], date="2026-11-17")], "2026-11-17", {"Top Movers"})
+    assert mj["n"] == 1 and {"low volume", "weak module", "no follow-through"} <= set(mj["rows"][0]["tags"]) and mj["next_time"]
+    m = JB.level_map("ITC", 294.55, {"PDH": 285.3, "PDL": 282.1, "PWH": 290.25, "PWL": 277.9, "PMH": 269.8, "PML": 252.8}, (286.85, 283.85, 1))
+    assert m["priority"].startswith("Above PDH+PWH+PMH") and m["bias"] == "CE" and m["buy_above"] == 290.25 and m["qty"] > 0
+    JB.STATE.update(regime=JB.regime(0.6, (150, 60)), matrix=M, lessons=L, use=use, avoid=avoid, levels={"ITC": m}, mistakes=mj, ctx={})
+    assert "TRENDING UP" in JB.answer("market today?") and "Index OI" in JB.answer("which strategy should I use")
+    assert "BUY ABOVE" in JB.answer("ITC levels?") and "SL hits" in JB.answer("my mistakes")
