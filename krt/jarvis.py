@@ -256,6 +256,14 @@ def scan(ctx, now):
                      "status": "Confirmed" if val["decision"] == "APPROVE" else "Pending" if val["decision"] == "DOWNGRADE" else "Rejected",
                      "draw": {"zones": ((a.get("liquidity") or {}).get("zones") or [])[:4], "eq": ((a.get("liquidity") or {}).get("eq") or [])[:4],
                               "events": ((a.get("structure") or {}).get("events") or [])[:3], "sr": (a.get("sr_up") or []) + (a.get("sr_dn") or [])}})
+    try:                                                  # 🧠 v117: plain TAKE / WAIT / DON'T TAKE for every live call
+        from .jarvis_brain import verdict as _vd
+        byid = {c["id"]: c for c in calls}
+        for r in rows:
+            r["raw_call"] = {"vol_ratio": (byid.get(r["id"]) or {}).get("vol_ratio")}
+            r["verdict"], r["verdict_why"] = _vd(r)
+    except Exception:
+        pass
     rows.sort(key=lambda r: (r["val"]["decision"] != "REJECT", r["score"]), reverse=True)
     top = rows[:CFG["top"]]
     integ, cr = (ctx.get("integrity") or {}).get("status"), ctx.get("crash") or {}

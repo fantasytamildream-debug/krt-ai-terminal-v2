@@ -2834,6 +2834,18 @@ function jbBrainHTML(s){ const B=s.jbrain||{}; if(B.err) return `<div class="lab
      ${(M.rows||[]).map(r=>`<div class="hint">${esc(r.time||"")} <b class="${r.side==="CE"?"up":"dn"}">${esc(r.symbol)} ${r.strike!=null?n2(r.strike):""} ${esc(r.side||"")}</b> (${esc(r.source||"")}) ₹${n2(r.pnl)} — ${r.why.map(esc).join(" · ")}</div>`).join("")}</details>
    ${(B.levels||[]).length?`<h3 class="sec">📐 Level map — PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL · ORB</h3><div class="cards">${B.levels.map(jbLevelCard).join("")}</div>`:""}
    <div class="hint">Ask JARVIS below: "market?" · "which strategy?" · "mistakes?" · "big players?" · "ITC levels" · "best now?"</div></div>`; }
+/* 🤖 v117 JARVIS verdict — every live call: TAKE / WAIT / DON'T TAKE, with the exact strike */
+function jvVerdictHTML(s){ const J=s.jarvis||{}, T=J.top||[]; const col={"TAKE":"#22c55e","WAIT":"#f59e0b","DON'T TAKE":"#ef4444"};
+  const ord={"TAKE":0,"WAIT":1,"DON'T TAKE":2}, R=[...T].filter(r=>r.verdict).sort((a,b)=>(ord[a.verdict]-ord[b.verdict])||(b.score-a.score));
+  return `<div class="labbox" style="border:3px solid #22c55e;font-size:13px"><h2>🤖 JARVIS says — take it or not? <small class="hint">every live call checked: score + 10 validation checks + learned lessons + today's market · ${esc(J.time||"")}</small></h2>
+   ${R.length?R.map(r=>{ const pl=r.plan||{}, c=col[r.verdict]; return `<div class="rrow" style="border:2px solid ${c};margin:6px 0">
+     <div class="ctop"><b style="font-size:15px;color:${c}">${r.verdict==="TAKE"?"✅ TAKE":r.verdict==="WAIT"?"⏳ WAIT":"❌ DON'T TAKE"}</b>
+       <b class="${r.side==="CE"?"up":"dn"}" style="font-size:15px">BUY ${esc(r.symbol)} ${r.strike!=null?n2(r.strike):""} ${esc(r.side)}</b><span class="hint">exp ${esc(r.expiry||"")} · ${esc(ampm(r.time))} · score <b>${r.score}</b>/100</span></div>
+     <div class="cprow" style="gap:10px;flex-wrap:wrap"><span>Entry <b>₹${n2(pl.entry??r.entry)}</b></span><span>SL <b class="dn">₹${n2(pl.sl??r.sl)}</b></span><span>Targets <b class="up">${(pl.targets||[]).map(t=>n2(t.prem??t)).join(" / ")||"–"}</b></span><span>LTP ₹${n2(r.ltp)}</span><span class="hint">lot ${r.lot||""} · ${esc(r.module||"")}</span></div>
+     <div><b style="color:${c}">Why:</b> ${esc(r.verdict_why||"")}</div>
+     ${(r.brain||{}).notes&&r.brain.notes.length?`<div class="hint">🧠 ${r.brain.notes.map(esc).join(" · ")}</div>`:""}
+     ${r.verdict!=="DON'T TAKE"?paperBtn(r.id,true):""}</div>`; }).join(""):'<div class="hint">No live call to judge right now — JARVIS checks every module\'s open calls every minute in market hours.</div>'}
+   <div class="hint">TAKE = score 70+ and every check passed · WAIT = close, but something is missing (shown) · DON'T TAKE = a check failed, a learned losing pattern, or the module loses in today's market. Paper only.</div></div>`; }
 function jarvisHTML(s){
   const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
@@ -2845,6 +2857,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${SX("jvVerdictHTML",()=>jvVerdictHTML(s))}
    ${SX("brainHTML",()=>jbBrainHTML(s))}
    ${SX("whaleHTML",()=>whaleHTML(s))}
    ${E.length?`<div class="cards">${E.map(r=>jvCard(r,s)).join("")}</div>`:`<div class="labbox" style="text-align:center;border:2px dashed #a78bfa"><b style="font-size:17px">${esc(J.no_trade||"NO TRADE — WAITING FOR HIGH-QUALITY CONFIRMATION")}</b><div class="hint">JARVIS never forces calls. A setup needs score 80+, all 10 validation checks without a fail, and real targets.</div></div>`}
@@ -3363,7 +3376,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v116";
+const APPV="v117";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

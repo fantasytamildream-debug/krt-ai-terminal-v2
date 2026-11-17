@@ -269,3 +269,20 @@ def test_v116_jarvis_brain_regime_learning_mistakes_levels_ask():
     JB.STATE.update(regime=JB.regime(0.6, (150, 60)), matrix=M, lessons=L, use=use, avoid=avoid, levels={"ITC": m}, mistakes=mj, ctx={})
     assert "TRENDING UP" in JB.answer("market today?") and "Index OI" in JB.answer("which strategy should I use")
     assert "BUY ABOVE" in JB.answer("ITC levels?") and "SL hits" in JB.answer("my mistakes")
+
+
+def test_v117_index_oi_early_veto_and_verdict(fs):
+    from krt import jarvis_brain as JB
+    c = _c(symbol="NIFTY", kind="INTRADAY", source="Index OI", time="09:30", side="PE")
+    assert CL.quality_v6(dict(c), pd.Timestamp(f"{DAY} 09:30")) is None or CL.quality_v6(dict(c), pd.Timestamp(f"{DAY} 09:30"))[0] != "Q_OPEN_NOISE"
+    orb = _c(kind="INTRADAY", source="5-min ORB", time="09:30")
+    assert CL.quality_v6(dict(orb), pd.Timestamp(f"{DAY} 09:30"))[0] == "Q_OPEN_NOISE"
+    JB.STATE.update(avoid=[{"module": "👑 Money Machine", "exp": -389, "n": 10}], regime={"label": "TRENDING UP"}, regime_used="TRENDING UP", lessons=[])
+    assert "loses in a TRENDING UP market" in JB.veto({"source": "👑 Money Machine", "symbol": "ANGELONE", "side": "CE"})
+    assert "loses" in CL.market_ok({"source": "👑 Money Machine", "symbol": "ANGELONE", "side": "CE", "vol_ratio": 4})
+    ok = {"val": {"decision": "APPROVE", "warns": []}, "score": 82, "module": "Index OI", "symbol": "NIFTY", "side": "PE", "why": ["PCR 0.65"]}
+    assert JB.verdict(ok)[0] == "TAKE"
+    assert JB.verdict(dict(ok, score=60, val={"decision": "DOWNGRADE", "warns": ["volume"]}))[0] == "WAIT"
+    assert JB.verdict(dict(ok, val={"decision": "REJECT", "fails": ["Entry still valid"]}))[0] == "DON'T TAKE"
+    assert JB.verdict(dict(ok, module="👑 Money Machine"))[0] == "DON'T TAKE"
+    JB.STATE.update(avoid=[], regime=None, regime_used=None)

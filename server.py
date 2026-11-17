@@ -536,7 +536,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v116"
+APP_VERSION = "v117"
 EVC = {"t": 0, "d": None}
 
 

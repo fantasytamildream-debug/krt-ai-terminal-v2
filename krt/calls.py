@@ -378,7 +378,16 @@ def best_gate(c, d, now):
 def market_ok(c):
     """🛡 v113: the LIVE market check, re-run at the moment a pick / Call of the Day / Brain paper / DSK / Machine takes a call
     (a call made when breadth was fine may be picked later when it has turned). → None (ok) or a reason."""
-    if not BEST["on"] or c.get("exch") == "MCX" or c.get("symbol") in IDX_SYMS:
+    if not BEST["on"]:
+        return None
+    try:                                         # 🧠 v117: JARVIS Brain veto — learned losing patterns / module losing in today's regime
+        from .jarvis_brain import veto as _veto
+        v_ = _veto(c)
+        if v_:
+            return v_
+    except Exception:
+        pass
+    if c.get("exch") == "MCX" or c.get("symbol") in IDX_SYMS:
         return None
     vr = c.get("vol_ratio")
     if vr is not None and float(vr) < 1.5:
@@ -408,8 +417,9 @@ def quality_v6(c, now):
     if str(c.get("kind", "")).startswith("POWER"):
         return ("Q_REMOVED", "POWER OI module நீக்கப்பட்டது (user request)")
     mins = now.hour * 60 + now.minute
-    if mins < QV6["start"] and not (c.get("kind") == "STRONG" and mins >= 9 * 60 + 30):
-        return ("Q_OPEN_NOISE", "9:45 முன் — opening noise (இன்றைய data-ல் அதிக SL இங்கே தான்)")
+    if mins < QV6["start"] and not (c.get("kind") == "STRONG" and mins >= 9 * 60 + 30) \
+            and not (c.get("source") == "Index OI" and mins >= 9 * 60 + 20):      # v117: Index OI before 9:45 won (+₹2,131/call, 7 calls)
+        return ("Q_OPEN_NOISE", "before 9:45 — opening noise (5-min ORB before 9:45 lost ₹1,946/call)")
     if mins > QV6["end"]:
         return ("Q_LATE", "2:30 பிறகு புது intraday call இல்லை")
     e, sl = float(c["entry"]), float(c["sl"])

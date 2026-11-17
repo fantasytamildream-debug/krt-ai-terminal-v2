@@ -345,3 +345,37 @@ def answer(q, jv_answer=None):
                 ". AI best picks: " + ("; ".join(f"{p['symbol']} {p.get('strike') or ''} {p['side']} score {p.get('score')}" for p in best) or "none") +
                 f". Market: {rg.get('label', '–')} — {ADVICE.get(rg.get('label'), '')}")
     return jv_answer(q) if jv_answer else "Ask me: market? · which strategy? · mistakes? · big players? · <STOCK> levels · best now?"
+
+
+def veto(c):
+    """Pick-layer veto (AI picks / Call of the Day / Brain paper / DSK / Machine): the module loses in today's market, or the
+    learned lessons add up to a strong negative (≤ −8 pts). Raw module calls are never vetoed here — only what gets PICKED."""
+    rg = (STATE.get("regime_used") or (STATE.get("regime") or {}).get("label"))
+    src = c.get("source") or c.get("kind")
+    for r in STATE.get("avoid") or []:
+        if r["module"] == src:
+            return f"{src} loses in a {rg} market (₹{r['exp']:,}/call over {r['n']} calls)"
+    if not STATE.get("lessons"):
+        return None
+    d, notes = adjust(c)
+    if d <= -8:
+        return "learned losing pattern: " + "; ".join(notes[:2])
+    return None
+
+
+def verdict(row):
+    """JARVIS verdict for one scanned live call → (TAKE / WAIT / DON'T TAKE, reason)."""
+    v = row.get("val") or {}
+    sc = row.get("score") or 0
+    c = {"source": row.get("module"), "symbol": row.get("symbol"), "side": row.get("side"), "time": row.get("time"),
+         "vol_ratio": (row.get("raw_call") or {}).get("vol_ratio"), "exch": row.get("exch")}
+    vt = veto(c)
+    if v.get("decision") == "REJECT":
+        return "DON'T TAKE", "failed: " + ", ".join(v.get("fails") or [])
+    if vt:
+        return "DON'T TAKE", vt
+    if v.get("decision") == "APPROVE" and sc >= 70:
+        return "TAKE", f"score {sc}/100 · all checks passed" + (f" · {row['why'][0]}" if row.get("why") else "")
+    if sc >= 55:
+        return "WAIT", "needs: " + (", ".join(v.get("warns") or []) or f"score {sc} → wait for 70+")
+    return "DON'T TAKE", f"score only {sc}/100 — weak: " + ", ".join(row.get("against") or [])
