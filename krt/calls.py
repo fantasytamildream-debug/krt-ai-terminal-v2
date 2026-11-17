@@ -1569,6 +1569,27 @@ def module_health(d, now):
               "🔴 3+ நாள் call இல்லை" if days is not None and days >= 3 else "⚪ இன்று signal இல்லை")
         rows.append({"source": src, "last": lk, "days": days, "today": today[src], "rejects": sum(rc.values()),
                      "top": [f"{k} ×{v}" for k, v in rc.most_common(2)], "status": st, "proven": src in pv})
+    # v120: V4 strategies always listed (they used to vanish when no call came) — with the live setup and why it is not a call yet
+    try:
+        from . import v4 as _V4
+        S4 = _V4.settings()
+        have = {r["source"] for r in rows}
+        for k in _V4.STRATS:
+            src = f"V4 {_V4.SNAME[k]}"
+            on = S4["strategies"].get(k, True)
+            ss = [x for x in (_V4.STATE.get("setups") or []) if x.get("strategy") == k]
+            st_ = (ss[0] if ss else None)
+            info = (f"{st_['index']} {st_['side']} · {st_['status']} · score {st_['score']}/{st_.get('bar', S4['min_score']):g}"
+                    + (f" · ⛔ {st_['block'][0]}" if st_.get("block") else "")) if st_ else "no setup forming right now"
+            if src in have:
+                for r in rows:
+                    if r["source"] == src:
+                        r["v4"] = info
+                continue
+            rows.append({"source": src, "last": last.get(src, ""), "days": None, "today": today[src], "rejects": 0, "top": [],
+                         "status": ("⚪ ACTIVE · watching — " if on else "⛔ OFF in V4 settings — ") + info, "proven": src in pv, "v4": info})
+    except Exception:
+        pass
     rows.sort(key=lambda r: ({"🔴": 0, "🟡": 1, "⏸": 2, "⚪": 3, "🟢": 4}.get(r["status"][:1], 5), r["source"]))
     return rows
 

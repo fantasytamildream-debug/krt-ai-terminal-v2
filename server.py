@@ -404,6 +404,30 @@ def bigvol_loop():
             time.sleep(120)
 
 
+def early_loop():
+    """⚡ v120: every minute (5 s after the minute) — live-quote volume per F&O stock → EARLY big BUY / SELL before the 5-min candle closes."""
+    global ANGEL
+    while True:
+        n_ = pd.Timestamp.now(tz="Asia/Kolkata")
+        time.sleep(max(3.0, (n_.floor("1min") + pd.Timedelta(minutes=1, seconds=5) - n_).total_seconds()))
+        try:
+            t = now_ist()
+            hm = t.strftime("%H:%M")
+            if not angel_configured() or not market_open(t) or not ("09:17" <= hm <= "15:25") or mem_high():
+                continue
+            from krt import bigvol as BV
+            from krt.angel_api import Angel
+            from krt.instruments import load as load_inst
+            from krt.notify import both as _b
+            ANGEL = ANGEL or Angel()
+            t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
+            if BV.early(ANGEL, load_inst(ROOT / "data" / "cache"), t0, _b):
+                jv_combo_push(_b)                         # an early spike on an open call's side → 🟡 yellow BUY at once
+        except Exception:
+            traceback.print_exc()
+            time.sleep(60)
+
+
 def paper_fast_loop():
     """⚡ v110: every 5 sec — LTP / SL / targets / P&L for OPEN calls + paper trades (one quote call)."""
     global ANGEL
@@ -547,7 +571,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v119"
+APP_VERSION = "v120"
 EVC = {"t": 0, "d": None}
 
 
@@ -868,14 +892,19 @@ def jv_combos():
     for c in calls:
         by.setdefault((c["symbol"], c["side"]), c)
     out = []
-    for r in BV.FEED.values():
+    dlab = pd.Timestamp(day).strftime("%d %b")
+    for r in list(BV.FEED.values()) + list(BV.EARLY.values()):
         if r["date"] != day or r["side"] not in ("BUY", "SELL"):
             continue
         c = by.get((r["symbol"], "CE" if r["side"] == "BUY" else "PE"))
         if not c:
             continue
-        out.append({"key": f"{c['id']}|{r['time']}", "t": r["time"][11:16], "d": day, "k": "combo", "side": c["side"], "id": c["id"],
-                    "txt": f"BUY {c['symbol']} {c.get('strike') or ''} {c['side']} — {c.get('source')} call + big {r['side']} {r['mult']}× at {r['time'][11:16]} "
+        ear = bool(r.get("early"))
+        ct = r["time"] if ear else r["time"][11:16]
+        seen = r["time"] if ear else (r.get("seen") or ct)[:5]
+        out.append({"key": f"{c['id']}|{r['time']}", "t": seen, "d": day, "dl": dlab, "k": "combo", "side": c["side"], "id": c["id"],
+                    "when": f"{dlab} · " + (f"⚡ early, seen {seen}" if ear else f"candle {ct}–{r.get('end') or ''} · alert {seen}"),
+                    "txt": f"BUY {c['symbol']} {c.get('strike') or ''} {c['side']} — {c.get('source')} call + {'⚡ early ' if ear else ''}big {r['side']} {r['mult']}× at {ct} "
                            f"@ ₹{r['price']:g} · entry ₹{c.get('entry')} · SL ₹{c.get('sl')} · T1 ₹{(c.get('targets') or ['–'])[0]} · LTP ₹{c.get('ltp')}"})
     out.sort(key=lambda a: a["t"], reverse=True)
     return out
@@ -899,16 +928,27 @@ def jv_alerts():
         from krt import bigvol as BV
         from krt.calls import STORE as _S
         day = str(now_ist().date())
+        dlab = pd.Timestamp(day).strftime("%d %b")
+        for r in BV.EARLY.values():
+            if r["date"] == day:
+                o = r.get("opt") or {}
+                out.append({"t": r["time"], "d": r["date"], "dl": dlab, "k": "early", "side": r["side"], "exch": "NSE", "sym": r["symbol"],
+                            "when": f"⚡ {dlab} · seen {r['time']} (live, candle not closed yet)",
+                            "txt": f"EARLY big {r['side']} building in {r['symbol']} · last 2 min vol {r['mult']}× normal · {r['move']:+.2f}% @ {r['price']:g}"
+                                   + (f" → watch {o['strike']:g} {o['side']}" if o else "")})
         for r in BV.FEED.values():
             if r["date"] == day:
                 o = r.get("opt") or {}
-                out.append({"t": r["time"][11:16], "d": r["date"], "k": "whale", "side": r["side"], "exch": r.get("exch"),
+                out.append({"t": (r.get("seen") or r["time"][11:16])[:5], "d": r["date"], "dl": dlab, "k": "whale", "side": r["side"], "exch": r.get("exch"),
+                            "sym": r["symbol"],
+                            "when": f"{dlab} · candle {r['time'][11:16]}–{r.get('end') or ''} · alert {(r.get('seen') or '')[:5]}",
                             "txt": (f"Big {r['side']} in {r['symbol']} · {r['mult']}× avg vol @ {r['price']:g}" if r["side"] != "ABSORB" else
                                     f"Big volume (absorption) in {r['symbol']} · {r['mult']}× avg vol @ {r['price']:g}")
                                    + (f" → watch {o['strike']:g} {o['side']}" if o else "")})
         for c in (_S.load().get("calls") or {}).values():
             if c.get("date") == day and not c.get("shadow") and c.get("kind") != "PICK":
-                out.append({"t": str(c.get("time"))[:5], "d": day, "k": "adv" if c.get("kind") == "ADVANCE" else "call", "side": c.get("side"),
+                out.append({"t": str(c.get("time"))[:5], "d": day, "dl": dlab, "when": f"{dlab} · call {str(c.get('time'))[:5]}",
+                            "k": "adv" if c.get("kind") == "ADVANCE" else "call", "side": c.get("side"),
                             "txt": f"{c.get('source')}: {c['symbol']} {c.get('strike') or ''} {c['side']} · entry ₹{c.get('entry')} · SL ₹{c.get('sl')}"})
     except Exception as e:
         out.append({"t": "", "d": "", "k": "err", "txt": str(e)[:80]})
@@ -2128,6 +2168,7 @@ if __name__ == "__main__":
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=paper_fast_loop, daemon=True).start()
     threading.Thread(target=bigvol_loop, daemon=True).start()
+    threading.Thread(target=early_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=fable_loop, daemon=True).start()
     threading.Thread(target=light_loop, daemon=True).start()

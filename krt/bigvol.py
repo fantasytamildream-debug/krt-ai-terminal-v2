@@ -126,14 +126,18 @@ def _feed_add(sym, sp, exch, inst, px_now, send=None):
         if k in FEED:
             continue
         side = "CE" if x["side"] == "BUY" else "PE" if x["side"] == "SELL" else None
+        end = (pd.Timestamp(x["time"]) + pd.Timedelta(minutes=CFG["bar"])).strftime("%H:%M")
+        seen = pd.Timestamp.now(tz="Asia/Kolkata").strftime("%H:%M:%S")
         row = {"symbol": sym, "exch": exch, "time": x["time"], "date": x["time"][:10], "side": x["side"], "mult": x["mult"], "price": x["price"],
+               "end": end, "seen": seen,
                "now": px_now, "opt": strike_for(inst, sym, side, px_now or x["price"], exch == "MCX") if side else None}
         FEED[k] = row
         if send and x["time"][:10] == today and x["mult"] >= CFG["push_mult"] and k not in SW["pushed"] and side and exch != "MCX":
             SW["pushed"].add(k)
             o = row["opt"] or {}
             try:
-                send(f"🐋 Big {x['side']} in {sym} · {x['time'][5:]} · {x['mult']}× avg vol @ {x['price']:g}"
+                send(f"🐋 Big {x['side']} in {sym} · candle {x['time'][11:16]}–{end} · alert {seen[:5]} · {pd.Timestamp(x['time']).strftime('%d %b')}"
+                     f" · {x['mult']}× avg vol @ {x['price']:g}"
                      + (f"\nWatch {sym} {o['strike']:g} {o['side']} (exp {o['expiry']})" if o else ""), f"bigvol|{k}", True)
             except Exception:
                 pass
@@ -211,6 +215,89 @@ def feed_report():
     rows = sorted(FEED.values(), key=lambda r: (r["time"], r["mult"]), reverse=True)
     today = rows[0]["date"] if rows else None
     T = [r for r in rows if r["date"] == today]
-    return {"time": SW["time"], "scanned": SW["scanned"], "universe": SW["universe"], "rows": rows[:300],
+    er = sorted(EARLY.values(), key=lambda r: r["full"], reverse=True)[:60]
+    return {"time": SW["time"], "scanned": SW["scanned"], "universe": SW["universe"], "rows": rows[:300], "early": er, "early_time": ES["time"],
             "summary": {"buy": sum(1 for r in T if r["side"] == "BUY"), "sell": sum(1 for r in T if r["side"] == "SELL"),
                         "absorb": sum(1 for r in T if r["side"] == "ABSORB"), "date": today}}
+
+
+# ───────────────────────── ⚡ v120 EARLY detector (every minute, live quotes — no candle API) ─────────────────────────
+ECFG = {"mult": 5.0, "win": 2, "hist": 20, "min_hist": 5, "move": 0.15, "cool": 15, "keep": 300}
+EH = {}          # symbol → [(ts, cum_volume, ltp), …]  last ~20 minutes
+EARLY = {}       # "SYM|HH:MM" → row
+ES = {"time": None, "n": 0, "err": None}
+
+
+def early(ag, inst, now, send=None, quotes=None):
+    """Every minute: one quote call per 50 F&O stocks → per-minute volume from the cumulative day volume.
+    Last 2 minutes' volume ≥ 5× the stock's normal 2-minute volume AND price moved ≥0.15% → ⚡ EARLY big BUY / SELL —
+    before the 5-min candle even closes. Confirmed later (or not) by the 5-min candle sweep."""
+    now = pd.Timestamp(now)
+    uni = list(inst.get("fno") or [])
+    eq = inst.get("eq") or {}
+    toks = {"NSE": [eq[s] for s in uni if eq.get(s)]}
+    try:
+        qs = quotes if quotes is not None else ag.quotes(toks)
+    except Exception as e:
+        ES["err"] = str(e)[:80]
+        return 0
+    try:
+        from .fullscan import C as _C
+        avgd = _C.get("avgvol") or {}
+    except Exception:
+        avgd = {}
+    today = str(now.date())
+    hm = now.strftime("%H:%M")
+    n = 0
+    for sym in uni:
+        q = qs.get(str(eq.get(sym)))
+        if not q:
+            continue
+        try:
+            vol, ltp = float(q.get("tradeVolume") or 0), float(q.get("ltp") or 0)
+        except Exception:
+            continue
+        h = EH.setdefault(sym, [])
+        if h and str(h[-1][0].date()) != today:
+            h.clear()
+        if h and vol < h[-1][1]:
+            h.clear()                                  # volume reset (new session / bad tick)
+        h.append((now, vol, ltp))
+        del h[:-ECFG["hist"]]
+        w = ECFG["win"]
+        if len(h) < ECFG["min_hist"] + w:
+            continue
+        recent = h[-1][1] - h[-1 - w][1]               # volume in the last 2 minutes
+        past = [h[i][1] - h[i - w][1] for i in range(w, len(h) - w)]
+        base = sorted(past)[len(past) // 2] if past else 0          # median 2-minute volume today
+        dayb = (avgd.get(sym) or 0) / 375 * w * 0.6                # floor from the 20-day average (quiet mornings)
+        base = max(base, dayb, 1)
+        mult = recent / base
+        p0 = h[-1 - w][2]
+        mv = (ltp / p0 - 1) * 100 if p0 else 0
+        if mult < ECFG["mult"] or abs(mv) < ECFG["move"]:
+            continue
+        side = "BUY" if mv > 0 else "SELL"
+        last = [r for k, r in EARLY.items() if r["symbol"] == sym and r["side"] == side and r["date"] == today]
+        if last and (now - pd.Timestamp(max(r["full"] for r in last))) < pd.Timedelta(minutes=ECFG["cool"]):
+            continue
+        o = strike_for(inst, sym, "CE" if side == "BUY" else "PE", ltp)
+        k = f"{sym}|{hm}"
+        row = {"symbol": sym, "exch": "NSE", "date": today, "time": hm, "full": str(now), "side": side, "mult": round(mult, 1),
+               "move": round(mv, 2), "price": ltp, "opt": o, "early": True}
+        EARLY[k] = row
+        n += 1
+        if send:
+            try:
+                send(f"⚡ EARLY big {side} building in {sym} · {now.strftime('%d %b')} {hm} · last 2 min volume {mult:.1f}× normal · price {mv:+.2f}% @ {ltp:g}"
+                     + (f"\nWatch {sym} {o['strike']:g} {o['side']} (exp {o['expiry']}) — wait for the 5-min candle to confirm" if o else ""),
+                     f"early|{k}", True)
+            except Exception:
+                pass
+    for k in [k for k, r in EARLY.items() if r["date"] != today]:
+        EARLY.pop(k, None)
+    if len(EARLY) > ECFG["keep"]:
+        for k in sorted(EARLY, key=lambda k: EARLY[k]["full"])[:len(EARLY) - ECFG["keep"]]:
+            EARLY.pop(k, None)
+    ES.update(time=now.strftime("%d %b %H:%M:%S"), n=len(uni), err=None)
+    return n

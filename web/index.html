@@ -1923,7 +1923,7 @@ function announceNew(f){
   if(!fresh.length) return;
   fresh.sort((a,b)=>((pinkOf(b)||{}).tier==="dark")-((pinkOf(a)||{}).tier==="dark")||(!!pinkOf(b))-(!!pinkOf(a))||(b.time).localeCompare(a.time));
   fresh.slice(0,5).forEach(c=>{ const pk=pinkOf(c), G=aiGuide(c,null,LAST_S);
-    toast(`<b>${pk?(pk.tier==="dark"?"🩷🩷 DARK PINK ALERT":"🩷 PINK ALERT"):"🔔 புது call"}</b> · ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}${pk?` · win ${pk.win}% (${pk.n})`:""}</div><div class="aiguide ${G.k}" style="margin:4px 0 0;padding:4px 8px;font-size:13px">🤖 ${esc(G.t)}</div>`, pk?(pk.tier==="dark"?"pink2":"pink"):"");
+    toast(`<b>${pk?(pk.tier==="dark"?"🩷🩷 DARK PINK ALERT":"🩷 PINK ALERT"):"🔔 New call"}</b> · 🕒 ${esc(c.date||"")} ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}${pk?` · win ${pk.win}% (${pk.n})`:""}</div><div class="aiguide ${G.k}" style="margin:4px 0 0;padding:4px 8px;font-size:13px">🤖 ${esc(G.t)}</div>`, pk?(pk.tier==="dark"?"pink2":"pink"):"");
     speak(callSpeech(c), !!pk); });
   if(fresh.length>5) speak(`And ${fresh.length-5} more calls. Check the calls tab.`);
   spokenAdd(fresh.map(c=>c.id));
@@ -2802,7 +2802,11 @@ function whaleHTML(s){ const W=s.bigvol||{}, R=(W.rows||[]).filter(r=>WHF==="All
   return `<div class="labbox" style="border:2px solid #38bdf8;font-size:12.5px"><h2>🐋 Big Players — who is buying / selling <small class="hint">whole F&O market + MCX · 5-min candles · ${esc(W.time||"waiting for market hours")} · ${W.scanned||0}/${W.universe||0} stocks scanned</small></h2>
    <div class="hint">${S.date?`${esc(S.date)}: <b style="color:#22c55e">🐋 ${S.buy||0} big BUY</b> · <b style="color:#ef4444">🐋 ${S.sell||0} big SELL</b> · <b style="color:#f59e0b">${S.absorb||0} absorb</b> · `:""}Big = 5-min volume ≥2.5× the 20-candle average (opening candle ignored) and the biggest of the last 20. BUY = candle closed in its top 40% → watch the CE · SELL = closed in its bottom 40% → watch the PE · ABSORB = big volume, price held.</div>
    <div style="display:flex;gap:6px;margin:6px 0;flex-wrap:wrap">${["All","BUY","SELL","Stocks","Commodity"].map(m=>`<button class="pickbtn ${WHF===m?"on":""}" onclick="WHF='${m}';$('p-jv').innerHTML=jarvisHTML(LAST_S)">${m}</button>`).join("")}</div>
-   ${R.length?`<div style="max-height:460px;overflow:auto">${simpleTbl(R.slice(0,150),[["Date · time",r=>`<b>${esc(dt(r.time))}</b>`],
+   ${(W.early||[]).length?`<div style="margin:6px 0;padding:6px;border:1px dashed #fde047;border-radius:8px"><b style="color:#fde047">⚡ EARLY — big volume building right now</b> <small class="hint">live quotes every minute · ${esc(W.early_time||"")} · not confirmed until the 5-min candle closes</small>
+     ${simpleTbl((W.early||[]).slice(0,30),[["Date · seen",r=>`<b>${esc(dt(r.date+" "+r.time))}</b>`],["Stock",r=>`<b style="color:${col(r.side)}">⚡ ${esc(r.symbol)}</b>`],
+       ["Side",r=>`<b style="color:${col(r.side)}">${r.side==="BUY"?"🟢 BUYING":"🔴 SELLING"}</b>`],["Last 2 min vol",r=>`<b>${r.mult}×</b> normal`],["Move",r=>`${r.move>0?"+":""}${r.move}% @ ₹${n2(r.price)}`],
+       ["Strike to watch",r=>r.opt?`<b style="color:${col(r.side)}">${esc(r.symbol)} ${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">exp ${esc(r.opt.expiry)}</div>`:"–"]],r=>r.side==="BUY"?"uprow":"slrow")}</div>`:""}
+   ${R.length?`<div style="max-height:460px;overflow:auto">${simpleTbl(R.slice(0,150),[["Date · time",r=>`<b>${esc(dt(r.time))}</b>${r.end?`<div class="hint">candle ${esc(r.time.slice(11,16))}–${esc(r.end)} · alert ${esc((r.seen||"").slice(0,5))}</div>`:""}`],
       ["Stock",r=>`<b style="color:${col(r.side)}">🐋 ${esc(r.symbol)}</b>${r.exch==="MCX"?' <small class="hint">MCX</small>':""}`],
       ["Big players",r=>`<b style="color:${col(r.side)}">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORBING"}</b>`],
       ["Volume",r=>`<b>${r.mult}×</b> avg`],["Price",r=>`₹${n2(r.price)}${r.now?`<div class="hint">now ₹${n2(r.now)}</div>`:""}`],
@@ -2868,13 +2872,13 @@ function jvAlertsUI(s){ const A=s.jv_alerts||[]; let b=document.getElementById("
     document.body.appendChild(p); }
   const col=a=>a.k==="combo"?"#fde047":a.k==="adv"?"#fbbf24":a.side==="BUY"||a.side==="CE"?"#22c55e":a.side==="SELL"||a.side==="PE"?"#ef4444":a.side==="ABSORB"?"#f59e0b":"#94a3b8";
   const keys=A.map(a=>a.t+a.txt); if(JVA_SEEN===null) JVA_SEEN=new Set(keys);
-  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)); fresh.slice(0,3).forEach(a=>{ try{ toast((a.k==="combo"?"🟡 JARVIS · ":a.k==="adv"?"🐋 ADVANCE · ":"🐋 ")+a.txt); }catch(e){}
-    try{ if(window.Notification&&Notification.permission==="granted") new Notification("🐋 JARVIS "+a.t, {body:a.txt}); }catch(e){} }); keys.forEach(k=>JVA_SEEN.add(k));
+  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)); fresh.slice(0,4).forEach(a=>{ try{ toast(`<b>${a.k==="combo"?"🟡 JARVIS":a.k==="adv"?"🐋 ADVANCE":a.k==="early"?"⚡ EARLY":"🐋 BIG PLAYER"}</b> <span class="hint">🕒 ${esc(a.when||((a.dl||a.d||"")+" "+a.t))}</span><br>${esc(a.txt)}`, a.k==="combo"?"pink":""); }catch(e){}
+    try{ if(window.Notification&&Notification.permission==="granted") new Notification((a.k==="early"?"⚡ ":"🐋 ")+"JARVIS · "+(a.when||a.t), {body:a.txt}); }catch(e){} }); keys.forEach(k=>JVA_SEEN.add(k));
   b.innerHTML=`🐋 JARVIS ${A.length?`<span style="background:#ef4444;border-radius:10px;padding:0 6px;font-size:11px">${A.length}</span>`:""}`;
-  document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">big players + every new call · today</span></div>
+  document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">⚡ early (live, every minute) + 🐋 5-min candle big players + every new call · today</span></div>
    <div class="hint" style="margin:4px 0"><a href="#" onclick="try{Notification.requestPermission()}catch(e){};return false">🔔 enable notifications</a></div>
-   ${A.length?A.map(a=>a.k==="combo"?`<div style="padding:7px;margin:5px 0;border:2px solid #fde047;border-radius:10px;background:rgba(253,224,71,.12)"><b style="color:#fde047;font-size:14px">🟡 JARVIS: ${esc(a.txt)}</b> <small class="hint">${esc(a.d||"")}</small>${a.id?" "+paperBtn(a.id,true):""}</div>`
-     :`<div style="padding:5px 0;border-bottom:1px solid #1e293b"><span class="hint">${esc(a.t)}</span> <b style="color:${col(a)}">${a.k==="whale"?"🐋":a.k==="adv"?"🐋⭐":"📣"}</b> <span style="color:${col(a)}">${esc(a.txt)}</span> <small class="hint">${esc(a.d||"")}</small></div>`).join(""):'<div class="hint">No alerts yet today.</div>'}`; }
+   ${A.length?A.map(a=>a.k==="combo"?`<div style="padding:7px;margin:5px 0;border:2px solid #fde047;border-radius:10px;background:rgba(253,224,71,.12)"><b style="color:#fde047;font-size:14px">🟡 JARVIS: ${esc(a.txt)}</b><div class="hint">🕒 ${esc(a.when||a.d||"")}</div>${a.id?" "+paperBtn(a.id,true):""}</div>`
+     :`<div style="padding:5px 0;border-bottom:1px solid #1e293b"><b class="hint">${esc(a.t)}</b> <b style="color:${col(a)}">${a.k==="whale"?"🐋":a.k==="adv"?"🐋⭐":a.k==="early"?"⚡":"📣"}</b> <span style="color:${col(a)}">${esc(a.txt)}</span><div class="hint" style="font-size:11px">🕒 ${esc(a.when||a.d||"")}</div></div>`).join(""):'<div class="hint">No alerts yet today.</div>'}`; }
 function jarvisHTML(s){
   const J=s.jarvis||{}, E=J.elite||[], T=J.top||[], L=J.live||[], Hs=J.history||[], P=(J.perf||{})[JVPER]||{}, I=((s.sniper||{}).integrity)||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   const ids=E.map(r=>r.id).join(","); if(JV_SEEN!==null&&ids!==JV_SEEN&&E[0]&&!JV_SEEN.includes(E[0].id)){ try{ speak(`JARVIS boss call. ${E[0].symbol} ${E[0].strike} ${E[0].side==="CE"?"C E":"P E"}. Score ${E[0].score}.`); }catch(e){} } JV_SEEN=ids;
@@ -3407,7 +3411,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v119";
+const APPV="v120";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

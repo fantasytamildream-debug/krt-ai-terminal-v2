@@ -33,7 +33,15 @@ DEFAULT = {
     "silver_windows": [["10:00", "11:00"], ["13:30", "14:30"]],      # Indian session-க்கு adapt — backtest-ல் tune பண்ணணும்
     "weights": {"trend": 15, "liquidity": 20, "bos": 15, "volume": 15, "gamma": 15, "vwap": 10, "option": 10},
     "premium_trigger_pct": 2.0, "dup_minutes": 45, "stale_minutes": 3,
+    # v120: proven strategies get their own (lower) score bar — Silver Bullet / Gamma Squeeze READY setups were stuck at "Score < 85"
+    "strat_min": {"SILVER": 60, "GAMMA": 65, "ORDERFLOW": 75, "CQSMC": 80, "VWAPMR": 80},
+    "ready_entry": ["SILVER", "GAMMA"],     # these may enter from READY (premium trigger is the confirmation) and outside their preferred regime
 }
+
+
+def eff_min(S, strat):
+    """Score bar for one strategy: its own proven bar, never above the global min_score."""
+    return min(float((S.get("strat_min") or {}).get(strat, S["min_score"])), float(S["min_score"]))
 LOCK = threading.Lock()
 STATE = {"t": None, "indices": {}, "setups": [], "errors": [], "bt": None, "bt_running": False, "pending": {}, "last_sig": {},
          "prog": "", "tried": None}
@@ -73,6 +81,8 @@ def settings():
     except Exception:
         pass
     s["auto_trading"] = False          # இந்த app order போடாது — எப்போதும் OFF
+    s["strategies"]["SILVER"] = True   # v120: ⚡ ICT Silver Bullet always active (user request)
+    s["strategies"]["GAMMA"] = True
     return s
 
 
@@ -626,6 +636,12 @@ def option_plan(o, spot, spot_sl, S):
     risk_struct = pts * dl * lot
     R = min(max(risk_struct, S["min_t1_rs"]), S["max_risk"])
     sl = round(round((e - R / lot) / 0.05) * 0.05, 2)
+    cheap = ""
+    if sl <= 0.05 and e > 0.5:
+        # v120: cheap premium — ₹1,500 minimum risk put the SL below zero. Cap SL at 40% of the premium instead.
+        R = e * 0.4 * lot
+        sl = round(round((e - R / lot) / 0.05) * 0.05, 2)
+        cheap = f"Cheap premium — SL at 40% of premium (risk ₹{R:,.0f}/lot)"
     if sl <= 0.05 or sl >= e:
         return None, "SL premium தவறு (entry-க்கு கீழே இருக்கணும்)"
     risk = (e - sl) * lot
@@ -633,10 +649,10 @@ def option_plan(o, spot, spot_sl, S):
     rr = (tg[1] - e) / (e - sl)
     if not (sl < e < tg[0] < tg[1] < tg[2]) or rr < S["min_rr"] - 1e-6:
         return None, f"RR {rr:.2f} < {S['min_rr']}"
-    warn = (f"Structure SL மிக தூரம் (₹{risk_struct:,.0f}/lot) — ₹{S['max_risk']:,.0f} cap SL noise-ல் அடிக்கலாம் (reference plan மட்டும்)"
-            if risk_struct > S["max_risk"] * 1.6 else "")
+    note = (f"Structure SL far (₹{risk_struct:,.0f}/lot) — SL capped at ₹{S['max_risk']:,.0f}; noise can hit it, take 1 lot only"
+            if risk_struct > S["max_risk"] * 1.6 else cheap)
     trig = round(round(e * (1 + S["premium_trigger_pct"] / 100) / 0.05) * 0.05, 2)
-    return {"warn": warn, "entry": e, "trigger": trig, "zone": [trig, round(trig * 1.03, 2)], "sl": sl, "targets": tg, "risk": round(risk),
+    return {"warn": "", "note": note, "entry": e, "trigger": trig, "zone": [trig, round(trig * 1.03, 2)], "sl": sl, "targets": tg, "risk": round(risk),
             "rr_t2": round(rr, 2), "t_rs": [round((t - e) * lot) for t in tg], "struct_risk": round(risk_struct)}, ""
 
 
@@ -772,17 +788,24 @@ def scan(ag, inst, full, now, live=True):
                     s_["plan"] = p
                     if p.get("warn"):
                         s_["block"].append(p["warn"])
+                    if p.get("note"):
+                        s_.setdefault("notes", []).append("⚠ " + p["note"])
                     if o.get("wide"):
                         s_["block"].append(f"Spread {o['spread_pct']}% — limit order மட்டும்")
                 else:
                     s_["block"].append(why2)
             else:
                 s_["block"].append("Option: " + why)
-        if not s_["preferred"]:
+        bar = eff_min(S, s_["strategy"])
+        proven = s_["strategy"] in (S.get("ready_entry") or [])
+        s_["bar"] = bar
+        if not s_["preferred"] and proven and s_["score"] >= bar:
+            s_.setdefault("notes", []).append(f"Regime {s_['regime']} is not its preferred one — allowed (proven strategy), 1 lot")
+        elif not s_["preferred"]:
             s_["block"].append(f"Market {s_['regime']} — இந்த strategy-க்கு entry இல்லை (support மட்டும்)" if s_["regime"] != "UNCLEAR"
                                else "Market UNCLEAR — 2 strategies ஒரே side-ல் confirm ஆகணும் (confluence)")
-        if s_["score"] < S["min_score"]:
-            s_["block"].append(f"Score {s_['score']} < {S['min_score']:.0f}")
+        if s_["score"] < bar:
+            s_["block"].append(f"Score {s_['score']} < {bar:.0f}")
         if not mkt_open:
             s_["block"].append("Market closed — live signal இல்லை")
         if s_["stale"]:
@@ -790,7 +813,8 @@ def scan(ag, inst, full, now, live=True):
         # premium trigger (option-க்கு தனி confirmation)
         pk = f"{s_['index']}|{s_['side']}|{s_['strategy']}"
         pend = STATE["pending"]
-        if s_.get("plan") and not s_["block"] and s_["stage"] == "CONFIRMED":
+        go_stage = s_["stage"] == "CONFIRMED" or (proven and s_["stage"] == "READY")
+        if s_.get("plan") and not s_["block"] and go_stage:
             pv = pend.get(pk)
             if not S["entry_confirmation"]:
                 s_["status"] = "ENTRY CONFIRMED"
@@ -805,9 +829,9 @@ def scan(ag, inst, full, now, live=True):
                     pend[pk] = {"trigger": s_["plan"]["trigger"], "contract": s_["option"]["contract"], "t": t.strftime("%H:%M")}
                 s_["status"] = "WAIT FOR PREMIUM TRIGGER"
                 s_["plan"]["trigger"] = pend[pk]["trigger"]
-        elif pk in pend and s_["stage"] != "CONFIRMED":
+        elif pk in pend and not go_stage:
             pend.pop(pk, None)
-        cls = "HIGH" if s_["score"] >= S["min_score"] else "WATCH" if s_["score"] >= S["watch_score"] else "SKIP"
+        cls = "HIGH" if s_["score"] >= bar else "WATCH" if s_["score"] >= S["watch_score"] else "SKIP"
         s_["class"] = cls
         if s_["status"] == "ENTRY CONFIRMED":
             last = STATE["last_sig"].get(pk)
@@ -847,7 +871,7 @@ def journal_update(ag, final, t, mkt_open, live):
     if mkt_open:
         for s_ in final:
             p, o = s_.get("plan"), s_.get("option")
-            if not (p and o) or s_["stage"] not in ("READY", "CONFIRMED") or s_["score"] < 60 or mins > 14 * 60 + 30:
+            if not (p and o) or s_["stage"] not in ("READY", "CONFIRMED") or s_["score"] < min(60, s_.get("bar") or 60) - 5 or mins > 14 * 60 + 30:
                 continue
             key = f"{day}|{s_['index']}|{s_['side']}|{s_['strategy']}"
             if any(j["key"] == key and j["status"] in ("WAITING", "OPEN", "T1 HIT", "T2 HIT") for j in J):
