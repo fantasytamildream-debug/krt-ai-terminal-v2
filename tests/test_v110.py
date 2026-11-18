@@ -52,7 +52,7 @@ def test_low_volume_and_weak_module(fs):
     for c in fs.data["calls"].values():
         if c["status"] == "T1 HIT":
             c["status"] = "T3 DONE"
-    assert CL.best_gate(_c(kind="GOKI", source="Goki Mannan Jackpot"), fs.data, NOW)[0] == "Q_WEAK_MODULE"
+    assert CL.best_gate(_c(kind="GOKI", source="Goki Mannan Jackpot"), fs.data, NOW)[0] in ("Q_WEAK_MODULE", "Q_RETIRED")   # v125: 35% win, −₹15.5k → removed
 
 
 def test_one_call_per_stock_side_across_modules_and_index_open_rule(fs):

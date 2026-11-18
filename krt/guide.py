@@ -123,7 +123,8 @@ def build(rg, brain, money, nifty, jv_top, feed, early, calls, adv, events, coac
         end = r.get("end") or r["time"][11:16]
         big.append({"symbol": r["symbol"], "side": r["side"], "mult": r["mult"], "price": r["price"], "time": r["time"][11:16], "end": end,
                     "seen": end if r.get("backfill") else (r.get("seen") or "")[:5], "opt": r.get("opt"), "target": t, "sl": sl,
-                    "now": r.get("now"), "early": False, "old": bool(r.get("backfill")), "sort": end})
+                    "now": r.get("now"), "early": False, "old": bool(r.get("backfill")),
+                    "sort": end if r.get("backfill") else (r.get("seen") or end)[:5]})      # v125: newest ALERT first
     for r in [x for x in (early or []) if x.get("date") == day]:
         big.append({"symbol": r["symbol"], "side": r["side"], "mult": r["mult"], "price": r["price"], "time": r["time"], "seen": r["time"],
                     "opt": r.get("opt"), "target": None, "sl": None, "early": True, "old": False, "sort": r["time"]})

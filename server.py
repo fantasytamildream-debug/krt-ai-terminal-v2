@@ -374,7 +374,10 @@ def bigvol_loop():
         try:
             t = now_ist()
             nse, mcx = market_open(t), CM.mcx_open(t)
-            if not angel_configured() or not (nse or mcx) or mem_high():
+            if not angel_configured() or not (nse or mcx):
+                continue
+            if mem_core():
+                loop_mark("bigvol", False, f"memory {MEM.get('rss')} MB")
                 continue
             from krt import bigvol as BV, ailab as AL, fullscan as FSm
             from krt.angel_api import Angel
@@ -391,6 +394,7 @@ def bigvol_loop():
             inst_ = load_inst(ROOT / "data" / "cache")
             t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
             BV.sweep(ANGEL, inst_, t0, list(dict.fromkeys(pri)), _b, mcx_only=not nse)
+            loop_mark("bigvol")
             try:
                 jv_combo_push(_b)                         # 🟡 v119: big players + an open call on the same side → yellow BUY alert
             except Exception:
@@ -420,7 +424,7 @@ def _smc_frame(ag, inst, sym, t0):
     if df is None or df.empty:
         return None
     lc = t0.floor("5min") - pd.Timedelta(minutes=5)
-    return df[df.index <= lc].tail(400)
+    return df[df.index <= lc].tail(300)
 
 
 def _smc_add_calls(rows_):
@@ -530,8 +534,8 @@ def smc_chart(sym):
         if df is None or len(df) < 25:
             return {"ok": False, "msg": f"No 5-min candles for {sym} from Angel."}
         SMCC[sym] = hit = (time.time(), df)
-        if len(SMCC) > 60:
-            for k in sorted(SMCC, key=lambda k: SMCC[k][0])[:20]:
+        if len(SMCC) > 25:
+            for k in sorted(SMCC, key=lambda k: SMCC[k][0])[:10]:
                 SMCC.pop(k, None)
     from krt import fullscan as FSm
     an = SMC.analyse(hit[1], (FSm.C.get("levels") or {}).get(sym), sym)
@@ -549,7 +553,10 @@ def early_loop():
         try:
             t = now_ist()
             hm = t.strftime("%H:%M")
-            if not angel_configured() or not market_open(t) or not ("09:17" <= hm <= "15:25") or mem_high():
+            if not angel_configured() or not market_open(t) or not ("09:17" <= hm <= "15:25"):
+                continue
+            if mem_core():
+                loop_mark("early", False, f"memory {MEM.get('rss')} MB")
                 continue
             from krt import bigvol as BV
             from krt.angel_api import Angel
@@ -557,7 +564,9 @@ def early_loop():
             from krt.notify import both as _b
             ANGEL = ANGEL or Angel()
             t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
-            if BV.early(ANGEL, load_inst(ROOT / "data" / "cache"), t0, _b):
+            hit_ = BV.early(ANGEL, load_inst(ROOT / "data" / "cache"), t0, _b)
+            loop_mark("early", BV.ES.get("err") is None, BV.ES.get("err"))
+            if hit_:
                 jv_combo_push(_b)                         # an early spike on an open call's side → 🟡 yellow BUY at once
         except Exception:
             traceback.print_exc()
@@ -707,7 +716,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v124"
+APP_VERSION = "v125"
 EVC = {"t": 0, "d": None}
 
 
@@ -1296,14 +1305,31 @@ def filtered_state():
         from krt.calls import STORE as _S, BEST, breadth_now, MARKET, OPEN as _OP
         day = str(now_ist().date())
         cs = [c for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("kind") != "PICK" and c.get("status") != "VOID"]
-        sh = [c for c in cs if c.get("shadow")]
+        from krt.calls import _is_dup_shadow, PROVEN, proven_sources
+        allsh = [c for c in cs if c.get("shadow")]
+        dup = [c for c in allsh if _is_dup_shadow(c)]                         # v125: copies of a trade already shown — not separate ideas
+        ret = [c for c in allsh if c.get("shadow_code") == "Q_RETIRED"]
+        sh = [c for c in allsh if not _is_dup_shadow(c) and c.get("shadow_code") != "Q_RETIRED"]
         ok = [c for c in cs if not c.get("shadow")]
         st = lambda L: {"n": len(L), "closed": sum(1 for c in L if c.get("status") not in _OP), "win": sum(1 for c in L if c.get("status") not in _OP and (c.get("pnl_lot") or 0) > 0),
                         "net": round(sum(c.get("pnl_lot") or 0 for c in L))}
         rows = [{k: c.get(k) for k in ("id", "time", "symbol", "strike", "side", "source", "entry", "sl", "ltp", "status", "pnl_lot", "shadow_why")}
                 for c in sorted(sh, key=lambda c: c.get("time") or "", reverse=True)]
+        bym = {}
+        for c in sh:
+            m_ = bym.setdefault(c.get("source"), {"source": c.get("source"), "n": 0, "net": 0, "why": c.get("shadow_why")})
+            m_["n"] += 1
+            m_["net"] += round(c.get("pnl_lot") or 0)
+        try:
+            proven_sources(_S.load())
+        except Exception:
+            pass
+        T_ = PROVEN.get("tiers") or {}
+        tiers = {"star": sorted([dict(v, source=k) for k, v in T_.items() if v["tier"] == "STAR"], key=lambda v: -v["net"]),
+                 "retired": sorted([dict(v, source=k) for k, v in T_.items() if v["tier"] == "RETIRED"], key=lambda v: v["net"])}
         b = breadth_now()
         FLC.update(t=time.time(), d={"on": BEST["on"], "rows": rows[:80], "hidden": st(sh), "shown": st(ok), "breadth": b, "nifty": MARKET.get("nifty_pct"),
+                                     "dups": st(dup), "retired_today": st(ret), "by_module": sorted(bym.values(), key=lambda m: -m["n"]), "tiers": tiers,
                                      "live": bool(MARKET.get("nifty_live_t") and time.time() - MARKET["nifty_live_t"] < 30)})
     except Exception as e:
         FLC.update(t=time.time(), d={"err": str(e)[:150]})
@@ -1598,6 +1624,39 @@ def mem_guard(tag=""):
 
 MEM = {"rss": 0, "peak": 0, "t": None, "tag": "", "skipped": 0}
 MEM_HIGH = int(os.environ.get("KRT_MEM_HIGH", "400"))       # MB: above this, optional loops pause for one cycle
+
+
+LOOPS = {}          # v125: loop name → {"ok": last good run, "skip": skips, "why": last skip reason}
+
+
+def loop_mark(name, ok=True, why=None):
+    L = LOOPS.setdefault(name, {"ok": None, "skip": 0, "why": None})
+    if ok:
+        L.update(ok=now_ist().strftime("%H:%M:%S"), why=None)
+    else:
+        L["skip"] += 1
+        L["why"] = why
+
+
+def free_optional():
+    """Drop rebuildable caches (SMC frames, strike cache, Command Center cache) before giving up on a core loop."""
+    try:
+        SMCC.clear()
+        CCST.clear()
+        from krt import command as _CMD, smc as _SM
+        _CMD.CACHE.clear()
+        _SM.STATE["charts"] = {}
+    except Exception:
+        pass
+
+
+def mem_core():
+    """v125: core loops (big players ⚡ early + 5-min sweep) only pause near the real 512 MB limit, after freeing optional caches."""
+    r = rss_mb() or 0
+    if r >= MEM_HIGH:
+        free_optional()
+        r = mem_guard("core")
+    return r >= MEM_HIGH + 70
 
 
 def mem_high():
@@ -2189,7 +2248,7 @@ class H(BaseHTTPRequestHandler):
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": _safe(mannan_report), "version": APP_VERSION, "keepalive": KEEP,
                     "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(bigvol_state), "jbrain": _safe(jbrain_state), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state),
-                    "cc": _safe(cc_state), "guide": _safe(guide_state), "jsniper": _safe(jsniper_state), "smc": _safe(smc_state),
+                    "cc": _safe(cc_state), "loops": dict(LOOPS, mem=MEM.get("rss")), "guide": _safe(guide_state), "jsniper": _safe(jsniper_state), "smc": _safe(smc_state),
                     "riser": _safe(riser_state),
                     "pink_hist": _safe(pink_hist), "radar": _safe(radar_state), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),

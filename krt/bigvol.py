@@ -11,7 +11,7 @@ import time
 
 import pandas as pd
 
-CFG = {"mult": 2.5, "look": 20, "days": 3, "iv": "FIVE_MINUTE", "bar": 5, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 260, "feed_days": 2, "feed_max": 600, "push_mult": 5.0}
+CFG = {"budget_s": 240, "mult": 2.5, "look": 20, "days": 3, "iv": "FIVE_MINUTE", "bar": 5, "ttl": 300, "max_fetch": 12, "keep": 6, "sweep_n": 260, "feed_days": 2, "feed_max": 600, "push_mult": 5.0}
 FEED = {}                # "SYM|time" → spike row (whole F&O market + MCX) for the JARVIS 🐋 table
 SW = {"cursor": 0, "time": None, "scanned": 0, "universe": 0, "pushed": set()}
 CACHE = {}               # symbol → (ts, result)
@@ -131,7 +131,9 @@ def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None, ref_now=None):
         seen = nowk.strftime("%H:%M:%S")
         # v124: a candle that closed >15 min ago (e.g. re-loaded after a server restart) is history, not a new alert
         try:
-            rn = pd.Timestamp(ref_now) if ref_now is not None else nowk.tz_localize(None)
+            wall = nowk.tz_localize(None)
+            # live: the WALL clock (a slow sweep must not hide that an alert is late) · replay / tests: the scan time
+            rn = pd.Timestamp(ref_now) if ref_now is not None and abs((wall - pd.Timestamp(ref_now)).total_seconds()) > 6 * 3600 else wall
             backfill = (rn - (pd.Timestamp(x["time"]) + pd.Timedelta(minutes=CFG["bar"]))).total_seconds() > 900
         except Exception:
             backfill = False
@@ -164,9 +166,13 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             lq = _C.get("live_q") or {}
         except Exception:
             lq = {}
-        order = list(priority) + uni[SW["cursor"]:] + uni[:SW["cursor"]]
+        # v125: most ACTIVE stocks first (live relative volume) — that is where big players show up — and a 4-min time budget
+        #       so a slow / throttled API never makes the next candle wait.
+        act = sorted(uni, key=lambda x: -((lq.get(x) or {}).get("vol_ratio") or 0))
+        order = list(priority) + act
+        t_start = time.time()
         for sym in dict.fromkeys(order):
-            if n >= CFG["sweep_n"]:
+            if n >= CFG["sweep_n"] or time.time() - t_start > CFG.get("budget_s", 240):
                 break
             hit = CACHE.get(sym)
             if hit and hit[1].get("last_bar") and pd.Timestamp(hit[1]["last_bar"]) >= lc:
@@ -229,7 +235,7 @@ def feed_report():
 
 
 # ───────────────────────── ⚡ v120 EARLY detector (every minute, live quotes — no candle API) ─────────────────────────
-ECFG = {"mult": 5.0, "win": 2, "hist": 20, "min_hist": 5, "move": 0.15, "cool": 15, "keep": 300}
+ECFG = {"mult": 4.0, "win": 2, "hist": 20, "min_hist": 5, "move": 0.15, "cool": 15, "keep": 300}
 EH = {}          # symbol → [(ts, cum_volume, ltp), …]  last ~20 minutes
 EARLY = {}       # "SYM|HH:MM" → row
 ES = {"time": None, "n": 0, "err": None}

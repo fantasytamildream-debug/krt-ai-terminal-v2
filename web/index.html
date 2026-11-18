@@ -3142,7 +3142,9 @@ function advHTML(s){ const A=s.advance||{}, C=A.calls||[], W=A.watch||[], st=A.s
    ${W.length?`<details><summary class="hint">⏳ Forming (${W.length}) — big players active, but not ready</summary>${W.map(w=>`<div class="hint"><b class="${w.side==="CE"?"up":"dn"}">${esc(w.symbol)} ${w.side}</b> — ${(w.reasons||[]).map(esc).join(" · ")} · <span style="color:#f59e0b">${(w.why_not||[]).map(esc).join(" · ")}</span></div>`).join("")}</details>`:""}
    <div class="hint">Advance entry = right after big players' candle, SL just beyond it. If price closes back through that candle, the signal failed — exit. Paper only.</div></div>`; }
 let JVA_SEEN=null;
-function jvAlertsUI(s){ const A=s.jv_alerts||[]; let b=document.getElementById("jvaBtn");
+function jvaLoops(s){ const L=s.loops||{}, f=(k,lbl)=>{ const x=L[k]; if(!x) return `${lbl}: waiting`; return x.why?`<b style="color:#f59e0b">${lbl}: paused (${esc(x.why)})</b>`:`${lbl}: ✓ ${esc(x.ok||"–")}`; };
+  return `${f("early","⚡ early scan")} · ${f("bigvol","🐋 5-min sweep")}${L.mem?` · server ${L.mem} MB`:""}`; }
+function jvAlertsUI(s){ try{ const el=document.getElementById("jvaLoops"); if(el) el.innerHTML=jvaLoops(s); }catch(e){} const A=s.jv_alerts||[]; let b=document.getElementById("jvaBtn");
   if(!b){ b=document.createElement("div"); b.id="jvaBtn"; b.style.cssText="position:fixed;right:16px;bottom:76px;z-index:9999;background:#0b1220;border:2px solid #38bdf8;border-radius:28px;padding:8px 12px;cursor:pointer;font-weight:700;box-shadow:0 4px 18px rgba(0,0,0,.5)";
     b.onclick=()=>{ const p=document.getElementById("jvaPanel"); p.style.display=p.style.display==="none"?"block":"none"; try{ localStorage.setItem("jva_seen",String((s.jv_alerts||[]).length)); }catch(e){} };
     document.body.appendChild(b);
@@ -3153,7 +3155,8 @@ function jvAlertsUI(s){ const A=s.jv_alerts||[]; let b=document.getElementById("
   const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)&&!a.old); fresh.slice(0,4).forEach(a=>{ try{ toast(`<b>${a.k==="combo"?"🟡 JARVIS":a.k==="adv"?"🐋 ADVANCE":a.k==="early"?"⚡ EARLY":"🐋 BIG PLAYER"}</b> <span class="hint">🕒 ${esc(a.when||((a.dl||a.d||"")+" "+a.t))}</span><br>${esc(a.txt)}`, a.k==="combo"?"pink":""); }catch(e){}
     try{ if(window.Notification&&Notification.permission==="granted") new Notification((a.k==="early"?"⚡ ":"🐋 ")+"JARVIS · "+(a.when||a.t), {body:a.txt}); }catch(e){} }); keys.forEach(k=>JVA_SEEN.add(k));
   b.innerHTML=`🐋 JARVIS ${A.length?`<span style="background:#ef4444;border-radius:10px;padding:0 6px;font-size:11px">${A.length}</span>`:""}`;
-  document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">⚡ early (live, every minute) + 🐋 5-min candle big players + every new call · today</span></div>
+  document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">⚡ early (live, every minute) + 🐋 5-min candle big players + every new call · today</span>
+      <div class="hint" id="jvaLoops" style="font-size:11px">${jvaLoops(s)}</div></div>
    <div class="hint" style="margin:4px 0"><a href="#" onclick="try{Notification.requestPermission()}catch(e){};return false">🔔 enable notifications</a></div>
    ${A.length?A.map(a=>a.k==="combo"?`<div style="padding:7px;margin:5px 0;border:2px solid #fde047;border-radius:10px;background:rgba(253,224,71,.12)"><b style="color:#fde047;font-size:14px">🟡 JARVIS: ${esc(a.txt)}</b><div class="hint">🕒 ${esc(a.when||a.d||"")}</div>${a.id?" "+paperBtn(a.id,true):""}</div>`
      :`<div style="padding:5px 0;border-bottom:1px solid #1e293b"><b class="hint">${esc(a.t)}</b> <b style="color:${col(a)}">${a.k==="whale"?"🐋":a.k==="adv"?"🐋⭐":a.k==="early"?"⚡":"📣"}</b> <span style="color:${col(a)}">${esc(a.txt)}</span><div class="hint" style="font-size:11px">🕒 ${esc(a.when||a.d||"")}</div></div>`).join(""):'<div class="hint">No alerts yet today.</div>'}`; }
@@ -3234,8 +3237,11 @@ function bestModeHTML(s){ const F=s.filtered||{}; if(!F.on) return ""; const H=F
   const rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   return `<div class="labbox" style="border:2px solid #22c55e;font-size:12.5px"><b>🏆 BEST MODE ON</b> <small class="hint">no count limit — only quality. NIFTY ${F.nifty!=null?(F.nifty>=0?"+":"")+F.nifty+"%":"–"} ${F.live?"(live)":"(scan)"} · breadth ${b?`${b[0]} up / ${b[1]} down`:"–"}</small>
    <div class="hint">Shown today: <b>${S.n||0}</b> calls · ${S.closed||0} closed · ${S.win||0} won · <b class="${(S.net||0)>=0?"up":"dn"}">${rs(S.net)}</b> &nbsp;|&nbsp; Hidden by the filter: <b>${H.n||0}</b> · ${H.closed||0} closed · ${H.win||0} won · <b class="${(H.net||0)>=0?"up":"dn"}">${rs(H.net)}</b> ${H.closed?((H.net||0)<0?"→ filter saved you money ✅":"→ filter cost money today ⚠"):""}</div>
-   <div class="hint">Hidden = weak module · duplicate idea · stock CE when most stocks fall · stock PE unless a clear down day · volume &lt;1.5× · 3 SL in a row on a side · MCX after 1:30 PM.</div>
-   ${(F.rows||[]).length?`<details><summary class="hint">🚫 Hidden calls today (${F.rows.length}) — tracked, not shown</summary>${simpleTbl(F.rows,[["Time",c=>esc(ampm(c.time))],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${c.strike!=null?n2(c.strike):""} ${c.side}</b><div class="hint">${esc(c.source||"")}</div>`],["Why hidden",c=>`<span class="hint">${esc(c.shadow_why||"")}</span>`],["P/L lot",c=>`<b class="${(c.pnl_lot||0)>=0?'up':'dn'}">${rs(c.pnl_lot)}</b>`],["Status",c=>esc(c.status||"")]])}</details>`:""}</div>`; }
+   <div class="hint">Hidden = weak module · stock CE when most stocks fall · stock PE unless a clear down day · volume &lt;1.5× · 3 SL in a row on a side · MCX after 1:30 PM. <b>⭐ Star strategies skip the volume / stock-PE / side-brake checks.</b> Not counted above: ${(F.dups||{}).n||0} duplicate copies of calls already shown, ${(F.retired_today||{}).n||0} signals from removed strategies.</div>
+   ${((F.tiers||{}).star||[]).length?`<div style="margin-top:4px"><b class="up">⭐ Star strategies</b> <small class="hint">made money over 10+ calls (all calls counted) — their calls come through daily</small><div class="hint">${F.tiers.star.map(t=>`<b>${esc(t.source)}</b> ${t.win}% · ${rs(t.net)} (${t.n})`).join(" · ")}</div></div>`:""}
+   ${((F.tiers||{}).retired||[]).length?`<div style="margin-top:3px"><b class="dn">⚫ Removed strategies</b> <small class="hint">big losers still losing — no calls, tracked silently, come back by themselves if their last 30 calls turn profitable</small><div class="hint">${F.tiers.retired.map(t=>`<b>${esc(t.source)}</b> ${t.win}% · ${rs(t.net)} (${t.n})`).join(" · ")}</div></div>`:""}
+   ${(F.by_module||[]).length?`<div class="hint" style="margin-top:3px">Hidden by module today: ${F.by_module.map(m=>`<b>${esc(m.source)}</b> ${m.n} (${rs(m.net)})`).join(" · ")}</div>`:""}
+   ${(F.rows||[]).length?`<details><summary class="hint">🚫 Hidden calls today (${F.rows.length}) — tracked, not shown · duplicates & removed strategies left out</summary>${simpleTbl(F.rows,[["Time",c=>esc(ampm(c.time))],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${c.strike!=null?n2(c.strike):""} ${c.side}</b><div class="hint">${esc(c.source||"")}</div>`],["Why hidden",c=>`<span class="hint">${esc(c.shadow_why||"")}</span>`],["P/L lot",c=>`<b class="${(c.pnl_lot||0)>=0?'up':'dn'}">${rs(c.pnl_lot)}</b>`],["Status",c=>esc(c.status||"")]])}</details>`:""}</div>`; }
 /* 🏹 V109 DHASVANTH — 9.5 checklist for the 5 best strategies (index · stock · commodity) */
 let DHM="All";
 const DHGC={"9.5 PRO":"#22c55e","TAKE":"#38bdf8","CAUTION":"#f59e0b","SKIP":"#ef4444","NO DATA":"#94a3b8"};
@@ -3692,7 +3698,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v124";
+const APPV="v125";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

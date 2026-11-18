@@ -299,11 +299,12 @@ def proven_sources(d, now_ts=None):
         s_["n"] += 1
         s_["w" if p_ > 0 else "l"] += abs(p_)
     ok = {k for k, v in st.items() if v["n"] >= 15 and v["w"] > v["l"] and (v["w"] / v["l"] if v["l"] else 9) >= 1.5}
-    PROVEN.update(t=_t.time(), set=ok, rows=st, recent=recent_form(d))
+    rf = recent_form(d)
+    PROVEN.update(t=_t.time(), set=ok, rows=st, recent=rf, tiers=strategy_tiers(d, rf))
     return ok     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
 
 
-SHADOW_CODES = ("Q_MODULE_PAUSED", "Q_LEARNED", "Q_WEAK_MODULE", "Q_BREADTH", "Q_COUNTER_LIVE", "Q_DUP_ANY", "Q_SIDE_BRAKE",
+SHADOW_CODES = ("Q_RETIRED", "Q_MODULE_PAUSED", "Q_LEARNED", "Q_WEAK_MODULE", "Q_BREADTH", "Q_COUNTER_LIVE", "Q_DUP_ANY", "Q_SIDE_BRAKE",
                 "Q_STOCK_PE", "Q_LOW_VOL", "Q_MCX_LATE")
 BEST = {"on": True, "weak_n": 15, "breadth_min": 0.9, "counter": 0.4, "brake_n": 3, "brake_min": 45, "side_stop": -7500}
 
@@ -343,6 +344,31 @@ def recent_form(d, n=30, days=30):
     return out
 
 
+def strategy_tiers(d, rf=None):
+    """v125: ⚫ RETIRED = big money losers still losing recently · ⭐ STAR = made money over 10+ calls (win ≥55% or profit factor ≥1.5).
+    All calls counted (shown + hidden, duplicates excluded) — the full truth of each strategy. → {source: {tier, n, win, net, pf}}"""
+    rf = rf if rf is not None else recent_form(d)
+    by = {}
+    for x in (d.get("calls") or {}).values():
+        if x["status"] in OPEN or x["status"] == "VOID" or x.get("kind") == "PICK" or _is_dup_shadow(x):
+            continue
+        by.setdefault(x.get("source") or x["kind"], []).append(x.get("pnl_lot") or 0)
+    out = {}
+    for k, L in by.items():
+        n = len(L)
+        w, l_ = sum(p for p in L if p > 0), -sum(p for p in L if p < 0)
+        net, win, pf = w - l_, sum(1 for p in L if p > 0) / n * 100, (w / l_ if l_ else 9.0)
+        r = rf.get(k) or {}
+        still_losing = r.get("net", 0) < 0 or r.get("n", 0) < 10
+        tier = None
+        if n >= 5 and still_losing and ((win < 40 and net <= -10000) or (win < 45 and net <= -20000) or (net <= -10000 and pf < 0.5)):
+            tier = "RETIRED"
+        elif n >= 10 and net > 0 and (win >= 55 or pf >= 1.5):
+            tier = "STAR"
+        out[k] = {"tier": tier, "n": n, "win": round(win), "net": round(net), "pf": round(pf, 2)}
+    return out
+
+
 def best_gate(c, d, now):
     """🏆 v110 BEST-SETUPS gate — quality only, NO count limit. A failing call becomes a shadow call (not shown in the main list,
     still tracked) so we can prove the filter. → None or (code, reason)."""
@@ -350,15 +376,22 @@ def best_gate(c, d, now):
         return None
     is_idx = c["symbol"] in IDX_SYMS
     proven_sources(d)
-    m = (PROVEN.get("recent") or {}).get(c.get("source") or c["kind"])      # v124: recent form (shown + hidden), not all-time
-    if m and m["n"] >= BEST["weak_n"] and m["w"] <= m["l"]:
-        return ("Q_WEAK_MODULE", f"{c.get('source')} lost money in its last {m['n']} calls (net ₹{m['net']:,}, {m['win']}% win) — watch-only until it recovers")
+    src = c.get("source") or c["kind"]
+    tr = (PROVEN.get("tiers") or {}).get(src) or {}
+    if tr.get("tier") == "RETIRED":            # v125: worst strategies removed (still tracked silently so they can come back)
+        return ("Q_RETIRED", f"{src} removed — {tr['win']}% win, ₹{tr['net']:,} over {tr['n']} calls, still losing recently")
+    star = tr.get("tier") == "STAR"
+    c["star"] = star
+    m = (PROVEN.get("recent") or {}).get(src)      # v124: recent form (shown + hidden), not all-time
+    pf_ = (m["w"] / m["l"]) if m and m["l"] else 9
+    if m and not star and m["n"] >= BEST["weak_n"] and m["net"] < 0 and (m["win"] < 45 or pf_ < 0.85):     # v125: clear losers only
+        return ("Q_WEAK_MODULE", f"{src} lost money in its last {m['n']} calls (net ₹{m['net']:,}, {m['win']}% win) — watch-only until it recovers")
     if not is_idx:
         vr = c.get("vol_ratio")
-        if vr is not None and float(vr) < 1.5:
+        if vr is not None and float(vr) < 1.5 and not star:
             return ("Q_LOW_VOL", f"volume only {vr}× normal — low-volume stock calls won 6% in your history")
         np_ = MARKET.get("nifty_pct") or 0
-        if c.get("side") == "PE":
+        if c.get("side") == "PE" and not star:
             b0 = breadth_now()
             clear_down = np_ <= -0.3 and b0 and b0[1] >= 1.5 * b0[0]
             if not clear_down:
@@ -385,6 +418,8 @@ def best_gate(c, d, now):
     lane = [x for x in live if (x["symbol"] in IDX_SYMS) == is_idx and x.get("side") == c.get("side") and x["status"] not in OPEN and x.get("exch") != "MCX"]
     lane.sort(key=lambda x: str(x.get("exit_time") or ""))
     net = sum(x.get("pnl_lot") or 0 for x in lane)
+    if star:                                   # ⭐ proven strategies are not stopped by other modules' losses on the same side
+        return None
     if net <= BEST["side_stop"]:
         return ("Q_SIDE_BRAKE", f"{c.get('side')} side lost ₹{-net:,.0f} today — no more {c.get('side')} {'index' if is_idx else 'stock'} calls today")
     last = lane[-BEST["brake_n"]:]
@@ -1581,6 +1616,7 @@ def module_health(d, now):
     except Exception:
         _RET = {}
     recent = recent_form(d)
+    tiers = strategy_tiers(d, recent)
     rej = collections.defaultdict(collections.Counter)
     if SKIPPED.get("day") == day:
         for r in SKIPPED["log"]:
@@ -1598,7 +1634,9 @@ def module_health(d, now):
         days = (pd.Timestamp(day) - pd.Timestamp(lk[:10])).days if lk else None
         rc = rej.get(src) or collections.Counter()
         paused = src in PAUSED_SRC
-        st = ("🟢 வேலை செய்யுது" if today[src] else
+        tr_ = tiers.get(src) or {}
+        st = (f"⚫ removed — {tr_['win']}% win, ₹{tr_['net']:,} over {tr_['n']} calls (tracked silently)" if tr_.get("tier") == "RETIRED" else
+              ("⭐ " if tr_.get("tier") == "STAR" else "") + "🟢 வேலை செய்யுது" if today[src] else
               f"🟢 working — {hid[src]} signal(s) today, hidden ({(hid_why.get(src) or 'filter')[:70]}) · today ₹{hid_pl[src]:+,.0f}" if hid[src] else
               f"⚫ retired — {_RET[src]}" if src in _RET else "⏸ Auto-paused (நஷ்டம் தரும் module — shadow-ல் test ஆகுது, லாபம் வந்தா தானா resume)" if paused else
               "🟡 signal வருது, gate block" if rc else
