@@ -3001,6 +3001,87 @@ function snHTML(s){ const N=s.jsniper||{}; if(N.err) return `<div class="cwarn">
    ${C.length?`<div class="cprow" style="flex-direction:column;gap:6px">${C.map(card).join("")}</div>`:'<div class="hint">No live calls to grade yet — the Sniper grades every open call from every module.</div>'}
    <div class="hint" style="margin-top:4px">Weights: ${Object.keys(W).map(k=>esc(NM[k])+" "+W[k]).join(" · ")}. 90+ elite candidate (5-min confirmation still required) · 80–89 strong watch · 70–79 wait · below 70 reject. Score ranks setup quality — it is NOT a win probability. A module that loses in the current market type is disabled automatically (shown as the reject reason).</div></div>`; }
 
+/* 📐 v122 SMC / ICT SNIPER (inside JARVIS) — chart with entry / SL / target boxes like TradingView's position tool */
+let SMSEL=null, SMCH=null, SMF="All", SMOPEN={};
+let SML=(()=>{ try{ return Object.assign({pos:true,sweep:true,fvg:true,ob:true,struct:true,bos:true,lvl:true},JSON.parse(localStorage.getItem("krt_sml")||"{}")); }catch(e){ return {pos:true,sweep:true,fvg:true,ob:true,struct:true,bos:true,lvl:true}; } })();
+function smLayer(k){ SML[k]=!SML[k]; try{ localStorage.setItem("krt_sml",JSON.stringify(SML)); }catch(e){} smRefresh(); }
+function smRefresh(){ const b=document.getElementById("smChartBox"); if(b) b.innerHTML=SX("smChartBlock",smChartBlock); }
+async function smPick(sym){ SMSEL=sym; SMCH={loading:true}; smRefresh();
+  try{ const r=await fetch(`/api/smc/chart?symbol=${encodeURIComponent(sym)}`,{cache:"no-store"}); SMCH=await r.json(); }catch(e){ SMCH={ok:false,msg:String(e)}; }
+  smRefresh(); try{ document.getElementById("smChartBox").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+function smSvg(ch){ const K=ch.candles||[]; if(!K.length) return '<div class="hint">No candles.</div>';
+  const W=820,H=400,VH=40,padR=78,bw=(W-padR)/(K.length+8);
+  let lo=Math.min(...K.map(k=>k[3])), hi=Math.max(...K.map(k=>k[2]));
+  (ch.pos||[]).forEach(p=>{ if(SML.pos){ lo=Math.min(lo,p.sl,p.tp); hi=Math.max(hi,p.sl,p.tp); } });
+  const pd=(hi-lo)*0.05||1; lo-=pd; hi+=pd;
+  const y=v=>((hi-v)/(hi-lo)*(H-VH-18)+6), x=i=>i*bw+bw/2, vmax=Math.max(...K.map(k=>k[5]||0))||1, R=W-padR;
+  const inR=v=>v!=null&&v>=lo&&v<=hi;
+  let g=`<rect width="${W}" height="${H}" fill="#0b1220"/>`;
+  for(let t=0;t<6;t++){ const v=lo+(hi-lo)*t/5; g+=`<line x1="0" x2="${R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="#172033"/><text x="${R+5}" y="${(y(v)+4).toFixed(1)}" font-size="10" fill="#64748b">${n2(v)}</text>`; }
+  const box=(x0,x1,a,b,fill,stroke,dash)=>`<rect x="${x0.toFixed(1)}" y="${y(Math.max(a,b)).toFixed(1)}" width="${Math.max(2,x1-x0).toFixed(1)}" height="${Math.max(1,Math.abs(y(a)-y(b))).toFixed(1)}" fill="${fill}" stroke="${stroke}" ${dash?'stroke-dasharray="4 3"':""}/>`;
+  if(SML.lvl) Object.entries(ch.levels||{}).forEach(([k,v])=>{ if(inR(v)) g+=`<line x1="0" x2="${R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${/H$/.test(k)?"#22c55e":"#ef4444"}" stroke-dasharray="6 4" opacity=".6"/><text x="4" y="${(y(v)-3).toFixed(1)}" font-size="10" fill="${/H$/.test(k)?"#4ade80":"#f87171"}">${k} ${n2(v)}</text>`; });
+  if(SML.lvl&&ch.orb&&inR(ch.orb.high)) g+=`<line x1="0" x2="${R}" y1="${y(ch.orb.high).toFixed(1)}" y2="${y(ch.orb.high).toFixed(1)}" stroke="#a78bfa" stroke-dasharray="2 4" opacity=".6"/><text x="4" y="${(y(ch.orb.high)-3).toFixed(1)}" font-size="9.5" fill="#c4b5fd">ORB H</text>`;
+  if(SML.lvl&&ch.orb&&inR(ch.orb.low)) g+=`<line x1="0" x2="${R}" y1="${y(ch.orb.low).toFixed(1)}" y2="${y(ch.orb.low).toFixed(1)}" stroke="#a78bfa" stroke-dasharray="2 4" opacity=".6"/><text x="4" y="${(y(ch.orb.low)+11).toFixed(1)}" font-size="9.5" fill="#c4b5fd">ORB L</text>`;
+  (ch.zones||[]).forEach(z=>{ if(!(z.k==="FVG"?SML.fvg:SML.ob)) return; const c=z.dead?["rgba(100,116,139,.10)","rgba(100,116,139,.35)"]:z.k==="FVG"?["rgba(56,189,248,.14)","rgba(56,189,248,.45)"]:z.side==="BULL"?["rgba(34,197,94,.12)","rgba(34,197,94,.5)"]:["rgba(239,68,68,.12)","rgba(239,68,68,.5)"];
+    g+=box(x(z.x0)-bw/2,x(z.x1)+bw/2,z.top,z.bot,c[0],c[1],z.dead)+`<text x="${(x(z.x0)-bw/2+3).toFixed(1)}" y="${(y(z.top)+10).toFixed(1)}" font-size="9" fill="${c[1]}">${z.k==="FVG"?"FVG":(z.side==="BULL"?"Bull OB":"Bear OB")}${z.dead?" (used)":""}</text>`; });
+  (ch.pos||[]).forEach(p=>{ const x0=x(p.x0)-bw/2, x1=Math.min(R-2,x0+Math.max(bw*14,120)), bull=p.side==="CE", col=p.state==="ENTRY CONFIRMED"||p.state==="TARGET HIT"?(bull?"#22c55e":"#ef4444"):p.state==="STOPLOSS HIT"?"#64748b":"#f59e0b";
+    if(SML.sweep&&p.sweep) g+=box(x(p.sweep.x0)-bw*1.5,x(p.sweep.x1)+bw*1.5,p.sweep.top,p.sweep.bot,"rgba(167,139,250,.18)","rgba(167,139,250,.8)")+`<text x="${(x(p.sweep.x0)-bw*1.5).toFixed(1)}" y="${(y(p.sweep.top)-5).toFixed(1)}" font-size="12" font-weight="800" fill="#f472b6">LIQUIDITY SWEEP</text>`;
+    if(!SML.pos) return;
+    g+=box(x0,x1,p.entry,p.sl,"rgba(239,68,68,.22)","rgba(239,68,68,.7)")+box(x0,x1,p.entry,p.tp,"rgba(20,184,166,.20)","rgba(20,184,166,.7)");
+    g+=`<line x1="${x0.toFixed(1)}" x2="${x1.toFixed(1)}" y1="${y(p.entry).toFixed(1)}" y2="${y(p.entry).toFixed(1)}" stroke="#e2e8f0" stroke-width="1.2"/>`;
+    if(p.t1!==p.tp) g+=`<line x1="${x0.toFixed(1)}" x2="${x1.toFixed(1)}" y1="${y(p.t1).toFixed(1)}" y2="${y(p.t1).toFixed(1)}" stroke="#14b8a6" stroke-dasharray="3 3"/>`;
+    const tag=(yy,t,bg)=>`<rect x="${(x1+2).toFixed(1)}" y="${(yy-8).toFixed(1)}" width="${(t.length*6+8).toFixed(0)}" height="15" rx="3" fill="${bg}"/><text x="${(x1+6).toFixed(1)}" y="${(yy+3).toFixed(1)}" font-size="10" font-weight="700" fill="#fff">${t}</text>`;
+    g+=tag(y(p.sl),"SL "+n2(p.sl),"#b91c1c")+tag(y(p.entry),(bull?"BUY CE ":"BUY PE ")+n2(p.entry),col)+tag(y(p.tp),"T2 "+n2(p.tp),"#0f766e")+(p.t1!==p.tp?tag(y(p.t1),"T1 "+n2(p.t1),"#115e59"):""); });
+  K.forEach((k,i)=>{ const up=k[4]>=k[1], c=up?"#26a69a":"#ef5350";
+    g+=`<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${y(k[2]).toFixed(1)}" y2="${y(k[3]).toFixed(1)}" stroke="${c}"/><rect x="${(x(i)-bw*0.36).toFixed(1)}" y="${y(Math.max(k[1],k[4])).toFixed(1)}" width="${(bw*0.72).toFixed(1)}" height="${Math.max(1,Math.abs(y(k[1])-y(k[4]))).toFixed(1)}" fill="${c}"/>`;
+    g+=`<rect x="${(x(i)-bw*0.36).toFixed(1)}" y="${(H-(k[5]||0)/vmax*VH).toFixed(1)}" width="${(bw*0.72).toFixed(1)}" height="${((k[5]||0)/vmax*VH).toFixed(1)}" fill="${up?"rgba(38,166,154,.3)":"rgba(239,83,80,.3)"}"/>`;
+    if(i%12===0) g+=`<text x="${x(i).toFixed(1)}" y="${H-VH-3}" font-size="9" fill="#475569" text-anchor="middle">${esc(String(k[0]).slice(6))}</text>`; });
+  if(SML.struct) (ch.labels||[]).forEach(l=>{ if(!inR(l.y)) return; const hiL=l.k==="H"; g+=`<text x="${x(l.i).toFixed(1)}" y="${(y(l.y)+(hiL?-6:13)).toFixed(1)}" font-size="9.5" font-weight="700" text-anchor="middle" fill="${/HH|HL/.test(l.t)?"#4ade80":/LH|LL/.test(l.t)?"#f87171":"#94a3b8"}">${esc(l.t)}</text>`; });
+  if(SML.bos) (ch.events||[]).forEach(e=>{ if(!inR(e.y)) return; const bull=e.side==="BULL", c=/sweep|Failed/.test(e.name)?"#f472b6":bull?"#22c55e":"#ef4444";
+    if(/BOS|CHOCH|MSS|ORB/.test(e.name)) g+=`<line x1="${x(Math.max(0,e.from)).toFixed(1)}" x2="${x(e.i).toFixed(1)}" y1="${y(e.y).toFixed(1)}" y2="${y(e.y).toFixed(1)}" stroke="${c}" stroke-width="1.2"/>`;
+    g+=`<text x="${x(e.i).toFixed(1)}" y="${(y(e.y)+(bull?-4:12)).toFixed(1)}" font-size="9.5" font-weight="700" fill="${c}" text-anchor="end">${esc(e.name.replace(" sweep",""))}</text>`; });
+  const L=K[K.length-1]; g+=`<rect x="${R+2}" y="${(y(L[4])-9).toFixed(1)}" width="${padR-4}" height="17" rx="4" fill="#0369a1"/><text x="${R+6}" y="${(y(L[4])+3).toFixed(1)}" font-size="10.5" font-weight="700" fill="#fff">${n2(L[4])}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;border-radius:10px">${g}</svg>`; }
+function smChartBlock(){ if(!SMSEL) return '<div class="hint">👆 Tap 📊 on any setup or a symbol in the overview — the chart opens here with the sweep box, red SL box and green target box.</div>';
+  const C=SMCH||{}; if(C.loading) return `<div class="hint">Loading ${esc(SMSEL)} 5-min chart…</div>`; if(!C.ok) return `<div class="hint">⚠ ${esc(C.msg||"no chart")}</div>`;
+  const tg=[["pos","Entry / SL / Target boxes"],["sweep","Liquidity sweep"],["fvg","FVG"],["ob","Order blocks"],["struct","HH / HL / LH / LL"],["bos","BOS / CHOCH / MSS"],["lvl","PDH / PDL / ORB"]];
+  const st=(C.setups||[]).filter(s=>s.entry)[0];
+  return `<div class="ctop"><h2>📊 ${esc(SMSEL)} · 5-min SMC chart <small class="hint">${esc(C.src||"")}${C.mtf?` · 1H ${esc(C.mtf["1H"])} · 15m ${esc(C.mtf["15m"])} · 5m ${esc(C.mtf["5m"])}`:""}</small></h2>
+     <span><button class="pickbtn" onclick="ccPick('${esc(SMSEL)}')">option strikes ↗</button> <button class="pickbtn" onclick="smPick('${esc(SMSEL)}')">↻</button></span></div>
+   <div style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">${tg.map(([k,l])=>`<button class="pickbtn ${SML[k]?"on":""}" style="font-size:11px" onclick="smLayer('${k}')">${l}</button>`).join("")}</div>
+   ${smSvg(C.chart||{})}
+   <div class="hint">Real closed 5-min candles. <b style="color:#f472b6">Purple</b> = liquidity sweep · <b class="dn">red box</b> = entry → stoploss · <b style="color:#14b8a6">green box</b> = entry → T2 (dashed = T1) · <b style="color:#38bdf8">blue</b> = FVG · green / red zones = order blocks · grey = used / invalid. ${st?`Latest plan: ${esc(st.kind)} ${esc(st.side)} · entry ${n2(st.entry)} · SL ${n2(st.sl)} · T ${(st.targets||[]).map(n2).join(" / ")} · <b>${esc(st.state)}</b>`:""}</div>`; }
+function smHTML(s){ const M=s.smc||{}; if(M.err&&!(M.setups||[]).length&&!M.time) return `<div class="labbox">📐 SMC/ICT: ${esc(M.err)}</div>`;
+  const S=(M.setups||[]), take=S.filter(x=>x.decision==="TAKE"), wait=S.filter(x=>x.decision==="WAIT"), OV=M.overview||[];
+  const sc=x=>x==="ENTRY CONFIRMED"||x==="TARGET HIT"?"#22c55e":x==="STOPLOSS HIT"||x==="INVALIDATED"?"#64748b":x==="EXPIRED"?"#64748b":"#f59e0b";
+  const bc=x=>x==="UP"?"up":x==="DOWN"?"dn":"";
+  const card=x=>{ const o=x.option, p=x.opt_plan, open=SMOPEN[x.id];
+    return `<div class="rrow" style="border:2px solid ${x.decision==="TAKE"?(x.side==="CE"?"#22c55e":"#ef4444"):sc(x.state)};font-size:12px">
+     <div class="ctop"><b style="font-size:14px" class="${x.side==="CE"?"up":"dn"}">${x.decision==="TAKE"?"✅ TAKE":x.decision==="WAIT"?"⏳ WAIT":"⛔"} · ${esc(x.symbol)} ${o?n2(o.strike)+" ":""}${esc(x.side)} <small class="hint">${esc(x.kind)} · 5m</small></b>
+      <span><b style="color:${sc(x.state)}">${esc(x.state)}</b> · <b>${x.score}/100</b> <small class="hint">${esc(x.band)}</small> <button class="pickbtn" onclick="smPick('${esc(x.symbol)}')">📊 chart</button></span></div>
+     <div class="hint">${esc(x.why||"")}${x.counter?' · <b style="color:#f59e0b">countertrend vs 1H</b>':""} · MTF 1H <b class="${bc((x.mtf||{})["1H"])}">${esc((x.mtf||{})["1H"]||"–")}</b> · 15m <b class="${bc((x.mtf||{})["15m"])}">${esc((x.mtf||{})["15m"]||"–")}</b> · data ${esc(x.ts||"")}</div>
+     ${x.entry?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin:3px 0"><span>Underlying entry <b>${n2(x.entry)}</b></span><span class="dn">SL <b>${n2(x.sl)}</b></span><span class="up">T ${(x.targets||[]).map(n2).join(" / ")}</span><span>R:R <b>1:${x.rr??"–"}</b></span></div>`:x.zone?`<div class="hint">zone ${n2(x.zone.bot)}–${n2(x.zone.top)} · SL ${n2(x.sl)}</div>`:""}
+     ${p?`<div style="display:flex;gap:10px;flex-wrap:wrap"><span>Option ${esc(o.contract||"")}</span><span>premium entry <b>₹${n2(p.zone[0])}–${n2(p.zone[1])}</b></span><span class="dn">SL ₹${n2(p.sl)}</span><span class="up">T ₹${p.targets.map(n2).join(" / ")}</span><span>lot ${p.lot} · max loss <b class="${p.risk>2500?"dn":""}">₹${n2(p.risk)}</b></span><span class="hint">${esc(p.model)}</span></div>`:""}
+     ${(x.veto||[]).length?`<div class="dn">⛔ ${x.veto.map(esc).join(" · ")}</div>`:""}
+     <a href="#" class="hint" onclick="SMOPEN['${esc(x.id)}']=!SMOPEN['${esc(x.id)}'];$('p-jv').innerHTML=jarvisHTML(LAST_S);return false">${open?"▲ hide":"▼ why — JARVIS explains"}</a>
+     ${open?`<div style="margin-top:4px">${(x.explain||[]).map(e=>`<div class="hint">• <b>${esc(e[0])}:</b> ${esc(e[1])}</div>`).join("")}<div class="hint">score: ${Object.entries(x.parts||{}).map(([k,v])=>`${esc(k)} ${v==null?"no data":v}`).join(" · ")}</div></div>`:""}</div>`; };
+  const R=(M.rows||[]).filter(r=>SMF==="All"||(SMF==="Bullish"&&r.side==="BULL")||(SMF==="Bearish"&&r.side==="BEAR")||(SMF==="Fresh"&&r.fresh));
+  return `<div class="labbox" style="border:2px solid #f472b6;font-size:12.5px"><div class="ctop"><h2>📐 SMC / ICT Sniper <small class="hint">liquidity sweep · BOS / CHOCH / MSS · FVG · order blocks · closed 5-min candles · scan ${esc(M.time||"waiting for market hours")} · ${M.scanned||0} symbols</small></h2></div>
+   <div class="hint">A sweep alone is not a trade: <b>sweep → MSS → retest of the FVG / order block → rejection close</b> = ENTRY CONFIRMED. NO TRADE is a valid answer. Option risk ≤ ₹2,500 per lot incl. costs, else rejected.</div>
+   <div class="cpbox" style="margin-top:6px"><b>🧭 Market structure overview</b>${OV.length?simpleTbl(OV,[["Symbol",r=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="smPick('${esc(r.symbol)}')">${esc(r.symbol)}</b><div class="hint">₹${n2(r.ltp)}</div>`],
+     ["1H",r=>`<b class="${bc(r.mtf["1H"])}">${esc(r.mtf["1H"])}</b>`],["15m",r=>`<b class="${bc(r.mtf["15m"])}">${esc(r.mtf["15m"])}</b>`],["5m",r=>`<b class="${bc(r.mtf["5m"])}">${esc(r.mtf["5m"])}</b>`],["Bias",r=>esc(r.align)],["Zone",r=>esc(r.pdz||"–")],
+     ["Nearest liquidity",r=>`<span class="hint">${(r.pools||[]).slice(0,3).map(p=>`${esc(p.src)} ${n2(p.price)}`).join(" · ")}</span>`]]):'<div class="hint">Runs 20 s after each 5-min candle closes in market hours.</div>'}</div>
+   <div style="margin-top:6px"><b>⭐ Best setups</b> <small class="hint">${take.length} TAKE · ${wait.length} waiting</small>${take.concat(wait).slice(0,8).map(card).join("")||'<div class="hint">NO TRADE — no setup has passed every step right now.</div>'}</div>
+   <div class="labbox" id="smChartBox" style="margin-top:6px">${smChartBlock()}</div>
+   <details style="margin-top:6px"><summary><b>🔥 Live pattern scanner</b> <small class="hint">${R.length} patterns</small></summary>
+     <div style="display:flex;gap:4px;margin:4px 0">${["All","Bullish","Bearish","Fresh"].map(m=>`<button class="pickbtn ${SMF===m?"on":""}" onclick="SMF='${m}';$('p-jv').innerHTML=jarvisHTML(LAST_S)">${m}</button>`).join("")}</div>
+     ${simpleTbl(R.slice(0,80),[["Time",r=>esc(String(r.ts).slice(5))],["Symbol",r=>`<b style="cursor:pointer" onclick="smPick('${esc(r.symbol)}')">${esc(r.symbol)}</b>`],["Pattern",r=>`<b class="${r.side==="BULL"?"up":"dn"}">${esc(r.pattern)}</b>${r.fresh?" 🆕":""}`],["TF",r=>r.tf],["Level",r=>n2(r.level)],["Trend",r=>esc(r.trend||"–")]],r=>r.side==="BULL"?"uprow":"slrow")}</details>
+   <details style="margin-top:6px"><summary><b>⛔ Rejected signals</b> <small class="hint">${(M.rejected||[]).length} — exactly why each was skipped</small></summary>
+     ${simpleTbl(M.rejected||[],[["Time",r=>esc(String(r.ts).slice(5))],["Setup",r=>`${esc(r.symbol)} ${esc(r.side)} · ${esc(r.kind)}`],["State",r=>esc(r.state)],["Why",r=>`<span class="hint">${esc(r.why)}</span>`]])}</details>
+   <details style="margin-top:6px"><summary><b>📊 Pattern performance</b> <small class="hint">recorded once at ENTRY CONFIRMED, never edited · R on the underlying, before costs</small></summary>
+     ${(M.perf||[]).length?simpleTbl(M.perf,[["Setup",r=>esc(r.setup)],["Signals",r=>r.signals],["Closed",r=>r.closed],["Win %",r=>r.win??"–"],["Avg R",r=>r.avg_r??"–"],["Profit factor",r=>r.pf??"–"],["Worst losing streak",r=>r.streak]]):'<div class="hint">No confirmed setups recorded yet — needs live market sessions. Small samples mean nothing; judge after 30+ closed setups.</div>'}</details>
+   <div class="hint" style="margin-top:4px">Built: ${(M.patterns||[]).map(esc).join(" · ")}. Not yet: ${(M.not_built||[]).map(esc).join(", ")}, historical replay. Score ranks quality — not a win chance.</div></div>`; }
+
 /* 🧠 v116 JARVIS BRAIN — regime · strategy for this market · auto-learning · mistake journal · level maps */
 function jbLevelCard(m){ const rs=v=>v==null?"–":"₹"+n2(v);
   return `<div class="rrow" style="border:2px solid ${m.bias==="CE"?"#22c55e":m.bias==="PE"?"#ef4444":"#a78bfa"};font-size:12px">
@@ -3078,7 +3159,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
-   ${SX("mgHTML",()=>mgHTML(s,"jv"))}${SX("snHTML",()=>snHTML(s))}
+   ${SX("mgHTML",()=>mgHTML(s,"jv"))}${SX("smHTML",()=>smHTML(s))}${SX("snHTML",()=>snHTML(s))}
    ${(s.jv_alerts||[]).filter(a=>a.k==="combo").length?`<div class="labbox" style="border:3px solid #fde047;background:rgba(253,224,71,.08);font-size:13.5px"><h2 style="color:#fde047">🟡 JARVIS: BUY — call + big players on the same side</h2>${(s.jv_alerts||[]).filter(a=>a.k==="combo").slice(0,8).map(a=>`<div style="margin:5px 0"><b>${esc(a.t)}</b> · <b style="color:#fde047">${esc(a.txt)}</b> ${a.id?paperBtn(a.id,true):""}</div>`).join("")}<div class="hint">A module's call AND a big-player BUY (CE) / SELL (PE) spike on the same stock today. Still follow the SL.</div></div>`:""}
    ${SX("advHTML",()=>advHTML(s))}
    ${SX("jvVerdictHTML",()=>jvVerdictHTML(s))}
@@ -3600,7 +3681,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v121";
+const APPV="v122";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

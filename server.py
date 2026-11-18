@@ -13,7 +13,7 @@ from krt.config import load_settings
 # ───────────── v106 SELF-HEAL: new krt modules missing / uploaded to the wrong place ─────────────
 # GitHub does not unzip, Windows renames duplicates to "brain (1).py", files land in the repo root …
 # 1) search the whole project for a misplaced copy and load it as krt.<name>; 2) brain.py: fall back to the copy embedded below.
-NEW_MODS = ["brain", "mood", "bestpicks", "fable", "sqs", "crash", "spreads", "combo", "footprint", "methods", "highprofit", "riser", "jarvis", "dhasvanth", "bigplayer", "coach", "bigvol", "jarvis_brain", "advance", "command", "guide", "jsniper"]
+NEW_MODS = ["brain", "mood", "bestpicks", "fable", "sqs", "crash", "spreads", "combo", "footprint", "methods", "highprofit", "riser", "jarvis", "dhasvanth", "bigplayer", "coach", "bigvol", "jarvis_brain", "advance", "command", "guide", "jsniper", "smc"]
 _EMBED = {"brain": "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"}   # snapshot of krt/brain.py at v106 (real file wins when present)
 HEAL = {"moved": {}, "embedded": [], "missing": []}
 
@@ -404,6 +404,142 @@ def bigvol_loop():
             time.sleep(120)
 
 
+SMCC = {}          # symbol → (ts, frame) on-demand cache
+
+
+def _smc_frame(ag, inst, sym, t0):
+    """5-min candles (5 days) → CLOSED candles only."""
+    from krt.instruments import INDEX_SPOT
+    if sym in INDEX_SPOT:
+        ex, tok = INDEX_SPOT[sym]
+    else:
+        ex, tok = "NSE", (inst.get("eq") or {}).get(sym)
+    if not tok:
+        return None
+    df = ag.candles(ex, tok, "FIVE_MINUTE", t0 - pd.Timedelta(days=6), t0)
+    if df is None or df.empty:
+        return None
+    lc = t0.floor("5min") - pd.Timedelta(minutes=5)
+    return df[df.index <= lc].tail(400)
+
+
+def _smc_add_calls(rows_):
+    """Fresh TAKE setups on stocks → paper calls (kind SMC) through the normal option picker + quality gate."""
+    from krt import smc as SMC, fullscan as FS, calls as CL
+    from krt.instruments import load as load_inst
+    t = now_ist().tz_localize(None)
+    rows = []
+    for s_ in rows_:
+        rows.append({"symbol": s_["symbol"], "side": s_["side"], "price": s_["entry"], "sl": s_["sl"], "targets": s_.get("targets") or [],
+                     "score": s_["score"], "stars": 5 if s_["score"] >= 85 else 4, "vol_ratio": None,
+                     "reasons": [f"📐 {s_['kind']}: {s_.get('why') or ''}"[:120], f"score {s_['score']}/100 · R:R {s_.get('rr')}"]})
+    inst = load_inst(ROOT / "data" / "cache")
+    FS.pick_options(get_angel(), inst, rows)
+    good = []
+    for r in rows:
+        o = r.get("option") or {}
+        if "none" in o:
+            continue
+        FS.attach_plan(r, o, t, SMC.SRC)
+        if (o.get("plan") or {}).get("entry"):
+            good.append(r)
+    return CL.add_simple(SMC.KIND, SMC.SRC, good, t)
+
+
+def smc_loop():
+    """📐 v122: SMC/ICT engine — 20 s after every 5-min candle closes, on indices + the stocks that matter right now."""
+    global ANGEL
+    while True:
+        n_ = pd.Timestamp.now(tz="Asia/Kolkata")
+        time.sleep(max(5.0, (n_.floor("5min") + pd.Timedelta(minutes=5, seconds=20) - n_).total_seconds()))
+        try:
+            t = now_ist()
+            if not angel_configured() or not market_open(t) or mem_high():
+                continue
+            smc_run(t)
+        except Exception:
+            traceback.print_exc()
+            time.sleep(60)
+
+
+def smc_run(t):
+    global ANGEL
+    from krt import smc as SMC, fullscan as FSm, bigvol as BV, ailab as AL
+    from krt.money import SECTOR
+    from krt.angel_api import Angel
+    from krt.instruments import load as load_inst
+    from krt.calls import STORE as _S, CALLS_LOCK as _CL
+    ANGEL = ANGEL or Angel()
+    inst = load_inst(ROOT / "data" / "cache")
+    t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
+    syms = ["NIFTY", "BANKNIFTY"]
+    syms += [r["symbol"] for r in (jarvis_state() or {}).get("top") or [] if r.get("exch") != "MCX"]
+    M = (cc_state() or {}).get("movers") or {}
+    for k in ("breakouts", "breakdowns", "gainers", "losers", "volume"):
+        syms += [r["symbol"] for r in (M.get(k) or [])[:4]]
+    syms += [r["symbol"] for r in sorted(BV.FEED.values(), key=lambda r: -(r.get("mult") or 0)) if r.get("date") == str(t0.date()) and r.get("exch") != "MCX"][:4]
+    syms = [x for x in dict.fromkeys(syms) if x][:SMC_N]
+    frames = {}
+    for sym in syms:
+        try:
+            df = _smc_frame(ANGEL, inst, sym, t0)
+            if df is not None and len(df) >= 25:
+                frames[sym] = df
+                SMCC[sym] = (time.time(), df)
+        except Exception:
+            pass
+        time.sleep(0.35)
+    full, money, nifty, lq, lv, age, rg, _ = _v3_inputs()
+    oi = {r["symbol"]: r.get("kind") for r in AL.oi_flow(full.get("oi_buildup"), lq)}
+    ctx = {"levels": lv, "live_q": lq, "oi": oi, "sectors": {x["sector"]: x["pct"] for x in money.get("sectors") or []}, "sector_of": SECTOR,
+           "results": (events_state() or {}).get("results") or [], "market_open": market_open(t), "stale": bool(age is not None and age > 300),
+           "regime": rg.get("label")}
+    SMC.run(frames, t0, ctx, ANGEL, inst, _S, _CL, _smc_add_calls)
+    try:
+        _S.save()
+    except Exception:
+        pass
+
+
+SMC_N = 18
+
+
+def smc_state():
+    try:
+        from krt import smc as SMC
+        from krt.calls import STORE as _S
+        st = {k: SMC.STATE.get(k) for k in ("time", "rows", "setups", "rejected", "overview", "err", "scanned")}
+        st["perf"] = SMC.performance(_S)
+        st["patterns"], st["not_built"] = SMC.PATTERNS, SMC.NOT_BUILT
+        return st
+    except Exception as e:
+        return {"err": str(e)[:100]}
+
+
+def smc_chart(sym):
+    """Chart payload for one symbol: from the last scan, else computed on demand (60 s cache)."""
+    from krt import smc as SMC
+    ch = (SMC.STATE.get("charts") or {}).get(sym)
+    if ch:
+        return {"ok": True, "chart": ch, "setups": [s for s in SMC.STATE.get("setups") or [] if s["symbol"] == sym], "src": "scan " + str(SMC.STATE.get("time"))}
+    hit = SMCC.get(sym)
+    if not hit or time.time() - hit[0] > 60:
+        from krt.instruments import load as load_inst
+        t0 = now_ist().tz_localize(None)
+        df = _smc_frame(get_angel(), load_inst(ROOT / "data" / "cache"), sym, t0)
+        if df is None or len(df) < 25:
+            return {"ok": False, "msg": f"No 5-min candles for {sym} from Angel."}
+        SMCC[sym] = hit = (time.time(), df)
+        if len(SMCC) > 60:
+            for k in sorted(SMCC, key=lambda k: SMCC[k][0])[:20]:
+                SMCC.pop(k, None)
+    from krt import fullscan as FSm
+    an = SMC.analyse(hit[1], (FSm.C.get("levels") or {}).get(sym), sym)
+    sts = SMC.setups(an, sym)
+    slim = [{k: v for k, v in s.items() if k not in ("events", "sweep", "mss", "bos")} for s in sts]
+    return {"ok": True, "chart": SMC.chart_payload(an, sts), "setups": slim, "mtf": SMC.mtf(hit[1]), "src": "on demand · closed 5-min candles"}
+
+
 def early_loop():
     """⚡ v120: every minute (5 s after the minute) — live-quote volume per F&O stock → EARLY big BUY / SELL before the 5-min candle closes."""
     global ANGEL
@@ -571,7 +707,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v121"
+APP_VERSION = "v122"
 EVC = {"t": 0, "d": None}
 
 
@@ -1968,6 +2104,16 @@ class H(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 return self._send(200, _json({"ok": False, "msg": str(e)[:150]}))
             return self._send(404, _json({"ok": False}))
+        if self.path.startswith("/api/smc/chart"):      # 📐 v122 SMC chart with boxes
+            from urllib.parse import urlparse, parse_qs
+            sym = str((parse_qs(urlparse(self.path).query).get("symbol") or [""])[0]).upper()
+            if not angel_configured():
+                return self._send(200, _json({"ok": False, "msg": "Angel One not configured."}))
+            try:
+                return self._send(200, _json(smc_chart(sym)))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"ok": False, "msg": str(e)[:150]}))
         if self.path.startswith("/api/candles"):
             from urllib.parse import urlparse, parse_qs
             qq = parse_qs(urlparse(self.path).query)
@@ -2005,7 +2151,7 @@ class H(BaseHTTPRequestHandler):
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
                     "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "bigvol": bigvol_state(), "jbrain": jbrain_state(), "advance": adv_state(), "jv_alerts": jv_alerts(), "filtered": filtered_state(),
-                    "cc": cc_state(), "guide": guide_state(), "jsniper": jsniper_state(),
+                    "cc": cc_state(), "guide": guide_state(), "jsniper": jsniper_state(), "smc": smc_state(),
                     "riser": riser_state(),
                     "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
@@ -2289,6 +2435,7 @@ if __name__ == "__main__":
     threading.Thread(target=paper_fast_loop, daemon=True).start()
     threading.Thread(target=bigvol_loop, daemon=True).start()
     threading.Thread(target=early_loop, daemon=True).start()
+    threading.Thread(target=smc_loop, daemon=True).start()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=fable_loop, daemon=True).start()
     threading.Thread(target=light_loop, daemon=True).start()
