@@ -707,7 +707,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v122"
+APP_VERSION = "v123"
 EVC = {"t": 0, "d": None}
 
 
@@ -1114,7 +1114,7 @@ def adv_state():
         return {"err": str(e)[:100]}
 
 
-JVC = {"pushed": set()}
+JVP = {"pushed": set()}           # v123: was JVC — clashed with the JARVIS cache and broke /api/status after a restart
 
 
 def jv_combos():
@@ -1148,9 +1148,9 @@ def jv_combos():
 
 def jv_combo_push(send):
     for a in jv_combos():
-        if a["key"] in JVC["pushed"]:
+        if a["key"] in JVP["pushed"]:
             continue
-        JVC["pushed"].add(a["key"])
+        JVP["pushed"].add(a["key"])
         try:
             send("🟡 JARVIS: " + a["txt"], "combo|" + a["key"], True)
         except Exception:
@@ -2146,14 +2146,21 @@ class H(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 cl = saved_clauses()
+
+                def _safe(fn):
+                    try:
+                        return fn()
+                    except Exception as e_:             # one broken section must never take the whole page down (HTTP 500)
+                        traceback.print_exc()
+                        return {"err": f"{getattr(fn, '__name__', 'section')}: {type(e_).__name__}: {str(e_)[:120]}"}
                 STC.update(t=time.time(), gz=None, b=_json({
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
-                    "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": mannan_report(), "version": APP_VERSION, "keepalive": KEEP,
-                    "journal": journal(), "lab": lab_report(), "dsk": dsk_state(), "store": store_state(), "events": events_state(), "footprint": fp_state(), "strategies": strat_state(), "sniper": sniper_state(), "bestpicks": bp_state(), "fable": fable_state(), "brain": brain_state(), "mood": mood_state(), "sys": sys_state(), "index_diag": idx_diag_state(), "highprofit": hp_state(), "jarvis": jarvis_state(), "dhasvanth": dhas_state(), "bigvol": bigvol_state(), "jbrain": jbrain_state(), "advance": adv_state(), "jv_alerts": jv_alerts(), "filtered": filtered_state(),
-                    "cc": cc_state(), "guide": guide_state(), "jsniper": jsniper_state(), "smc": smc_state(),
-                    "riser": riser_state(),
-                    "pink_hist": pink_hist(), "radar": radar_state(), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
+                    "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": _safe(mannan_report), "version": APP_VERSION, "keepalive": KEEP,
+                    "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(bigvol_state), "jbrain": _safe(jbrain_state), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state),
+                    "cc": _safe(cc_state), "guide": _safe(guide_state), "jsniper": _safe(jsniper_state), "smc": _safe(smc_state),
+                    "riser": _safe(riser_state),
+                    "pink_hist": _safe(pink_hist), "radar": _safe(radar_state), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                     "market_open": market_open(now_ist()), "next_auto": next_auto(),
                     "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
