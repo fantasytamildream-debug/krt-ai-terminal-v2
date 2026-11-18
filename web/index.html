@@ -476,7 +476,8 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <ul class="notes" id="notes"></ul>
 
   <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" data-p="cl" aria-selected="true">📢 Calls <span id="clCount"></span></button>
+    <button role="tab" data-p="cc" aria-selected="true">🏛 Command Center</button>
+    <button role="tab" data-p="cl" aria-selected="false">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="jv">🤖 JARVIS</button>
     <button role="tab" data-p="cr">📈 Chart Room</button>
     <button role="tab" data-p="dh">🏹 Dhasvanth <span id="dhCount"></span></button>
@@ -507,7 +508,8 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   </nav>
 
-  <section class="pane" id="p-cl"><div id="aiTop"></div><div id="cotdTop"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div><div id="bestTop"></div><div id="callTable"></div><div id="callsRest"></div><div id="strongBelow"></div><div id="v4strip"></div></section>
+  <section class="pane" id="p-cc"></section>
+  <section class="pane" id="p-cl" hidden><div id="aiTop"></div><div id="cotdTop"></div><div class="callboard" id="callboard" aria-live="polite"><div class="cempty">Calls load ஆகுது…</div></div><div id="bestTop"></div><div id="callTable"></div><div id="callsRest"></div><div id="strongBelow"></div><div id="v4strip"></div></section>
   <section class="pane" id="p-lb" hidden></section>
   <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-cx" hidden></section>
@@ -2813,6 +2815,192 @@ function whaleHTML(s){ const W=s.bigvol||{}, R=(W.rows||[]).filter(r=>WHF==="All
       ["Strike to watch",r=>r.opt?`<b style="color:${col(r.side)}">${esc(r.symbol)} ${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">exp ${esc(r.opt.expiry)}${r.opt.lot?` · lot ${r.opt.lot}`:""}</div>`:'<span class="hint">wait for the breakout side</span>']],
       r=>r.side==="BUY"?"uprow":r.side==="SELL"?"slrow":"")}</div>`:'<div class="hint">No big-player spikes yet — the sweep runs every minute in market hours (all F&O stocks after each 5-min candle closes; MCX commodities too).</div>'}
    <div class="hint">⚠ A spike shows big volume, not who traded or why. Take the CE / PE only when price confirms (breaks the spike candle's high for BUY / low for SELL) and size by the SL.</div></div>`; }
+/* 🏛 v121 KRT COMMAND CENTER (V3.0) · 🧭 Market Guide · 🎯 JARVIS Sniper */
+let CC={tab:"gainers",sym:null,tf:"5",chain:null,exp:null,mny:"All",strike:null,stf:"5",opt:null,K:null,row:null,busy:false};
+const ccLS=(k,v)=>{ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v); }catch(e){ return null; } };
+function ccPill(lbl,val,col,sub){ return `<div class="cpbox" style="flex:1;min-width:120px;padding:6px 8px"><div class="hint" style="font-size:10.5px">${lbl}</div><b style="color:${col||"#e2e8f0"};font-size:13.5px">${val}</b>${sub?`<div class="hint" style="font-size:10.5px">${sub}</div>`:""}</div>`; }
+const RGC={"STRONG BULLISH":"#16a34a","BULLISH":"#22c55e","SIDEWAYS":"#f59e0b","BEARISH":"#ef4444","STRONG BEARISH":"#b91c1c","HIGH VOLATILITY":"#a78bfa","NO TRADE":"#64748b","UNKNOWN":"#64748b"};
+function ccStripHTML(s){ const C=s.cc||{}, S=C.strip||{}, R=S.risk||{}, Sc=S.scan||{}, rg=C.regime||{};
+  if(C.err) return `<div class="cwarn">Command Center: ${esc(C.err)}</div>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+   ${ccPill("Market regime",esc(S.regime||"–"),RGC[S.regime],`evidence ${esc(S.agree||"–")} · ${esc(rg.time||"")}`)}
+   ${ccPill("Institutional flow",esc(S.flow||"–"),S.flow==="BUYERS"?"#22c55e":S.flow==="SELLERS"?"#ef4444":"#f59e0b",esc(S.flow_txt||""))}
+   ${ccPill("Money Control",`${R.net>=0?"+":"−"}₹${n2(Math.abs(R.net||0))} today`,R.net>=0?"#22c55e":"#ef4444",`your paper trades: ${R.open||0} open · ${R.closed||0} closed`)}
+   ${ccPill("Risk status",esc(R.status||"–"),R.status==="OK"?"#22c55e":"#ef4444",R.status==="LOCKED"?"daily loss limit hit — no new trades":R.status==="COOLDOWN"?`${R.sl_streak} SL in a row — wait 30 min`:"within limits")}
+   ${ccPill("Scan status",esc(Sc.fresh||"–"),Sc.fresh==="LIVE"?"#22c55e":"#f59e0b",Sc.age!=null?`quotes ${Sc.age}s old · ${Sc.market_open?"market open":"market closed"}`:"no live quotes yet")}</div>`; }
+
+/* 🧭 Market Guide — shared by Command Center + JARVIS */
+function mgHTML(s,where){ const G=s.guide||{}; if(G.err) return `<div class="cwarn">Market Guide: ${esc(G.err)}</div>`; const rg=G.regime||{};
+  const opt=x=>x.strike?`${esc(x.symbol)} ${n2(x.strike)} ${esc(x.side)}`:`${esc(x.symbol)} ${esc(x.side||"")}`;
+  const tg=x=>(x.targets||[]).filter(t=>t!=null).map(t=>"₹"+n2(t)).join(" / ")||"–";
+  const goSym=sym=>`onclick="ccPick('${esc(sym)}')" style="cursor:pointer"`;
+  return `<div class="labbox" style="border:2px solid ${RGC[rg.label]||"#38bdf8"};font-size:12.5px"><div class="ctop"><h2>🧭 Market Guide <small class="hint">easy view · ${esc(G.time||"")} · built from live data — scenarios, not predictions</small></h2></div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px">
+    <div class="cpbox"><b>📍 What is happening now</b><div style="margin-top:3px"><b style="color:${RGC[rg.label]||"#e2e8f0"}">${esc(rg.label||"–")}</b> <span class="hint">(${esc(rg.agree||"–")} evidence agree)</span></div><div class="hint">${esc(G.now||"")}</div>
+      ${(rg.conflicts||[]).length?`<div class="hint" style="color:#f59e0b">⚠ against: ${rg.conflicts.map(esc).join(" · ")}</div>`:""}</div>
+    <div class="cpbox"><b>🔮 What can happen next</b>${(G.next||[]).map(t=>`<div class="hint">• ${esc(t)}</div>`).join("")||'<div class="hint">needs live NIFTY option-chain levels</div>'}</div>
+    <div class="cpbox"><b>🏭 Sectors</b><div><b class="up">Strong:</b> ${(G.strong||[]).map(x=>`${esc(x.sector)} <span class="up">${x.pct>0?"+":""}${x.pct}%</span>`).join(" · ")||"–"}</div>
+      <div><b class="dn">Weak:</b> ${(G.weak||[]).map(x=>`${esc(x.sector)} <span class="dn">${x.pct}%</span>`).join(" · ")||"–"}</div><div class="hint">CE in strong sectors, PE in weak ones — not the other way.</div></div>
+   </div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px;margin-top:8px">
+    <div class="cpbox" style="border-color:#22c55e"><b class="up">✅ Can take (JARVIS TAKE)</b>${(G.take||[]).map(x=>`<div style="margin-top:3px"><b ${goSym(x.symbol)} class="${x.side==="CE"?"up":"dn"}">BUY ${opt(x)}</b> · entry ₹${n2(x.entry)} · SL ₹${n2(x.sl)} · T ${tg(x)}<div class="hint">${esc(x.module||"")} · score ${x.score??"–"} · ${esc(x.why||"")}</div></div>`).join("")||'<div class="hint">No setup passes every check right now — waiting is a valid trade.</div>'}</div>
+    <div class="cpbox" style="border-color:#ef4444"><b class="dn">⛔ Don't take</b>${(G.avoid||[]).map(x=>`<div class="hint" style="margin-top:3px">• ${x.symbol?`<b>${opt(x)}</b> — `:""}${esc(x.why||"")}</div>`).join("")||'<div class="hint">nothing flagged</div>'}</div>
+   </div>
+   <div class="cpbox" style="margin-top:8px;border-color:#38bdf8"><b>🐋 Big players buying / selling aggressively</b> <small class="hint">target = spike price ± 2× the spike candle's range (estimate) · SL = beyond the spike candle</small>
+    ${(G.big||[]).length?simpleTbl(G.big,[["Time",x=>`<b>${esc(x.early?"⚡ "+x.seen:"candle "+x.time)}</b>${x.early?'<div class="hint">live, not confirmed</div>':`<div class="hint">alert ${esc(x.seen||"")}</div>`}`],
+      ["Stock",x=>`<b ${goSym(x.symbol)} style="color:${x.side==="BUY"?"#22c55e":"#ef4444"};cursor:pointer">${x.side==="BUY"?"🟢":"🔴"} ${esc(x.symbol)}</b>`],["Volume",x=>`<b>${x.mult}×</b>`],["Price",x=>"₹"+n2(x.price)],
+      ["Strike",x=>x.opt?`<b>${n2(x.opt.strike)} ${x.opt.side}</b><div class="hint">exp ${esc(x.opt.expiry)}</div>`:"–"],["Target / SL (stock)",x=>x.target?`🎯 ₹${n2(x.target)}<div class="hint">SL ₹${n2(x.sl)}</div>`:'<span class="hint">wait for the 5-min close</span>']],x=>x.side==="BUY"?"uprow":"slrow"):'<div class="hint">No big-player spikes yet today.</div>'}</div>
+   <div class="cpbox" style="margin-top:8px;border-color:#fbbf24"><b style="color:#fbbf24">⭐ Best intraday setups right now</b>
+    ${(G.best||[]).length?simpleTbl(G.best,[["Setup",x=>`<b ${goSym(x.symbol)} class="${x.side==="CE"?"up":"dn"}">BUY ${opt(x)}</b><div class="hint">${esc(x.module||"")}</div>`],["Tag",x=>`<b>${esc(x.tag)}</b>`],
+      ["Entry",x=>"₹"+n2(x.entry)+(x.ltp?`<div class="hint">LTP ₹${n2(x.ltp)}</div>`:"")],["SL",x=>"₹"+n2(x.sl)],["Targets",x=>tg(x)],["",x=>x.id?paperBtn(x.id,true):""]]):'<div class="hint">No live setup passes the checks yet.</div>'}</div>
+   ${(G.events||[]).length?`<div class="hint" style="margin-top:6px">📅 Results today / tomorrow: ${G.events.map(e=>`<b>${esc(e.symbol)}</b> ${esc(e.date)}${e.lean?" ("+esc(e.lean)+")":""}`).join(" · ")} — gap & IV-crush risk.</div>`:""}
+   <div class="hint" style="margin-top:6px">📏 Rules: ${(G.rules||[]).map(esc).join(" · ")}</div></div>`; }
+
+/* 1. Top movers */
+const CCT=[["gainers","Top gainers"],["losers","Top losers"],["volume","Volume movers"],["oi","OI movers"],["breakouts","Breakouts"],["breakdowns","Breakdowns"],["sectors","Sector leaders"]];
+function ccMoversHTML(s){ const M=(s.cc||{}).movers||{}, R=M[CC.tab]||[];
+  const tabs=CCT.map(([k,l])=>`<button class="pickbtn ${CC.tab===k?"on":""}" onclick="CC.tab='${k}';ccRender(LAST_S)">${l}</button>`).join("");
+  let body;
+  if(CC.tab==="sectors") body=simpleTbl(R,[["Sector",x=>`<b>${esc(x.sector)}</b>`],["Avg",x=>pc(x.pct)],["Breadth",x=>`${x.up}/${x.n} up`],
+     ["Leader",x=>`<b class="up" style="cursor:pointer" onclick="ccPick('${esc(x.leader)}')">${esc(x.leader)}</b> ${pc(x.leader_pct)}`],["Laggard",x=>`<b class="dn" style="cursor:pointer" onclick="ccPick('${esc(x.laggard)}')">${esc(x.laggard)}</b> ${pc(x.laggard_pct)}`],
+     ["Stocks",x=>`<span class="hint">${x.stocks.slice(0,8).map(t=>`<a href="#" onclick="ccPick('${esc(t)}');return false">${esc(t)}</a>`).join(" ")}</span>`]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
+  else body=simpleTbl(R,[["Symbol",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${esc(x.symbol)}</b>${x.big?`<div class="hint">🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}</div>`:""}`],
+     ["LTP",x=>"₹"+n2(x.ltp)],["%",x=>pc(x.pct)],["RVOL",x=>x.rvol?`<b>${x.rvol}×</b>`:"–"],["OI",x=>x.oi?`${esc(x.oi)}${x.oi_chg_pct!=null?`<div class="hint">${x.oi_chg_pct>0?"+":""}${x.oi_chg_pct}%</div>`:""}`:"–"],
+     ["VWAP",x=>x.vwap?`<span class="${x.vwap_pos==="ABOVE"?"up":"dn"}">${x.vwap_pos}</span><div class="hint">₹${n2(x.vwap)}</div>`:'<span class="hint">n/a</span>'],
+     ["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],["Momentum",x=>esc(x.momentum)],["Setup",x=>`<b>${esc(x.setup)}</b>`]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
+  return `<div class="labbox" style="font-size:12.5px"><div class="ctop"><h2>🚀 Live Top Movers <small class="hint">NSE F&O stocks · Angel live quotes · ${M.n||0} stocks · breadth ${(M.breadth||{}).up??"–"} up / ${(M.breadth||{}).down??"–"} down</small></h2></div>
+   <div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">${tabs}</div><div style="max-height:380px;overflow:auto">${body}</div>
+   <div class="hint">Click a symbol → its chart + real option chain open below (no page change). RVOL = volume vs normal for this time of day. Setup: BREAKOUT = above previous-day high with ≥1.5× volume.</div></div>`; }
+
+/* candle chart (generic) */
+function ccCandles(K,o){ o=o||{}; if(!K||!K.length) return '<div class="hint">No candles.</div>';
+  K=K.slice(-(o.n||90)); const W=760,H=330,VH=46,padR=74, bw=(W-padR)/(K.length+2);
+  const kl=Math.min(...K.map(k=>k[3])), kh=Math.max(...K.map(k=>k[2])), kr=(kh-kl)||kh*0.01;
+  const lines=(o.lines||[]).filter(l=>l&&l.y!=null&&l.y>=kl-kr*0.6&&l.y<=kh+kr*0.6);      /* far-away levels would squash the candles */
+  let lo=Math.min(...K.map(k=>k[3]),...lines.map(l=>l.y)), hi=Math.max(...K.map(k=>k[2]),...lines.map(l=>l.y)); const pd=(hi-lo)*0.05||1; lo-=pd; hi+=pd;
+  const y=v=>((hi-v)/(hi-lo)*(H-VH-18)+6).toFixed(1), x=i=>(i*bw+bw/2).toFixed(1), vmax=Math.max(...K.map(k=>k[5]||0))||1;
+  let g=`<rect width="${W}" height="${H}" fill="#0b1220"/>`;
+  for(let t=0;t<5;t++){ const v=lo+(hi-lo)*t/4; g+=`<line x1="0" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="#1e293b"/><text x="${W-padR+5}" y="${+y(v)+4}" font-size="10" fill="#64748b">${n2(v)}</text>`; }
+  if(o.vwap){ let pv=0,vv=0,pts=[]; const d0=K[K.length-1][6]; K.forEach((k,i)=>{ if(typeof d0==="string"&&k[6]!==d0) return; pv+=(k[2]+k[3]+k[4])/3*(k[5]||0); vv+=(k[5]||0); if(vv) pts.push(`${x(i)},${y(pv/vv)}`); });
+    if(pts.length>1) g+=`<polyline points="${pts.join(" ")}" fill="none" stroke="#38bdf8" stroke-width="1.4"/><text x="4" y="14" font-size="10" fill="#38bdf8">VWAP</text>`; }
+  if(o.ema){ const cl=K.map(k=>k[4]), a=2/21; let e=null; const pts=cl.map((c,i)=>{ e=e==null?c:c*a+e*(1-a); return `${x(i)},${y(e)}`; }); g+=`<polyline points="${pts.join(" ")}" fill="none" stroke="#a8a29e" stroke-width="1.1"/><text x="44" y="14" font-size="10" fill="#a8a29e">EMA20</text>`; }
+  lines.forEach(l=>{ g+=`<line x1="0" x2="${W-padR}" y1="${y(l.y)}" y2="${y(l.y)}" stroke="${l.c}" stroke-dasharray="${l.d||"5 5"}" opacity=".85"/><text x="${W-padR-4}" y="${+y(l.y)-3}" font-size="10" fill="${l.c}" text-anchor="end">${esc(l.t)} ${n2(l.y)}</text>`; });
+  K.forEach((k,i)=>{ const up=k[4]>=k[1], col=k[6]===true?"#64748b":up?"#22c55e":"#ef4444";
+    g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(k[2])}" y2="${y(k[3])}" stroke="${col}"/><rect x="${(x(i)-bw*0.35).toFixed(1)}" y="${y(Math.max(k[1],k[4]))}" width="${(bw*0.7).toFixed(1)}" height="${Math.max(1,Math.abs(y(k[1])-y(k[4]))).toFixed(1)}" fill="${col}" ${k[6]===true?'fill-opacity=".35" stroke="#94a3b8" stroke-dasharray="2 2"':""}/>`;
+    g+=`<rect x="${(x(i)-bw*0.35).toFixed(1)}" y="${(H-(k[5]||0)/vmax*VH).toFixed(1)}" width="${(bw*0.7).toFixed(1)}" height="${((k[5]||0)/vmax*VH).toFixed(1)}" fill="${up?"rgba(34,197,94,.35)":"rgba(239,68,68,.35)"}"/>`;
+    if(i%15===0) g+=`<text x="${x(i)}" y="${H-VH-3}" font-size="9" fill="#475569" text-anchor="middle">${esc(String(k[0]).slice(-5))}</text>`; });
+  const L=K[K.length-1]; g+=`<rect x="${W-padR+2}" y="${+y(L[4])-9}" width="${padR-4}" height="17" rx="4" fill="#0369a1"/><text x="${W-padR+6}" y="${+y(L[4])+3}" font-size="10.5" font-weight="700" fill="#fff">${n2(L[4])}</text>`;
+  if(K.some(k=>k[6]===true)) g+=`<text x="${W-padR-4}" y="${H-VH-3}" font-size="9.5" fill="#94a3b8" text-anchor="end">grey = forming candle (not used)</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;border-radius:10px">${g}</svg>`; }
+function ccSwing(K){ const hs=[],ls=[]; for(let i=2;i<K.length-2;i++){ if(K[i][2]>=Math.max(K[i-1][2],K[i-2][2],K[i+1][2],K[i+2][2])) hs.push(K[i][2]); if(K[i][3]<=Math.min(K[i-1][3],K[i-2][3],K[i+1][3],K[i+2][3])) ls.push(K[i][3]); }
+  const last=K[K.length-1][4]; return {res:hs.filter(h=>h>last).sort((a,b)=>a-b)[0], sup:ls.filter(l=>l<last).sort((a,b)=>b-a)[0]}; }
+
+/* 2. stock chart + option chain + strike chart */
+async function ccPick(sym){ CC.sym=sym; CC.chain=null; CC.exp=null; CC.strike=null; CC.opt=null; CC.K=null;
+  const M=((LAST_S||{}).cc||{}).movers||{}; CC.row=["gainers","losers","volume","oi","breakouts","breakdowns"].map(k=>(M[k]||[]).find(r=>r.symbol===sym)).find(Boolean)||null;
+  try{ const p=document.getElementById("p-cc"); if(p&&p.hidden) goTab("cc"); }catch(e){}
+  ccRenderSel(); ccLoadChart(); ccLoadChain(); try{ document.getElementById("ccSel").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+async function ccLoadChart(){ if(!CC.sym) return; try{ const r=await fetch(`/api/candles?symbol=${encodeURIComponent(CC.sym)}&tf=${CC.tf}`,{cache:"no-store"}); const j=await r.json(); CC.K=j.ok?j.candles:[]; CC.Kmsg=j.ok?"":(j.msg||"No candles from Angel (market closed / not configured)."); }catch(e){ CC.K=[]; CC.Kmsg=String(e); } ccRenderSel(); }
+async function ccLoadChain(){ if(!CC.sym) return; CC.chain={loading:true}; ccRenderSel();
+  try{ const r=await fetch(`/api/cc/chain?symbol=${encodeURIComponent(CC.sym)}${CC.exp?"&expiry="+CC.exp:""}`,{cache:"no-store"}); CC.chain=await r.json(); }catch(e){ CC.chain={ok:false,msg:String(e)}; } ccRenderSel(); }
+async function ccStrike(tok){ const x=((CC.chain||{}).rows||[]).find(r=>String(r.token)===String(tok)); if(!x) return; CC.strike=x; CC.opt={loading:true}; ccRenderSel();
+  try{ const r=await fetch(`/api/cc/opt?exch=${x.exch}&token=${x.token}&tf=${CC.stf}&lot=${x.lot||""}`,{cache:"no-store"}); CC.opt=await r.json(); }catch(e){ CC.opt={ok:false,msg:String(e)}; }
+  ccRenderSel(); const p=(CC.opt||{}).plan; if(p){ mcSet({entry:p.entry,sl:p.sl,target:p.targets[1]||p.targets[0],lot:x.lot,spread:x.spread_pct}); } try{ document.getElementById("ccStrikeBox").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+function ccChartHTML(){ if(!CC.sym) return '<div class="hint">👆 Click any stock in Top Movers (or a name in the Market Guide) — its chart and real CE / PE strikes open here.</div>';
+  const r=CC.row||{}, K=CC.K;
+  const tfb=["1","3","5","15","60","D"].map(t=>`<button class="pickbtn ${CC.tf===t?"on":""}" onclick="CC.tf='${t}';ccLoadChart()">${t==="D"?"Day":t==="60"?"1h":t+"m"}</button>`).join("");
+  let ch='<div class="hint">Loading candles…</div>';
+  if(K&&K.length){ const sw=ccSwing(K.slice(-60)); ch=ccCandles(K,{vwap:CC.tf!=="D",ema:true,lines:[r.pdh?{y:r.pdh,t:"PDH",c:"#22c55e"}:null,r.pdl?{y:r.pdl,t:"PDL",c:"#ef4444"}:null,sw.res?{y:sw.res,t:"Resistance (swing)",c:"#f59e0b",d:"2 4"}:null,sw.sup?{y:sw.sup,t:"Support (swing)",c:"#38bdf8",d:"2 4"}:null]}); }
+  else if(K) ch=`<div class="hint">${esc(CC.Kmsg||"No candles.")}</div>`;
+  return `<div class="ctop"><h2>📈 ${esc(CC.sym)} ${r.ltp?`₹${n2(r.ltp)} ${pc(r.pct)}`:""} <small class="hint">${esc(r.sector||"")} ${r.setup&&r.setup!=="–"?"· "+esc(r.setup):""}</small></h2><button class="pickbtn" onclick="COPSEL='${esc(CC.sym)}';goTab('cr')">open in Chart Room ↗</button></div>
+   <div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">${tfb}</div>${ch}
+   <div class="hint">Real Angel OHLCV · VWAP (blue, today) · EMA20 (grey) · PDH / PDL = previous-day high / low (breakout / breakdown levels) · dotted = nearest swing resistance / support.</div>`; }
+function ccChainHTML(){ const C=CC.chain; if(!CC.sym) return ""; if(!C||C.loading) return '<div class="hint">Loading option chain…</div>'; if(!C.ok) return `<div class="hint">⚠ ${esc(C.msg||"Option chain not available")}</div>`;
+  const R=C.rows||[], strikes=[...new Set(R.map(r=>r.strike))].sort((a,b)=>a-b);
+  const flt=x=>CC.mny==="All"||x&&x.moneyness===CC.mny||(CC.mny==="ITM"&&x&&x.moneyness==="ATM")||(CC.mny==="OTM"&&x&&x.moneyness==="ATM");
+  const cell=x=>!x?'<td class="hint">–</td>':`<td style="cursor:pointer;${CC.strike&&CC.strike.token===x.token?"outline:2px solid #fbbf24;":""}${x.rank===1?"background:rgba(251,191,36,.12)":""}" onclick="ccStrike('${x.token}')"><b>₹${n2(x.ltp)}</b>${x.rank===1?" ⭐":""}<div class="hint">OI ${x.oi!=null?big(x.oi):"–"} · vol ${x.volume!=null?big(x.volume):"–"}</div><div class="hint">spr ${x.spread_pct??"–"}% · Δ ${x.delta??"–"} · IV ${x.iv??"–"}</div></td>`;
+  const rows=strikes.map(k=>{ const ce=R.find(r=>r.strike===k&&r.type==="CE"), pe=R.find(r=>r.strike===k&&r.type==="PE"); if(!flt(ce)&&!flt(pe)) return "";
+    return `<tr${k===C.atm?' style="background:rgba(56,189,248,.10)"':""}>${flt(ce)?cell(ce):'<td></td>'}<td style="text-align:center"><b>${n2(k)}</b>${k===C.atm?'<div class="hint">ATM</div>':""}</td>${flt(pe)?cell(pe):'<td></td>'}</tr>`; }).join("");
+  const rk=t=>R.filter(r=>r.type===t&&r.rank).sort((a,b)=>a.rank-b.rank).slice(0,3).map(x=>`<a href="#" onclick="ccStrike('${x.token}');return false"><b>${n2(x.strike)} ${t}</b></a> (${x.rank_score})`).join(" · ");
+  return `<div class="ctop"><h2>🎯 ${esc(C.symbol)} option chain <small class="hint">spot ₹${n2(C.spot)} · lot ${C.lot??"–"} · ${esc(C.time||"")}</small></h2>
+    <span>${(C.expiries||[]).map(e=>`<button class="pickbtn ${e===C.expiry?"on":""}" onclick="CC.exp='${e}';ccLoadChain()">${esc(e)}</button>`).join("")}</span></div>
+   <div style="display:flex;gap:5px;margin:4px 0">${["All","ITM","OTM"].map(m=>`<button class="pickbtn ${CC.mny===m?"on":""}" onclick="CC.mny='${m}';ccRenderSel()">${m}</button>`).join("")}</div>
+   <div class="tbl"><table class="num" style="font-size:12px"><tr><th class="up">CALL (CE)</th><th>Strike</th><th class="dn">PUT (PE)</th></tr>${rows}</table></div>
+   <div class="hint">⭐ best ranked: CE ${rk("CE")||"–"} · PE ${rk("PE")||"–"}<br>Ranking = tight spread + volume + OI + delta near 0.5 + 1-lot risk ≤ ₹2,500 — not by maximum profit. ${esc(C.note||"")}</div>
+   <div class="hint">Click any CE / PE price → that exact contract's premium candle chart + entry / SL / targets.</div>`; }
+function ccStrikeHTML(){ const x=CC.strike, O=CC.opt; if(!x) return ""; if(!O||O.loading) return `<div class="hint">Loading ${esc(x.contract)} premium candles…</div>`;
+  const tfb=["1","3","5","15","60"].map(t=>`<button class="pickbtn ${CC.stf===t?"on":""}" onclick="CC.stf='${t}';ccStrike('${x.token}')">${t==="60"?"1h":t+"m"}</button>`).join("");
+  if(!O.ok) return `<div class="ctop"><h2>${esc(x.contract)}</h2></div><div style="display:flex;gap:5px">${tfb}</div><div class="hint">⚠ ${esc(O.msg||"no data")}</div>`;
+  const P=O.plan, warn=[];
+  if(x.spread_pct!=null&&x.spread_pct>3) warn.push(`wide spread ${x.spread_pct}% — use a limit order`); if(x.spread_pct==null) warn.push("no bid/ask depth reported — liquidity unknown");
+  if(x.theta!=null&&x.ltp&&Math.abs(x.theta)/x.ltp>0.05) warn.push(`time decay ≈ ₹${Math.abs(x.theta)}/day (${(Math.abs(x.theta)/x.ltp*100).toFixed(1)}% of premium, modelled)`);
+  if((x.volume||0)<1000) warn.push("low option volume");
+  const lines=P?[{y:P.entry,t:"Entry",c:"#fbbf24"},{y:P.sl,t:"SL",c:"#ef4444"},...P.targets.map((t,i)=>({y:t,t:"T"+(i+1),c:"#22c55e"}))]:[];
+  return `<div class="ctop"><h2>🧾 ${esc(x.contract)} <small class="hint">${n2(x.strike)} ${x.type} · exp ${esc(x.expiry)} · lot ${x.lot} · ${esc(x.moneyness)}</small></h2><span class="hint">${esc(O.time||"")}</span></div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">${ccPill("Premium LTP","₹"+n2(x.ltp))}${ccPill("Bid / Ask",`₹${n2(x.bid)} / ₹${n2(x.ask)}`,null,`spread ${x.spread_pct??"–"}%`)}${ccPill("Volume · OI",`${x.volume!=null?big(x.volume):"–"} · ${x.oi!=null?big(x.oi):"–"}`,null,`today ${x.chg_pct!=null?x.chg_pct+"%":"–"}`)}
+     ${ccPill("Δ · Γ (model)",`${x.delta??"–"} · ${x.gamma??"–"}`)}${ccPill("Θ · Vega · IV (model)",`${x.theta??"–"} · ${x.vega??"–"} · ${x.iv??"–"}%`)}</div>
+   <div style="display:flex;gap:5px;margin:4px 0">${tfb}</div>${ccCandles(O.candles,{lines})}
+   ${P?`<div class="cpbox" style="margin-top:6px;border-color:#fbbf24"><b>📋 Plan for this strike</b> <small class="hint">from closed premium candles only</small>
+     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${ccPill("Entry zone",`₹${n2(P.entry_zone[0])}–${n2(P.entry_zone[1])}`,"#fbbf24")}${ccPill("Stoploss","₹"+n2(P.sl),"#ef4444",esc(P.sl_src))}
+       ${P.targets.map((t,i)=>ccPill("T"+(i+1),"₹"+n2(t),"#22c55e",esc(P.t_src[i]))).join("")}${ccPill("Reward : risk",`1 : ${P.rr_t2}`,null,"at T2")}${ccPill("Risk / lot",P.risk_lot!=null?"₹"+n2(P.risk_lot):"–",P.risk_ok===false?"#ef4444":"#22c55e",P.risk_ok===false?"over ₹2,500 — skip or smaller":"within ₹2,500")}</div>
+     <div class="hint">Status: <b>WATCHING</b> — enter only on a 5-min close in the zone · Invalidation: ${esc(P.invalid)} · premium ATR ₹${n2(P.atr)}. After T1 you may move SL to entry; after T2 to T1 (not guaranteed to fill).</div></div>`:'<div class="hint">Not enough closed candles to build a plan.</div>'}
+   ${warn.length?`<div class="hint" style="color:#f59e0b">⚠ ${warn.map(esc).join(" · ")}</div>`:""}<div class="hint">${esc(O.note||"")} Money Control below is auto-filled with this plan.</div>`; }
+
+/* 3. Money Control */
+const MCD={capital:100000,funds:100000,riskpct:2,maxrisk:2500,daylimit:7500,entry:"",sl:"",target:"",lot:"",maxopen:3,spread:""};
+let MC=(()=>{ try{ return Object.assign({},MCD,JSON.parse(ccLS("krt_mc")||"{}")); }catch(e){ return Object.assign({},MCD); } })();
+function mcSet(o){ Object.keys(o).forEach(k=>{ if(o[k]!=null) MC[k]=o[k]; }); ccLS("krt_mc",JSON.stringify(MC)); const b=document.getElementById("mcBox"); if(b) b.innerHTML=mcInner(); }
+function mcIn(el){ MC[el.dataset.k]=el.value===""?"":Number(el.value); ccLS("krt_mc",JSON.stringify(MC)); const o=document.getElementById("mcOut"); if(o) o.innerHTML=mcCalc(); }
+function mcCharges(entry,exit,qty){ const buy=entry*qty, sell=exit*qty, brk=40, ex=(buy+sell)*0.000355299, sebi=(buy+sell)*1e-6; return brk+sell*0.0015+ex+sebi+buy*0.00003+0.18*(brk+ex+sebi); }
+function mcCalc(){ const e=+MC.entry, sl=+MC.sl, tg=+MC.target, lot=Math.floor(+MC.lot||0), S=(LAST_S||{}).cc||{}, R=(S.strip||{}).risk||{};
+  if(!(e>0&&sl>0&&lot>0)) return '<div class="hint">Enter entry, stoploss and lot size (or click a strike — it fills itself).</div>';
+  if(sl>=e) return '<div class="cwarn">Stoploss must be below entry for an option buy.</div>';
+  const budget=Math.min(+MC.capital*(+MC.riskpct||0)/100,+MC.maxrisk||Infinity), slip=e*Math.max(0.002,(+MC.spread||0)/200), ru=(e-sl)+2*slip;
+  const perLot=ru*lot+mcCharges(e,sl,lot); let lots=Math.floor(budget/perLot); const why=[];
+  const fundLots=Math.floor((+MC.funds||0)/(e*lot)); if(fundLots<lots){ lots=fundLots; why.push(`funds allow only ${fundLots} lot(s)`); }
+  const dayLeft=(+MC.daylimit||0)+Math.min(0,R.net||0); if(R.net!=null&&dayLeft<=0){ lots=0; why.push("🔒 daily max-loss lock — today's loss reached the limit"); }
+  else if(dayLeft<perLot*lots){ lots=Math.max(0,Math.floor(dayLeft/perLot)); why.push(`only ₹${n2(Math.round(dayLeft))} left of today's loss limit`); }
+  if((R.sl_streak||0)>=2) why.push(`⏸ cooldown: ${R.sl_streak} stoplosses in a row — wait 30 min before the next trade`);
+  if((R.open||0)>=(+MC.maxopen||99)){ lots=0; why.push(`max open positions (${MC.maxopen}) reached`); }
+  if(CC.sym&&(((LAST_S||{}).full||{}).tracking||{}).today&&LAST_S.full.tracking.today.some(c=>c.symbol===CC.sym&&OPEN_ST.includes(c.status))) why.push(`duplicate: an open call already exists on ${CC.sym}`);
+  if(lots<1&&!why.length) why.push(`one lot risks ₹${n2(Math.round(perLot))} — more than your ₹${n2(Math.round(budget))} budget → 0 lots`);
+  lots=Math.max(0,lots); const q=lots*lot, cost=e*q, loss=q?ru*q+mcCharges(e,sl,q):0, prof=tg>e&&q?(tg-e-2*slip)*q-mcCharges(e,tg,q):null;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap">${ccPill("Recommended",`<span style="font-size:18px">${lots}</span> lot${lots===1?"":"s"}`,lots?"#22c55e":"#ef4444",`qty ${q}`)}${ccPill("Capital used","₹"+n2(Math.round(cost)),null,`${(+MC.capital?cost/MC.capital*100:0).toFixed(1)}% of capital`)}
+    ${ccPill("Max planned loss","₹"+n2(Math.round(loss)),"#ef4444","incl. costs + slippage")}${ccPill("Target P&L",prof!=null?"₹"+n2(Math.round(prof)):"–","#22c55e","after costs")}${ccPill("Reward : risk",tg>e?`1 : ${((tg-e)/(e-sl)).toFixed(2)}`:"–")}${ccPill("Risk budget","₹"+n2(Math.round(budget)),null,`${MC.riskpct}% of capital, cap ₹${n2(MC.maxrisk)}`)}</div>
+   ${why.length?`<div class="hint" style="color:#f59e0b;margin-top:4px">${why.map(w=>"• "+esc(w)).join("<br>")}</div>`:""}
+   <div class="hint" style="margin-top:4px">Formula: lots = ⌊ risk budget ÷ (( entry − SL + slippage) × lot + charges) ⌋, rounded DOWN to whole lots. Charges = brokerage ₹40 + STT 0.15% sell + exchange + GST (estimate). ⚠ A stoploss is not guaranteed to fill at its price — gaps and fast moves can cost more.</div>`; }
+function mcInner(){ const f=(k,l,st)=>`<label class="hint" style="display:flex;flex-direction:column;font-size:11px">${l}<input data-k="${k}" type="number" step="${st||"any"}" value="${MC[k]??""}" oninput="mcIn(this)" style="width:110px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px"></label>`;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${f("capital","Capital ₹")}${f("funds","Available funds ₹")}${f("riskpct","Risk % / trade","0.1")}${f("maxrisk","Max risk ₹ / trade")}${f("daylimit","Daily loss limit ₹")}${f("maxopen","Max open positions","1")}</div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${f("entry","Entry premium ₹","0.05")}${f("sl","Stoploss premium ₹","0.05")}${f("target","Target premium ₹","0.05")}${f("lot","Lot size","1")}${f("spread","Spread % (slippage)","0.1")}</div>
+   <div id="mcOut" style="margin-top:8px">${mcCalc()}</div>`; }
+function mcHTML(){ return `<div class="labbox" style="border:2px solid #22c55e;font-size:12.5px"><h2>💰 Money Control & position size <small class="hint">saved on this device · paper / manual only</small></h2><div id="mcBox">${mcInner()}</div></div>`; }
+
+/* Command Center pane — static sections built once, live parts refreshed */
+function ccRenderSel(){ const a=document.getElementById("ccChartBox"), b=document.getElementById("ccChainBox"), c=document.getElementById("ccStrikeBox");
+  if(a) a.innerHTML=SX("ccChart",ccChartHTML); if(b) b.innerHTML=SX("ccChain",ccChainHTML); if(c) c.innerHTML=SX("ccStrike",ccStrikeHTML); }
+function ccRender(s){ const p=document.getElementById("p-cc"); if(!p||!s) return;
+  if(!document.getElementById("ccStrip")){ p.innerHTML=`<div class="labbox" style="border:2px solid #fbbf24;background:radial-gradient(circle at 0 0,rgba(251,191,36,.10),transparent 60%);font-size:12.5px"><div class="ctop"><h2>🏛 KRT Command Center <small class="hint">V3.0 · Top movers → chart → real option chain → strike chart → money control · paper / manual only</small></h2></div><div id="ccStrip"></div></div>
+     <div id="ccGuide"></div><div id="ccMovers"></div><div class="labbox" id="ccSel" style="font-size:12.5px"><div id="ccChartBox"></div></div><div class="labbox" style="font-size:12.5px"><div id="ccChainBox"></div><div id="ccStrikeBox" style="margin-top:8px"></div></div>
+     <div id="ccMoney">${mcHTML()}</div><div class="hint" style="padding:4px 8px">Honest note: every number above comes from Angel One live data or the instrument master; when a value is missing it shows "–". Scores and guides rank setups — they are not win probabilities. No order is ever placed from here.</div>`; ccRenderSel(); }
+  $("ccStrip").innerHTML=SX("ccStrip",()=>ccStripHTML(s)); $("ccGuide").innerHTML=SX("mgHTML",()=>mgHTML(s,"cc")); $("ccMovers").innerHTML=SX("ccMovers",()=>ccMoversHTML(s));
+  const o=document.getElementById("mcOut"); if(o&&!(document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.k)) o.innerHTML=mcCalc(); }
+
+/* 🎯 JARVIS Sniper */
+const SNC={CONFIRMED:"#22c55e",READY:"#38bdf8","SETUP FORMING":"#f59e0b",INVALIDATED:"#ef4444",EXPIRED:"#64748b"};
+function snHTML(s){ const N=s.jsniper||{}; if(N.err) return `<div class="cwarn">Sniper: ${esc(N.err)}</div>`; const C=N.cards||[], W=N.weights||{}, NM=N.names||{}, Sm=N.summary||{};
+  const bar=(k,v)=>`<div style="display:flex;align-items:center;gap:4px;font-size:10.5px"><span style="width:150px" class="hint">${esc(NM[k]||k)}</span><span style="flex:1;height:6px;background:#1e293b;border-radius:3px"><span style="display:block;height:6px;width:${v==null?0:v/W[k]*100}%;background:${v==null?"#334155":v>=W[k]*0.7?"#22c55e":v>=W[k]*0.4?"#f59e0b":"#ef4444"};border-radius:3px"></span></span><b style="width:42px;text-align:right">${v==null?"no data":v+"/"+W[k]}</b></div>`;
+  const card=c=>`<div class="rrow" style="border:2px solid ${SNC[c.state]};font-size:12px">
+    <div class="ctop"><b style="font-size:14px" class="${c.side==="CE"?"up":"dn"}">${esc(c.symbol)} ${n2(c.strike)} ${esc(c.side)} <small class="hint">exp ${esc(c.expiry||"–")}</small></b><span><b style="color:${SNC[c.state]}">${esc(c.state)}</b> · <b>${c.score}/100</b> <small class="hint">${esc(c.band)}</small></span></div>
+    <div class="hint">${esc(c.module||"")} · regime ${esc(c.regime||"–")} · sector ${esc(c.sector||"–")} ${c.sector_pct!=null?pc(c.sector_pct):""} · VWAP ${c.vwap?esc(c.vwap_side)+" ₹"+n2(c.vwap):"n/a"} · RVOL ${c.rvol??"–"}× · data ${c.fresh!=null?Math.round(c.fresh)+"s old":"–"}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:3px 0"><span>Entry <b>₹${n2(c.entry)}</b></span><span class="dn">SL <b>₹${n2(c.sl)}</b></span><span class="up">T ${(c.targets||[]).map(t=>"₹"+n2(t)).join(" / ")||"–"}</span><span>R:R <b>${c.rr??"–"}</b></span><span>lot ${c.lot??"–"}</span><span>risk <b class="${c.risk>2500?"dn":""}">₹${n2(c.risk)}</b> <small class="hint">incl. costs</small></span><span class="hint">LTP ₹${n2(c.ltp)}</span></div>
+    <details><summary class="hint">score breakdown</summary>${Object.keys(W).map(k=>bar(k,(c.parts||{})[k])).join("")}</details>
+    ${(c.reject||[]).length?`<div class="dn">⛔ Rejected: ${c.reject.map(esc).join(" · ")}</div>`:`<div class="up">✅ Accepted: ${(c.accept||[]).map(esc).join(" · ")||"passes the minimum checks"}${(c.need||[]).length?` <span class="hint">— ${c.need.map(esc).join("; ")}</span>`:""}</div>`}
+    ${(c.traps||[]).length?`<div class="hint" style="color:#f59e0b">⚠ trap check: ${c.traps.map(esc).join(" · ")}</div>`:""}${(c.missing||[]).length?`<div class="hint">missing data (scored 0): ${c.missing.map(esc).join(", ")}</div>`:""}</div>`;
+  return `<div class="labbox" style="border:2px solid #22c55e;font-size:12.5px"><div class="ctop"><h2>🎯 JARVIS Sniper <small class="hint">fewer, cleaner setups · each with why accepted / rejected</small></h2><span class="hint">${Object.entries(Sm).map(([k,v])=>`<b style="color:${SNC[k]}">${v}</b> ${esc(k.toLowerCase())}`).join(" · ")}</span></div>
+   ${(N.pre||[]).length?`<div class="cpbox" style="border-style:dashed;border-color:#fde047;margin-bottom:6px"><b style="color:#fde047">⚡ PRE-ALERT — not buy calls</b>${N.pre.map(p=>`<div class="hint">• <b>${esc(p.symbol)} ${esc(p.side||"")}</b> ${p.time?esc(p.time)+" · ":""}${esc(p.kind)} — ${esc(p.why)}</div>`).join("")}</div>`:""}
+   ${C.length?`<div class="cprow" style="flex-direction:column;gap:6px">${C.map(card).join("")}</div>`:'<div class="hint">No live calls to grade yet — the Sniper grades every open call from every module.</div>'}
+   <div class="hint" style="margin-top:4px">Weights: ${Object.keys(W).map(k=>esc(NM[k])+" "+W[k]).join(" · ")}. 90+ elite candidate (5-min confirmation still required) · 80–89 strong watch · 70–79 wait · below 70 reject. Score ranks setup quality — it is NOT a win probability. A module that loses in the current market type is disabled automatically (shown as the reject reason).</div></div>`; }
+
 /* 🧠 v116 JARVIS BRAIN — regime · strategy for this market · auto-learning · mistake journal · level maps */
 function jbLevelCard(m){ const rs=v=>v==null?"–":"₹"+n2(v);
   return `<div class="rrow" style="border:2px solid ${m.bias==="CE"?"#22c55e":m.bias==="PE"?"#ef4444":"#a78bfa"};font-size:12px">
@@ -2890,6 +3078,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
+   ${SX("mgHTML",()=>mgHTML(s,"jv"))}${SX("snHTML",()=>snHTML(s))}
    ${(s.jv_alerts||[]).filter(a=>a.k==="combo").length?`<div class="labbox" style="border:3px solid #fde047;background:rgba(253,224,71,.08);font-size:13.5px"><h2 style="color:#fde047">🟡 JARVIS: BUY — call + big players on the same side</h2>${(s.jv_alerts||[]).filter(a=>a.k==="combo").slice(0,8).map(a=>`<div style="margin:5px 0"><b>${esc(a.t)}</b> · <b style="color:#fde047">${esc(a.txt)}</b> ${a.id?paperBtn(a.id,true):""}</div>`).join("")}<div class="hint">A module's call AND a big-player BUY (CE) / SELL (PE) spike on the same stock today. Still follow the SL.</div></div>`:""}
    ${SX("advHTML",()=>advHTML(s))}
    ${SX("jvVerdictHTML",()=>jvVerdictHTML(s))}
@@ -3411,7 +3600,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v120";
+const APPV="v121";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3493,6 +3682,7 @@ function render(s){
   try{ $("p-cr").innerHTML = SX("crHTML",()=>crHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dh").innerHTML = SX("dhHTML",()=>dhHTML(s)); }catch(e){ console.error(e); }
   try{ jvAlertsUI(s); }catch(e){ console.error(e); }
+  try{ LAST_S=LAST_S||s; ccRender(s); }catch(e){ console.error(e); }
   try{ $("p-mn").innerHTML = SX("mannanHTML",()=>mannanHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-dsk").innerHTML = SX("dskHTML",()=>dskHTML(s)); }catch(e){ console.error(e); }
   try{ $("p-ofp").innerHTML = SX("fpGroup",()=>fpGroup(s)); }catch(e){ console.error(e); }

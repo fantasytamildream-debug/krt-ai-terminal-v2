@@ -119,8 +119,8 @@ def strike_for(inst, sym, side, px, mcx=False):
         return None
 
 
-def _feed_add(sym, sp, exch, inst, px_now, send=None):
-    today = str(pd.Timestamp.now(tz="Asia/Kolkata").date())
+def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None):
+    today = today or str(pd.Timestamp.now(tz="Asia/Kolkata").date())
     for x in sp:
         k = f"{sym}|{x['time']}"
         if k in FEED:
@@ -178,7 +178,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
                 bias, label, td = verdict(sp, str(now.date()))
                 CACHE[sym] = (time.time(), {"symbol": sym, "spikes": sp, "bias": bias, "label": label, "today": td,
                                             "last_bar": str(df.index[-1]) if df is not None and len(df) else None})
-                _feed_add(sym, sp, "NSE", inst, (lq.get(sym) or {}).get("ltp"), send)
+                _feed_add(sym, sp, "NSE", inst, (lq.get(sym) or {}).get("ltp"), send, str(now.date()))
             except Exception as e:
                 STATE["err"] = str(e)[:80]
             n += 1
@@ -195,7 +195,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             sp = spikes(m15)
             bias, label, td = verdict(sp, str(now.date()))
             CACHE["MCX:" + name] = (time.time(), {"symbol": name, "spikes": sp, "bias": bias, "label": label, "today": td})
-            _feed_add(name, sp, "MCX", inst, float(m15["close"].iloc[-1]) if len(m15) else None, send)
+            _feed_add(name, sp, "MCX", inst, float(m15["close"].iloc[-1]) if len(m15) else None, send, str(now.date()))
     except Exception as e:
         STATE["err"] = str(e)[:80]
     keep = sorted({k.split("|")[1][:10] for k in FEED}, reverse=True)[:CFG["feed_days"]]

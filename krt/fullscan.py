@@ -946,7 +946,8 @@ def fast_tick(ag, res):
             vol = _f(q.get("tradeVolume"))
             live_q[n] = {"ltp": _f(q.get("ltp")), "pct": _f(q.get("percentChange")), "volume": int(vol),
                          "vol_ratio": round(vol / (avg * share), 2) if avg else 0.0,
-                         "high": _f(q.get("high")), "low": _f(q.get("low")), "open": _f(q.get("open"))}
+                         "high": _f(q.get("high")), "low": _f(q.get("low")), "open": _f(q.get("open")),
+                         "vwap": _f(q.get("avgPrice")) or None, "prev": _f(q.get("close")) or None}     # v121: Angel avgPrice = day VWAP
     C["live_q"], C["live_q_t"] = live_q, now        # 👑 Mannan Stock Options candidate filter
     try:
         res["movers"] = run_movers(ag, inst, live_q, res, now, live)
