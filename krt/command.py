@@ -260,7 +260,7 @@ def premium_plan(df, lot=None, closed_upto=None):
     R = e - sl
     highs = sorted({round(float(h.iloc[i]), 2) for i in range(1, len(d) - 1) if h.iloc[i] >= h.iloc[i - 1] and h.iloc[i] >= h.iloc[i + 1] and h.iloc[i] > e + 0.5 * R})
     T, src = [], []
-    for k in (1, 2, 3):
+    for k in (1, 2, 3, 4, 5):                # v126: T1–T5
         want = e + k * R
         cand = [x for x in highs if x >= e + (k - 0.5) * R and (not T or x > T[-1] + 0.25 * R)]
         if cand and cand[0] <= want * 1.25:
@@ -271,7 +271,7 @@ def premium_plan(df, lot=None, closed_upto=None):
             src.append(f"{k}R")
     risk = round(R * lot) if lot else None
     return {"entry": round(e, 2), "sl": round(sl, 2), "sl_src": sl_src, "targets": T, "t_src": src, "atr": round(atr, 2),
-            "rr_t2": round((T[1] - e) / R, 2), "risk_lot": risk, "risk_ok": None if risk is None else risk <= 2500,
+            "rr_t2": round((T[1] - e) / R, 2), "t5": True, "risk_lot": risk, "risk_ok": None if risk is None else risk <= 2500,
             "invalid": f"5-min close below ₹{round(sl, 2)}", "entry_zone": [round(e * 0.99, 2), round(e * 1.02, 2)]}
 
 

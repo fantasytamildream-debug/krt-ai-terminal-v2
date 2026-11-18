@@ -22,6 +22,8 @@ def candidates(calls, now):
         from .calls import market_ok as _mok
         if _mok({"symbol": e["symbol"], "side": e["side"], "vol_ratio": e.get("vr") or e.get("vol_ratio"), "exch": e.get("exch")}):
             continue
+        if (e.get("confidence") or 0) < 85:          # v126: AI Lab picks need 85+ (its 80-84 picks mostly hit SL)
+            continue
         out.append({"src": e.get("src"), "symbol": e["symbol"], "side": e["side"], "strike": e.get("strike"), "expiry": e.get("expiry"), "lot": e.get("lot"),
                     "token": e["token"], "exch": e.get("exch", "NFO"), "contract": e.get("contract"), "entry": e.get("ltp") or e.get("entry"), "sl": e.get("sl"),
                     "targets": list(e.get("targets") or []), "conf": e.get("confidence"), "why": [w for w in [e.get("text")] + list(e.get("why") or [])[:2] if w],
@@ -33,8 +35,17 @@ def candidates(calls, now):
         if _mok(c):                                  # v113: re-check the live market (breadth / NIFTY / stock-PE rule) at pick time
             continue
         conf = None
-        if c.get("kind") == "DSK":
-            conf = (c.get("dsk") or {}).get("score")
+        try:
+            from .calls import PROVEN as _PV
+            tr = (_PV.get("tiers") or {}).get(c.get("source") or c.get("kind")) or {}
+        except Exception:
+            tr = {}
+        e0, l0 = float(c.get("entry") or 0), float(c.get("ltp") or c.get("entry") or 0)
+        if tr.get("tier") == "STAR":                   # v126: ⭐ proven strategies first — entry must still be valid (≤ +5%)
+            if e0 and l0 <= e0 * 1.05:
+                conf = int(min(97, 82 + max(0, (tr.get("win") or 50) - 50) / 2 + min(5, (tr.get("pf") or 1))))
+        elif tr.get("tier") == "RETIRED" or c.get("kind") in ("DSK", "FOOTPRINT", "NEWS"):
+            continue                                   # removed / weak modules never become Call of the Day
         elif decide(c, AUTO.get(c["id"]), mdir) == "TAKE":
             conf = int(min(95, (c.get("score") or 70) + (10 if c.get("pink") else 0)))
         if not conf or conf < CFG["min_conf"]:
@@ -42,8 +53,9 @@ def candidates(calls, now):
         out.append({"src": c.get("source_label") or c.get("source") or c.get("kind"), "symbol": c["symbol"], "side": c["side"], "strike": c.get("strike"),
                     "expiry": c.get("expiry"), "lot": c.get("lot"), "token": c["token"], "exch": c.get("exch", "NFO"), "contract": c.get("contract"),
                     "entry": c.get("ltp") or c.get("entry"), "sl": c.get("sl"), "targets": list(c.get("targets") or []), "conf": conf,
-                    "why": [w for w in [(AUTO.get(c["id"]) or {}).get("txt"), c.get("guide")] if w], "from_call": c["id"]})
-    out.sort(key=lambda x: -(x["conf"] or 0))
+                    "why": [w for w in [f"⭐ Star strategy — {tr.get('win')}% win, ₹{tr.get('net'):,} over {tr.get('n')} calls" if tr.get("tier") == "STAR" else None,
+                                        (AUTO.get(c["id"]) or {}).get("txt"), c.get("guide")] if w], "from_call": c["id"], "star": tr.get("tier") == "STAR"})
+    out.sort(key=lambda x: (not x.get("star"), -(x["conf"] or 0)))
     return out
 
 

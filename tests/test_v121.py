@@ -36,8 +36,8 @@ def test_premium_plan_closed_candles_only():
     closed = df.index[-2]
     p = CMD.premium_plan(df, 50, closed)
     assert p["entry"] == round(float(df["close"].iloc[-2]), 2)        # forming candle ignored
-    assert p["sl"] < p["entry"] < p["targets"][0] < p["targets"][1] < p["targets"][2]
-    assert len(p["t_src"]) == 3 and p["risk_lot"] == round((p["entry"] - p["sl"]) * 50)
+    assert p["sl"] < p["entry"] < p["targets"][0] < p["targets"][1] < p["targets"][2] < p["targets"][3] < p["targets"][4]
+    assert len(p["t_src"]) == 5 and p["risk_lot"] == round((p["entry"] - p["sl"]) * 50)
     df2 = df.copy()
     df2.iloc[-1, df2.columns.get_loc("close")] = 999                  # a wild forming candle must not change the plan
     assert CMD.premium_plan(df2, 50, closed) == p

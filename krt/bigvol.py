@@ -114,7 +114,8 @@ def strike_for(inst, sym, side, px, mcx=False):
         if not rows or not px:
             return None
         r = min(rows, key=lambda r: abs(float(r[3]) - px))
-        return {"strike": float(r[3]), "side": side, "expiry": r[2], "contract": r[1], "lot": r[5] if len(r) > 5 else None}
+        return {"strike": float(r[3]), "side": side, "expiry": r[2], "contract": r[1], "lot": r[5] if len(r) > 5 else None,
+                "token": str(r[0]), "exch": "MCX" if mcx else (r[6] if len(r) > 6 else "NFO")}
     except Exception:
         return None
 
@@ -138,6 +139,7 @@ def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None, ref_now=None):
         except Exception:
             backfill = False
         row = {"symbol": sym, "exch": exch, "time": x["time"], "date": x["time"][:10], "side": x["side"], "mult": x["mult"], "price": x["price"],
+               "high": x.get("high"), "low": x.get("low"),
                "end": end, "seen": seen, "backfill": backfill,
                "now": px_now, "opt": strike_for(inst, sym, side, px_now or x["price"], exch == "MCX") if side else None}
         FEED[k] = row

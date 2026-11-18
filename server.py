@@ -716,7 +716,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v125"
+APP_VERSION = "v126"
 EVC = {"t": 0, "d": None}
 
 
@@ -1045,6 +1045,54 @@ def _v3_inputs():
 
 
 CCST = {}
+OQC = {}            # v126 option quote cache: token → (ts, quote)
+MOVSEEN = {}        # (day, tab, symbol) → first time it showed in that Top Movers tab
+
+
+def opt_quotes(items, ttl=20):
+    """items: [(exch, token)] → {token: {"ltp", "bid", "ask", "oi", "vol"}} — one batched Angel quote call, cached 20 s."""
+    now_ = time.time()
+    need = {}
+    for ex, tk in items:
+        if not tk:
+            continue
+        hit = OQC.get(str(tk))
+        if not hit or now_ - hit[0] > ttl:
+            need.setdefault(ex or "NFO", []).append(str(tk))
+    if need and angel_configured() and market_open(now_ist()):
+        try:
+            qs = get_angel().quotes({k: v[:50] for k, v in need.items()}) or {}
+            for tk, q in qs.items():
+                dp = q.get("depth") or {}
+                bid = next((float(x.get("price") or 0) for x in dp.get("buy") or [] if float(x.get("price") or 0) > 0), None)
+                ask = next((float(x.get("price") or 0) for x in dp.get("sell") or [] if float(x.get("price") or 0) > 0), None)
+                OQC[str(tk)] = (now_, {"ltp": float(q.get("ltp") or 0) or None, "bid": bid, "ask": ask, "oi": q.get("opnInterest"), "vol": q.get("tradeVolume")})
+        except Exception:
+            traceback.print_exc()
+    if len(OQC) > 2000:
+        for k in sorted(OQC, key=lambda k: OQC[k][0])[:800]:
+            OQC.pop(k, None)
+    return {str(tk): (OQC.get(str(tk)) or (0, {}))[1] for _, tk in items if tk}
+
+
+def bp_rows(n=30, mkt=None):
+    """🐋 v126 today's big-player spikes (newest alert first) + strike + live premium + TAKE / WAIT / LATE / AVOID."""
+    from krt import bigvol as BV, bpadvice as BA, fullscan as FSm, guide as GD
+    day = str(now_ist().date())
+    lq = FSm.C.get("live_q") or {}
+    rows = [dict(r) for r in BV.FEED.values() if r.get("date") == day]
+    rows.sort(key=lambda r: (not r.get("backfill"), (r.get("seen") or r.get("end") or "")), reverse=True)
+    rows = rows[:n]
+    q = opt_quotes([((r.get("opt") or {}).get("exch"), (r.get("opt") or {}).get("token")) for r in rows])
+    t0 = now_ist().tz_localize(None)
+    for r in rows:
+        o = r.get("opt") or {}
+        oq = q.get(str(o.get("token"))) or {}
+        r["opt_ltp"] = oq.get("ltp")
+        npx = (lq.get(r["symbol"]) or {}).get("ltp") or r.get("now") or r.get("price")
+        r["now"] = npx
+        r["ai"] = BA.advise(r, npx, oq.get("ltp"), mkt, t0)
+    return rows
 
 
 def _cc_strike(sym, side, px):
@@ -1085,6 +1133,27 @@ def cc_state():
         d = {"strip": GD.strip(rg, BV.feed_report().get("summary"), risk, scan), "regime": rg,
              "movers": CMD.movers(lq, lv, oi, BV.get, mkt=("BEAR" if "BEAR" in str(rg.get("label")) else "BULL" if "BULL" in str(rg.get("label")) else None),
                                   strike_of=_cc_strike), "time": now_ist().strftime("%d %b %H:%M:%S")}
+        M_ = d["movers"]
+        day_, hm_ = str(now_ist().date()), now_ist().strftime("%H:%M")
+        its = []
+        for tab in ("gainers", "losers", "volume", "oi", "breakouts", "breakdowns"):
+            for i_, r_ in enumerate(M_.get(tab) or []):
+                k_ = (day_, tab, r_["symbol"])
+                MOVSEEN.setdefault(k_, hm_)
+                r_["since"] = MOVSEEN[k_]
+                st_ = (r_.get("ai") or {}).get("strike") or {}
+                if i_ < 15 and st_.get("token"):
+                    its.append((st_.get("exch"), st_.get("token")))
+        if len(MOVSEEN) > 5000:
+            for k_ in [k_ for k_ in MOVSEEN if k_[0] != day_]:
+                MOVSEEN.pop(k_, None)
+        qq_ = opt_quotes(its)
+        for tab in ("gainers", "losers", "volume", "oi", "breakouts", "breakdowns"):
+            for r_ in M_.get(tab) or []:
+                st_ = (r_.get("ai") or {}).get("strike") or {}
+                if st_.get("token"):
+                    r_["opt_ltp"] = (qq_.get(str(st_["token"])) or {}).get("ltp")
+        d["big"] = bp_rows(30, "BEAR" if "BEAR" in str(rg.get("label")) else "BULL" if "BULL" in str(rg.get("label")) else None)
     except Exception as e:
         traceback.print_exc()
         d = {"err": str(e)[:120]}
@@ -1238,8 +1307,38 @@ def jv_alerts():
 
 def jbrain_state():
     try:
-        from krt import jarvis_brain as JB
-        return JB.report()
+        from krt import jarvis_brain as JB, fullscan as FSm
+        rep = JB.report()
+        try:                                       # v126: level map → strike to buy + live premium + when to enter
+            lq = FSm.C.get("live_q") or {}
+            L = [dict(m) for m in (rep.get("levels") or [])]
+            its = []
+            for m in L:
+                px = (lq.get(m["symbol"]) or {}).get("ltp") or m.get("px")
+                m["px_live"] = px
+                if m.get("bias") in ("CE", "PE") and px:
+                    st_ = _cc_strike(m["symbol"], m["bias"], px)
+                    m["strike_buy"] = st_
+                    if st_ and st_.get("token"):
+                        its.append((st_.get("exch"), st_["token"]))
+            qq = opt_quotes(its)
+            for m in L:
+                st_, px = m.get("strike_buy") or {}, m.get("px_live")
+                if st_:
+                    st_["ltp"] = (qq.get(str(st_.get("token"))) or {}).get("ltp")
+                trig = m.get("buy_above") if m.get("bias") == "CE" else m.get("sell_below") if m.get("bias") == "PE" else None
+                if not (m.get("bias") and px and trig):
+                    m["when"] = "No side yet — wait for price to break a level with a 5-min close."
+                elif (m["bias"] == "CE" and px > trig) or (m["bias"] == "PE" and px < trig):
+                    far = abs(px - trig) / trig * 100
+                    m["when"] = (f"Level already broken ({'above' if m['bias'] == 'CE' else 'below'} {trig:,.1f}) — "
+                                 + (f"OK to enter now (only {far:.1f}% past it)" if far <= 0.6 else f"{far:.1f}% past it — wait for a retest of {trig:,.1f}, don't chase"))
+                else:
+                    m["when"] = f"Wait — enter only on a 5-min close {'above' if m['bias'] == 'CE' else 'below'} {trig:,.1f} ({abs(px - trig) / trig * 100:.1f}% away)."
+            rep["levels"] = L
+        except Exception:
+            traceback.print_exc()
+        return rep
     except Exception as e:
         return {"err": str(e)[:100]}
 
@@ -1247,7 +1346,13 @@ def jbrain_state():
 def bigvol_state():
     try:
         from krt import bigvol as BV
-        return BV.feed_report()
+        rep = BV.feed_report()
+        try:                                       # v126: AI action + live premium for the newest 30 spikes (same as Command Center)
+            big = (V3C["cc"][1] or {}).get("big") or []
+            rep["ai"] = {f"{r['symbol']}|{r['time']}": {"ai": r.get("ai"), "opt_ltp": r.get("opt_ltp"), "now": r.get("now")} for r in big}
+        except Exception:
+            pass
+        return rep
     except Exception as e:
         return {"err": str(e)[:100]}
 
