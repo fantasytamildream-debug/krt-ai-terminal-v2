@@ -2825,9 +2825,16 @@ function ccStripHTML(s){ const C=s.cc||{}, S=C.strip||{}, R=S.risk||{}, Sc=S.sca
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
    ${ccPill("Market regime",esc(S.regime||"–"),RGC[S.regime],`evidence ${esc(S.agree||"–")} · ${esc(rg.time||"")}`)}
    ${ccPill("Institutional flow",esc(S.flow||"–"),S.flow==="BUYERS"?"#22c55e":S.flow==="SELLERS"?"#ef4444":"#f59e0b",esc(S.flow_txt||""))}
-   ${ccPill("Money Control",`${R.net>=0?"+":"−"}₹${n2(Math.abs(R.net||0))} today`,R.net>=0?"#22c55e":"#ef4444",`your paper trades: ${R.open||0} open · ${R.closed||0} closed`)}
+   ${ccPill("Your paper P&L",`${R.net>=0?"+":"−"}₹${n2(Math.abs(R.net||0))} today`,R.net>=0?"#22c55e":"#ef4444",`your paper trades: ${R.open||0} open · ${R.closed||0} closed`)}
    ${ccPill("Risk status",esc(R.status||"–"),R.status==="OK"?"#22c55e":"#ef4444",R.status==="LOCKED"?"daily loss limit hit — no new trades":R.status==="COOLDOWN"?`${R.sl_streak} SL in a row — wait 30 min`:"within limits")}
    ${ccPill("Scan status",esc(Sc.fresh||"–"),Sc.fresh==="LIVE"?"#22c55e":"#f59e0b",Sc.age!=null?`quotes ${Sc.age}s old · ${Sc.market_open?"market open":"market closed"}`:"no live quotes yet")}</div>`; }
+
+/* 🗣 v124 JARVIS SAYS — 4–5 plain lines on top */
+function saysHTML(s){ const L=((s.guide||{}).say)||[]; if(!L.length) return "";
+  const ic={market:"📍",do:"✅",big:"🐋",smc:"📐",skip:"⛔"}, col={market:"#e2e8f0",do:"#4ade80",big:"#38bdf8",smc:"#f472b6",skip:"#f87171"};
+  return `<div class="labbox" style="border:3px solid #fbbf24;background:rgba(251,191,36,.06)"><h2 style="margin-bottom:4px">🗣 JARVIS says <small class="hint">plain English · ${esc((s.guide||{}).time||"")} · updates every few seconds</small></h2>
+   ${L.map(x=>`<div style="font-size:14.5px;line-height:1.45;margin:5px 0;color:${col[x.k]||"#e2e8f0"}">${ic[x.k]||"•"} ${x.sym?`<a href="#" style="color:inherit" onclick="ccPick('${esc(x.sym)}');return false">${esc(x.t)}</a>`:esc(x.t)}</div>`).join("")}
+   <div class="hint">Tap a line with a stock name → its chart and real CE / PE strikes open. Scores and guides rank setups — they are not guarantees.</div></div>`; }
 
 /* 🧭 Market Guide — shared by Command Center + JARVIS */
 function mgHTML(s,where){ const G=s.guide||{}; if(G.err) return `<div class="cwarn">Market Guide: ${esc(G.err)}</div>`; const rg=G.regime||{};
@@ -2847,7 +2854,7 @@ function mgHTML(s,where){ const G=s.guide||{}; if(G.err) return `<div class="cwa
     <div class="cpbox" style="border-color:#ef4444"><b class="dn">⛔ Don't take</b>${(G.avoid||[]).map(x=>`<div class="hint" style="margin-top:3px">• ${x.symbol?`<b>${opt(x)}</b> — `:""}${esc(x.why||"")}</div>`).join("")||'<div class="hint">nothing flagged</div>'}</div>
    </div>
    <div class="cpbox" style="margin-top:8px;border-color:#38bdf8"><b>🐋 Big players buying / selling aggressively</b> <small class="hint">target = spike price ± 2× the spike candle's range (estimate) · SL = beyond the spike candle</small>
-    ${(G.big||[]).length?simpleTbl(G.big,[["Time",x=>`<b>${esc(x.early?"⚡ "+x.seen:"candle "+x.time)}</b>${x.early?'<div class="hint">live, not confirmed</div>':`<div class="hint">alert ${esc(x.seen||"")}</div>`}`],
+    ${(G.big||[]).length?simpleTbl(G.big,[["Time",x=>`<b>${esc(x.early?"⚡ "+x.seen:(x.end||x.time))}</b>${x.early?'<div class="hint">live, not confirmed yet</div>':x.old?`<div class="hint">candle ${esc(x.time)}–${esc(x.end||"")} · old (reloaded)</div>`:`<div class="hint">candle ${esc(x.time)}–${esc(x.end||"")} · alert ${esc(x.seen||"")}</div>`}`],
       ["Stock",x=>`<b ${goSym(x.symbol)} style="color:${x.side==="BUY"?"#22c55e":"#ef4444"};cursor:pointer">${x.side==="BUY"?"🟢":"🔴"} ${esc(x.symbol)}</b>`],["Volume",x=>`<b>${x.mult}×</b>`],["Price",x=>"₹"+n2(x.price)],
       ["Strike",x=>x.opt?`<b>${n2(x.opt.strike)} ${x.opt.side}</b><div class="hint">exp ${esc(x.opt.expiry)}</div>`:"–"],["Target / SL (stock)",x=>x.target?`🎯 ₹${n2(x.target)}<div class="hint">SL ₹${n2(x.sl)}</div>`:'<span class="hint">wait for the 5-min close</span>']],x=>x.side==="BUY"?"uprow":"slrow"):'<div class="hint">No big-player spikes yet today.</div>'}</div>
    <div class="cpbox" style="margin-top:8px;border-color:#fbbf24"><b style="color:#fbbf24">⭐ Best intraday setups right now</b>
@@ -2867,10 +2874,11 @@ function ccMoversHTML(s){ const M=(s.cc||{}).movers||{}, R=M[CC.tab]||[];
   else body=simpleTbl(R,[["Symbol",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${esc(x.symbol)}</b>${x.big?`<div class="hint">🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}</div>`:""}`],
      ["LTP",x=>"₹"+n2(x.ltp)],["%",x=>pc(x.pct)],["RVOL",x=>x.rvol?`<b>${x.rvol}×</b>`:"–"],["OI",x=>x.oi?`${esc(x.oi)}${x.oi_chg_pct!=null?`<div class="hint">${x.oi_chg_pct>0?"+":""}${x.oi_chg_pct}%</div>`:""}`:"–"],
      ["VWAP",x=>x.vwap?`<span class="${x.vwap_pos==="ABOVE"?"up":"dn"}">${x.vwap_pos}</span><div class="hint">₹${n2(x.vwap)}</div>`:'<span class="hint">n/a</span>'],
-     ["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],["Momentum",x=>esc(x.momentum)],["Setup",x=>`<b>${esc(x.setup)}</b>`]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
+     ["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],["Setup",x=>`<b>${esc(x.setup)}</b><div class="hint">${esc(x.momentum)}</div>`],
+     ["🤖 What to do",x=>x.ai?`<b style="color:${/^BUY CE/.test(x.ai.tag)?"#4ade80":/^BUY PE/.test(x.ai.tag)?"#f87171":x.ai.tag==="AVOID"?"#f87171":"#fbbf24"}">${esc(x.ai.tag)}</b><div class="hint" style="max-width:300px">${esc(x.ai.txt)}</div>`:"–"]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
   return `<div class="labbox" style="font-size:12.5px"><div class="ctop"><h2>🚀 Live Top Movers <small class="hint">NSE F&O stocks · Angel live quotes · ${M.n||0} stocks · breadth ${(M.breadth||{}).up??"–"} up / ${(M.breadth||{}).down??"–"} down</small></h2></div>
    <div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">${tabs}</div><div style="max-height:380px;overflow:auto">${body}</div>
-   <div class="hint">Click a symbol → its chart + real option chain open below (no page change). RVOL = volume vs normal for this time of day. Setup: BREAKOUT = above previous-day high with ≥1.5× volume.</div></div>`; }
+   <div class="hint">Click a symbol → its chart + real option chain open below (no page change). RVOL = volume vs normal for this time of day. 🐋 = big-player spike TODAY. "What to do" = CE / PE / avoid + the exact entry trigger and SL from the stock's live price, VWAP and previous-day levels — a plan, not a promise of profit.</div></div>`; }
 
 /* candle chart (generic) */
 function ccCandles(K,o){ o=o||{}; if(!K||!K.length) return '<div class="hint">No candles.</div>';
@@ -2905,7 +2913,7 @@ async function ccLoadChain(){ if(!CC.sym) return; CC.chain={loading:true}; ccRen
   try{ const r=await fetch(`/api/cc/chain?symbol=${encodeURIComponent(CC.sym)}${CC.exp?"&expiry="+CC.exp:""}`,{cache:"no-store"}); CC.chain=await r.json(); }catch(e){ CC.chain={ok:false,msg:String(e)}; } ccRenderSel(); }
 async function ccStrike(tok){ const x=((CC.chain||{}).rows||[]).find(r=>String(r.token)===String(tok)); if(!x) return; CC.strike=x; CC.opt={loading:true}; ccRenderSel();
   try{ const r=await fetch(`/api/cc/opt?exch=${x.exch}&token=${x.token}&tf=${CC.stf}&lot=${x.lot||""}`,{cache:"no-store"}); CC.opt=await r.json(); }catch(e){ CC.opt={ok:false,msg:String(e)}; }
-  ccRenderSel(); const p=(CC.opt||{}).plan; if(p){ mcSet({entry:p.entry,sl:p.sl,target:p.targets[1]||p.targets[0],lot:x.lot,spread:x.spread_pct}); } try{ document.getElementById("ccStrikeBox").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+  ccRenderSel(); try{ document.getElementById("ccStrikeBox").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
 function ccChartHTML(){ if(!CC.sym) return '<div class="hint">👆 Click any stock in Top Movers (or a name in the Market Guide) — its chart and real CE / PE strikes open here.</div>';
   const r=CC.row||{}, K=CC.K;
   const tfb=["1","3","5","15","60","D"].map(t=>`<button class="pickbtn ${CC.tf===t?"on":""}" onclick="CC.tf='${t}';ccLoadChart()">${t==="D"?"Day":t==="60"?"1h":t+"m"}</button>`).join("");
@@ -2944,7 +2952,7 @@ function ccStrikeHTML(){ const x=CC.strike, O=CC.opt; if(!x) return ""; if(!O||O
      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${ccPill("Entry zone",`₹${n2(P.entry_zone[0])}–${n2(P.entry_zone[1])}`,"#fbbf24")}${ccPill("Stoploss","₹"+n2(P.sl),"#ef4444",esc(P.sl_src))}
        ${P.targets.map((t,i)=>ccPill("T"+(i+1),"₹"+n2(t),"#22c55e",esc(P.t_src[i]))).join("")}${ccPill("Reward : risk",`1 : ${P.rr_t2}`,null,"at T2")}${ccPill("Risk / lot",P.risk_lot!=null?"₹"+n2(P.risk_lot):"–",P.risk_ok===false?"#ef4444":"#22c55e",P.risk_ok===false?"over ₹2,500 — skip or smaller":"within ₹2,500")}</div>
      <div class="hint">Status: <b>WATCHING</b> — enter only on a 5-min close in the zone · Invalidation: ${esc(P.invalid)} · premium ATR ₹${n2(P.atr)}. After T1 you may move SL to entry; after T2 to T1 (not guaranteed to fill).</div></div>`:'<div class="hint">Not enough closed candles to build a plan.</div>'}
-   ${warn.length?`<div class="hint" style="color:#f59e0b">⚠ ${warn.map(esc).join(" · ")}</div>`:""}<div class="hint">${esc(O.note||"")} Money Control below is auto-filled with this plan.</div>`; }
+   ${warn.length?`<div class="hint" style="color:#f59e0b">⚠ ${warn.map(esc).join(" · ")}</div>`:""}<div class="hint">${esc(O.note||"")}</div>`; }
 
 /* 3. Money Control */
 const MCD={capital:100000,funds:100000,riskpct:2,maxrisk:2500,daylimit:7500,entry:"",sl:"",target:"",lot:"",maxopen:3,spread:""};
@@ -2980,10 +2988,10 @@ function ccRenderSel(){ const a=document.getElementById("ccChartBox"), b=documen
   if(a) a.innerHTML=SX("ccChart",ccChartHTML); if(b) b.innerHTML=SX("ccChain",ccChainHTML); if(c) c.innerHTML=SX("ccStrike",ccStrikeHTML); }
 function ccRender(s){ const p=document.getElementById("p-cc"); if(!p||!s) return;
   if(!document.getElementById("ccStrip")){ p.innerHTML=`<div class="labbox" style="border:2px solid #fbbf24;background:radial-gradient(circle at 0 0,rgba(251,191,36,.10),transparent 60%);font-size:12.5px"><div class="ctop"><h2>🏛 KRT Command Center <small class="hint">V3.0 · Top movers → chart → real option chain → strike chart → money control · paper / manual only</small></h2></div><div id="ccStrip"></div></div>
-     <div id="ccGuide"></div><div id="ccMovers"></div><div class="labbox" id="ccSel" style="font-size:12.5px"><div id="ccChartBox"></div></div><div class="labbox" style="font-size:12.5px"><div id="ccChainBox"></div><div id="ccStrikeBox" style="margin-top:8px"></div></div>
-     <div id="ccMoney">${mcHTML()}</div><div class="hint" style="padding:4px 8px">Honest note: every number above comes from Angel One live data or the instrument master; when a value is missing it shows "–". Scores and guides rank setups — they are not win probabilities. No order is ever placed from here.</div>`; ccRenderSel(); }
-  $("ccStrip").innerHTML=SX("ccStrip",()=>ccStripHTML(s)); $("ccGuide").innerHTML=SX("mgHTML",()=>mgHTML(s,"cc")); $("ccMovers").innerHTML=SX("ccMovers",()=>ccMoversHTML(s));
-  const o=document.getElementById("mcOut"); if(o&&!(document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.k)) o.innerHTML=mcCalc(); }
+     <div id="ccSays"></div><div id="ccGuide"></div><div id="ccMovers"></div><div class="labbox" id="ccSel" style="font-size:12.5px"><div id="ccChartBox"></div></div><div class="labbox" style="font-size:12.5px"><div id="ccChainBox"></div><div id="ccStrikeBox" style="margin-top:8px"></div></div>
+<div class="hint" style="padding:4px 8px">Honest note: every number above comes from Angel One live data or the instrument master; when a value is missing it shows "–". Scores and guides rank setups — they are not win probabilities. No order is ever placed from here.</div>`; ccRenderSel(); }
+  $("ccStrip").innerHTML=SX("ccStrip",()=>ccStripHTML(s)); $("ccSays").innerHTML=SX("saysHTML",()=>saysHTML(s)); $("ccGuide").innerHTML=SX("mgHTML",()=>mgHTML(s,"cc")); $("ccMovers").innerHTML=SX("ccMovers",()=>ccMoversHTML(s));
+}
 
 /* 🎯 JARVIS Sniper */
 const SNC={CONFIRMED:"#22c55e",READY:"#38bdf8","SETUP FORMING":"#f59e0b",INVALIDATED:"#ef4444",EXPIRED:"#64748b"};
@@ -3057,10 +3065,11 @@ function smHTML(s){ const M=s.smc||{}; if(M.err&&!(M.setups||[]).length&&!M.time
   const bc=x=>x==="UP"?"up":x==="DOWN"?"dn":"";
   const card=x=>{ const o=x.option, p=x.opt_plan, open=SMOPEN[x.id];
     return `<div class="rrow" style="border:2px solid ${x.decision==="TAKE"?(x.side==="CE"?"#22c55e":"#ef4444"):sc(x.state)};font-size:12px">
-     <div class="ctop"><b style="font-size:14px" class="${x.side==="CE"?"up":"dn"}">${x.decision==="TAKE"?"✅ TAKE":x.decision==="WAIT"?"⏳ WAIT":"⛔"} · ${esc(x.symbol)} ${o?n2(o.strike)+" ":""}${esc(x.side)} <small class="hint">${esc(x.kind)} · 5m</small></b>
+     <div class="ctop"><b style="font-size:14px" class="${x.side==="CE"?"up":"dn"}">${x.decision==="TAKE"?"✅ TAKE":x.decision==="WAIT"?"⏳ WAIT":"⛔"} · ${esc(x.symbol)} ${(o||x.strike_watch)?n2((o||x.strike_watch).strike)+" ":""}${esc(x.side)} <small class="hint">${esc(x.kind)} · 5m</small></b>
       <span><b style="color:${sc(x.state)}">${esc(x.state)}</b> · <b>${x.score}/100</b> <small class="hint">${esc(x.band)}</small> <button class="pickbtn" onclick="smPick('${esc(x.symbol)}')">📊 chart</button></span></div>
      <div class="hint">${esc(x.why||"")}${x.counter?' · <b style="color:#f59e0b">countertrend vs 1H</b>':""} · MTF 1H <b class="${bc((x.mtf||{})["1H"])}">${esc((x.mtf||{})["1H"]||"–")}</b> · 15m <b class="${bc((x.mtf||{})["15m"])}">${esc((x.mtf||{})["15m"]||"–")}</b> · data ${esc(x.ts||"")}</div>
      ${x.entry?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin:3px 0"><span>Underlying entry <b>${n2(x.entry)}</b></span><span class="dn">SL <b>${n2(x.sl)}</b></span><span class="up">T ${(x.targets||[]).map(n2).join(" / ")}</span><span>R:R <b>1:${x.rr??"–"}</b></span></div>`:x.zone?`<div class="hint">zone ${n2(x.zone.bot)}–${n2(x.zone.top)} · SL ${n2(x.sl)}</div>`:""}
+     ${x.strike_watch&&x.decision!=="DON'T TAKE"?`<div style="margin:3px 0;font-size:13px">👉 <b>${x.decision==="TAKE"?"BUY now":"If it confirms, BUY"}: ${esc(x.symbol)} ${n2(x.strike_watch.strike)} ${esc(x.side)}</b> <span class="hint">exp ${esc(x.strike_watch.expiry)} · lot ${x.strike_watch.lot??"–"} · nearest listed strike</span>${x.decision==="WAIT"&&x.zone?` <span class="hint">— only after price comes back to ${n2(x.zone.bot)}–${n2(x.zone.top)} and a ${x.side==="PE"?"red":"green"} 5-min candle closes</span>`:""}</div>`:""}
      ${p?`<div style="display:flex;gap:10px;flex-wrap:wrap"><span>Option ${esc(o.contract||"")}</span><span>premium entry <b>₹${n2(p.zone[0])}–${n2(p.zone[1])}</b></span><span class="dn">SL ₹${n2(p.sl)}</span><span class="up">T ₹${p.targets.map(n2).join(" / ")}</span><span>lot ${p.lot} · max loss <b class="${p.risk>2500?"dn":""}">₹${n2(p.risk)}</b></span><span class="hint">${esc(p.model)}</span></div>`:""}
      ${(x.veto||[]).length?`<div class="dn">⛔ ${x.veto.map(esc).join(" · ")}</div>`:""}
      <a href="#" class="hint" onclick="SMOPEN['${esc(x.id)}']=!SMOPEN['${esc(x.id)}'];$('p-jv').innerHTML=jarvisHTML(LAST_S);return false">${open?"▲ hide":"▼ why — JARVIS explains"}</a>
@@ -3141,7 +3150,7 @@ function jvAlertsUI(s){ const A=s.jv_alerts||[]; let b=document.getElementById("
     document.body.appendChild(p); }
   const col=a=>a.k==="combo"?"#fde047":a.k==="adv"?"#fbbf24":a.side==="BUY"||a.side==="CE"?"#22c55e":a.side==="SELL"||a.side==="PE"?"#ef4444":a.side==="ABSORB"?"#f59e0b":"#94a3b8";
   const keys=A.map(a=>a.t+a.txt); if(JVA_SEEN===null) JVA_SEEN=new Set(keys);
-  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)); fresh.slice(0,4).forEach(a=>{ try{ toast(`<b>${a.k==="combo"?"🟡 JARVIS":a.k==="adv"?"🐋 ADVANCE":a.k==="early"?"⚡ EARLY":"🐋 BIG PLAYER"}</b> <span class="hint">🕒 ${esc(a.when||((a.dl||a.d||"")+" "+a.t))}</span><br>${esc(a.txt)}`, a.k==="combo"?"pink":""); }catch(e){}
+  const fresh=A.filter(a=>!JVA_SEEN.has(a.t+a.txt)&&!a.old); fresh.slice(0,4).forEach(a=>{ try{ toast(`<b>${a.k==="combo"?"🟡 JARVIS":a.k==="adv"?"🐋 ADVANCE":a.k==="early"?"⚡ EARLY":"🐋 BIG PLAYER"}</b> <span class="hint">🕒 ${esc(a.when||((a.dl||a.d||"")+" "+a.t))}</span><br>${esc(a.txt)}`, a.k==="combo"?"pink":""); }catch(e){}
     try{ if(window.Notification&&Notification.permission==="granted") new Notification((a.k==="early"?"⚡ ":"🐋 ")+"JARVIS · "+(a.when||a.t), {body:a.txt}); }catch(e){} }); keys.forEach(k=>JVA_SEEN.add(k));
   b.innerHTML=`🐋 JARVIS ${A.length?`<span style="background:#ef4444;border-radius:10px;padding:0 6px;font-size:11px">${A.length}</span>`:""}`;
   document.getElementById("jvaPanel").innerHTML=`<div class="ctop"><b style="font-size:16px">🤖 JARVIS alerts</b><span class="hint">⚡ early (live, every minute) + 🐋 5-min candle big players + every new call · today</span></div>
@@ -3159,7 +3168,7 @@ function jarvisHTML(s){
     <div class="ctop"><h2 style="letter-spacing:1px">🤖 JARVIS AI — BOSS OF THE BOSS CALLS</h2><span class="hint">${esc(String(s.now||"").replace("T"," ").slice(0,19))} IST · market <b>${s.market_open?"OPEN":"CLOSED"}</b> · scan ${esc(J.time||"–")}</span></div>
     <div class="hint">Scan the market · validate the opportunity · execute with discipline · track every result. Data: ${esc(I.status||"–")}${(I.issues||[]).length?" — "+I.issues.map(esc).join("; "):""} · scanned ${J.scanned||0} live setups · execution <b>${esc(J.execution||"DISABLED")}</b></div>
     ${J.breaker?`<div style="color:#ef4444;margin-top:4px">⛔ Circuit breaker: ${esc(J.breaker)}</div>`:""}</div>
-   ${SX("mgHTML",()=>mgHTML(s,"jv"))}${SX("smHTML",()=>smHTML(s))}${SX("snHTML",()=>snHTML(s))}
+   ${SX("saysHTML",()=>saysHTML(s))}${SX("mgHTML",()=>mgHTML(s,"jv"))}${SX("smHTML",()=>smHTML(s))}${SX("snHTML",()=>snHTML(s))}
    ${(s.jv_alerts||[]).filter(a=>a.k==="combo").length?`<div class="labbox" style="border:3px solid #fde047;background:rgba(253,224,71,.08);font-size:13.5px"><h2 style="color:#fde047">🟡 JARVIS: BUY — call + big players on the same side</h2>${(s.jv_alerts||[]).filter(a=>a.k==="combo").slice(0,8).map(a=>`<div style="margin:5px 0"><b>${esc(a.t)}</b> · <b style="color:#fde047">${esc(a.txt)}</b> ${a.id?paperBtn(a.id,true):""}</div>`).join("")}<div class="hint">A module's call AND a big-player BUY (CE) / SELL (PE) spike on the same stock today. Still follow the SL.</div></div>`:""}
    ${SX("advHTML",()=>advHTML(s))}
    ${SX("jvVerdictHTML",()=>jvVerdictHTML(s))}
@@ -3203,8 +3212,9 @@ let RISE_SEEN=null;
 function riserHTML(s){ const R=s.riser||{}, L=R.live||[], A=(R.alerts||[]).filter(a=>a.time);
   const k=A.map(a=>a.id+a.ltp).join(","); if(RISE_SEEN!==null&&k!==RISE_SEEN&&A[0]){ try{ speak(`Rising. ${A[0].symbol} ${A[0].strike} ${A[0].side==="CE"?"C E":"P E"} up ${A[0].chg3m} percent in 3 minutes.`); }catch(e){} } RISE_SEEN=k;
   if(!L.length&&!A.length) return "";
-  return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">checks every 10 s · prices every 5 s · ${esc(R.time||"")}</small></h2>
-    ${L.length?L.map(r=>`<div class="rrow" style="border-color:#16a34a"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥":"🚀"} ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><span class="hint">${esc(r.source||"")}</span></div>
+  return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">🌱 building +2.5% · 🚀 rising +4% · 🔥 strong +8% in 3 min · checks every 10 s · ${esc(R.time||"")}</small></h2>
+    ${L.length?L.map(r=>`<div class="rrow" style="border-color:${r.state==="BUILDING"?"#f59e0b":"#16a34a"}"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥 STRONG":r.state==="RISING"?"🚀 RISING":"🌱 BUILDING"} · ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><span class="hint">${esc(r.source||"")}${r.hidden?' · <b style="color:#f59e0b">hidden module (losing record)</b>':""}</span></div>
+      ${r.act?`<div><b>👉 ${esc(r.act)}</b></div>`:""}
       <div>₹${n2(r.ltp)} · <b class="up">+${r.chg3m}% in 3 min</b> · ${r.from_entry>=0?"+":""}${r.from_entry}% from entry ₹${n2(r.entry)}${r.t1?` · T1 ₹${n2(r.t1)} (${r.to_t1>=0?"+":""}${r.to_t1}%)`:""}</div>
       ${r.coach?coachHTML(r.coach):'<div class="hint">👉 In the trade? move SL up. Not in? only on a small pullback — fast moves can reverse.</div>'}${r.vr?`<div class="hint">stock volume ${r.vr}× · ${esc(r.oi||"")}</div>`:""}${paperBtn(r.id)}</div>`).join(""):'<div class="hint">Nothing rising right now.</div>'}
     ${A.length?`<details><summary>Today's rising alerts (${A.length})</summary>${A.map(a=>`<div class="hint">${esc(a.time)} · ${esc(a.symbol)} ${n2(a.strike)} ${a.side} · ₹${n2(a.ltp)} · +${a.chg3m}% / 3 min</div>`).join("")}</details>`:""}</div>`; }
@@ -3411,7 +3421,8 @@ function stratHTML(s){
   const legs=sp=>sp.legs.map(l=>`<span class="${l.act==="SELL"?"dn":"up"}">${l.act} ${n2(l.strike)} ${l.type} @₹${n2(l.entry)}</span>`).join(" · ");
   return `<div class="labbox" style="border:2px solid #22d3ee"><h2>🩺 Module health — எல்லாம் வேலை செய்யுதா?</h2>
      <div class="hint">✅ proven = 15+ முடிந்த calls · லாபம் · PF ≥1.5 → weak modules-ஓட day-max / duplicate gate-ல் block ஆகாது (தனி lane). இப்போ: <b>${(S.proven||[]).map(esc).join(", ")||"–"}</b></div>
-     ${H.length?simpleTbl(H,[["நிலை",r=>`<b>${esc(r.status)}</b>`],["Module",r=>`${r.proven?"✅ ":""}<b>${esc(r.source)}</b>`],["கடைசி call",r=>r.last?`${esc(r.last)}${r.days?` <small class="hint">(${r.days} நாள் முன்)</small>`:""}`:"–"],["இன்று calls",r=>r.today],["இன்று block",r=>r.rejects?`${r.rejects} <div class="hint">${r.top.map(esc).join(" · ")}</div>`:"–"]],r=>r.status.startsWith("🔴")?"slrow":r.status.startsWith("🟢")?"uprow":""):'<div class="hint">Data வந்ததும் வரும்.</div>'}
+     ${H.length?simpleTbl(H,[["நிலை",r=>`<b>${esc(r.status)}</b>`],["Module",r=>`${r.proven?"✅ ":""}<b>${esc(r.source)}</b>`],["கடைசி call",r=>r.last?`${esc(r.last)}${r.days?` <small class="hint">(${r.days} நாள் முன்)</small>`:""}`:"–"],["Today shown",r=>r.today],["Today hidden",r=>r.hidden?`${r.hidden} <div class="hint">₹${r.hidden_pl>=0?"+":""}${n2(r.hidden_pl)}</div>`:"–"],["Recent form",r=>`<span class="hint">${esc(r.recent||"–")}</span>`],["Today block",r=>r.rejects?`${r.rejects} <div class="hint">${r.top.map(esc).join(" · ")}</div>`:"–"]],r=>r.status.startsWith("🔴")?"slrow":r.status.startsWith("🟢")?"uprow":""):'<div class="hint">Data வந்ததும் வரும்.</div>'}
+     <div class="hint">🟢 <b>working — hidden</b> = the strategy IS giving signals today, but its recent calls lost money, so they are tracked in Paper (hidden list in Calls) instead of shown. As soon as its last 30 calls make money again it comes back to the main list automatically. ⚫ = retired module.</div>
      <div class="hint"><b>🔴 "3+ days no call"</b> = that scanner found <b>no setup that passed its own rules</b> — nothing was blocked. These strategies (Gamma Unwind Classic, Silver Bullet, Order Flow, Mannan Index, Strong Break) are strict by design; forcing a call when the setup hasn't formed would mean worse trades. <b>🟡 "gate block"</b> = a signal came but a rule stopped it — reasons below.</div>
      <div class="hint">Gate codes: Q_LATE / AFTER_2PM = after the 2:00–2:30 PM entry cutoff (late entries had too little time to reach targets) · Q_DUP / Q_DUP_ANY = same stock + side already called · Q_SL_TIGHT / SL_TIGHT = SL too close to entry (&lt;15%) · Q_OPEN_NOISE = before 9:45 AM · Q_COUNTER / Q_COUNTER_LIVE = against NIFTY · Q_BREADTH = most stocks moving the other way · Q_STOCK_PE = stock PE on a non-down day · Q_LOW_VOL = volume &lt;1.5× · Q_WEAK_MODULE = module with a losing record · Q_SIDE_BRAKE = 3 SL in a row on that side · PAUSED_NEGATIVE_EDGE = module losing after charges</div></div>
    <div class="labbox" style="border:2px solid #f59e0b"><h2>👑 Mannan Gamma Unwind (Index) <small class="hint">${st(S.mgu_calls||[])}</small></h2>
@@ -3681,7 +3692,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v123";
+const APPV="v124";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

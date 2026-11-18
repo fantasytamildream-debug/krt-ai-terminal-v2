@@ -330,6 +330,18 @@ def classic_eval(c, df, oi_raw, ul, q, now, nd20):
     c5 = ul.get("close5")
     out["Stock · 5m close zone-ஐ தாண்டியது"] = bool(c5 and ((c5 > c["edge"]) if ce else (c5 < c["edge"])))
     out["NIFTY-D20 trend"] = (nd20 == ("UP" if ce else "DOWN")) if nd20 else True
+    try:                                   # v124: TODAY's market must agree too. GU won Nov 4–11 (market rising) and lost after Nov 11
+        from .calls import MARKET as _MK, breadth_now as _bn      # (same rules, falling market — every call was CE). Live check added.
+        np_ = _MK.get("nifty_pct")
+        b_ = _bn()
+        live_ok = True
+        if np_ is not None:
+            live_ok = np_ >= -0.15 if ce else np_ <= 0.15
+        if live_ok and b_:
+            live_ok = (b_[0] >= b_[1] * 0.8) if ce else (b_[1] >= b_[0] * 0.8)
+        out["NIFTY + breadth today with the side"] = bool(live_ok)
+    except Exception:
+        pass
     mins = now.hour * 60 + now.minute
     out["Time 9:30–14:30"] = K["window"][0] <= mins <= K["window"][1]
     out["Expiry ≥4 days · OI ≥50 lots"] = bool(c.get("dte", 0) >= K["min_dte"] and c.get("oi", 0) >= K["min_oi_lots"] * c["lot"])

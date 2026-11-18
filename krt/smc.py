@@ -285,7 +285,9 @@ def setups(an, sym, now=None):
     A = an["atr"]
     out = []
     # SWEEP REVERSAL
-    for s in [e for e in ev if e["name"] in ("BSL sweep", "SSL sweep") and n - 1 - e["i"] <= CFG["lookback_sweep"]]:
+    day0 = df.index[-1].date()
+    tday = lambda i: df.index[i].date() == day0          # v124: only TODAY's setups (yesterday's 15:10 setup is not a trade today)
+    for s in [e for e in ev if e["name"] in ("BSL sweep", "SSL sweep") and n - 1 - e["i"] <= CFG["lookback_sweep"] and tday(e["i"])]:
         bear = s["name"] == "BSL sweep"
         side = "PE" if bear else "CE"
         mss = next((e for e in ev if e["i"] > s["i"] and e["i"] - s["i"] <= CFG["mss_win"] and e["name"] in ("MSS", "CHOCH", "BOS")
@@ -313,7 +315,7 @@ def setups(an, sym, now=None):
         _confirm(st, an, mss["i"], bear, inval)
         out.append(st)
     # BOS + ORDER BLOCK continuation
-    for o in [o for o in an["obs"] if n - 1 - o["made"] <= CFG["lookback_sweep"]]:
+    for o in [o for o in an["obs"] if n - 1 - o["made"] <= CFG["lookback_sweep"] and tday(o["made"])]:
         b = next((e for e in ev if e["i"] == o["made"] and e["name"] == "BOS"), None)
         if not b:
             continue
@@ -539,6 +541,19 @@ def run(frames, now, ctx, ag=None, inst=None, store=None, lock=None, add_calls=N
             charts[sym] = chart_payload(an, sts)
         except Exception as e:
             STATE["err"] = f"{sym}: {str(e)[:80]}"
+    # v124: strike to watch for every live setup (no quote needed) — so a WAIT card already says which CE / PE to buy if it confirms
+    if inst is not None:
+        try:
+            from .bigvol import strike_for
+            for s in allst:
+                if s["state"] in ("PATTERN DETECTED", "WAITING FOR CONFIRMATION", "ENTRY CONFIRMED"):
+                    z = s.get("zone") or {}
+                    ref = s.get("entry") or ((z["top"] + z["bot"]) / 2 if z else None) or float(frames[s["symbol"]]["close"].iloc[-1])
+                    o = strike_for(inst, s["symbol"], s["side"], ref)
+                    if o:
+                        s["strike_watch"] = o
+        except Exception as e:
+            STATE["err"] = f"strike: {str(e)[:80]}"
     # option plan for live confirmed setups (stocks + indices) — one quote call
     live = [s for s in allst if s["state"] == "ENTRY CONFIRMED" and not s["veto"]]
     if live and ag is not None and inst is not None:

@@ -1520,8 +1520,23 @@ def run_money(ag, inst, live_q, res, now, live):
     M["jackpot_pe"] = next((p for p in picks if p["side"] == "PE" and p.get("rp") and p["score"] >= 75), None)
     if live and 9 * 60 + 45 <= mins <= 14 * 60 + 30:
         try:
+            np_ = (C.get("nifty_pct") if C.get("nifty_pct") is not None else None)
+            try:
+                from .calls import MARKET as _MK
+                np_ = _MK.get("nifty_pct") if _MK.get("nifty_pct") is not None else np_
+            except Exception:
+                pass
+
+            def _mm_ok(p):                           # v124 Money Machine quality: not late · volume ≥1.5× · market not against
+                if (p.get("live") or {}).get("status") in ("LATE", "WEAK", "INVALID"):
+                    return False
+                if (p.get("vol_ratio") or 0) < 1.5:
+                    return False
+                if np_ is not None and ((p["side"] == "CE" and np_ <= -0.3) or (p["side"] == "PE" and np_ >= 0.3)):
+                    return False
+                return True
             add_simple("MONEYM", "👑 Money Machine", [p for p in picks if p.get("rp") and p["score"] >= 75 and not p["rp"]["codes"]
-                                                     and (p["option"].get("spread_pct") or 99) <= 5], now, 5)
+                                                     and (p["option"].get("spread_pct") or 99) <= 5 and _mm_ok(p)], now, 5)
         except Exception as e:
             res.setdefault("errors", []).append(f"Money calls: {e}")
     return M
@@ -1730,8 +1745,9 @@ def run_goki(ag, inst, universe, bu_tag, nret, now, session, live, el, res):
             r["why_not"].append(f"Spread {o.get('spread_pct')}% — limit order, paper மட்டும்")
         # V8 accuracy upgrade (பழைய 29% win): 9/9 கட்டாயம் · score ≥70 · 15m volume ≥2× · NIFTY எதிர் இல்லை · VWAP-ல் இருந்து ≤1 ATR
         vx_ = (r.get("info") or {}).get("vol_x") or 0
-        if not r["full"]:
-            r["why_not"].append("Scanner 9/9 இல்லை")
+        nok_ = sum(1 for v_ in (r.get("rules") or {}).values() if v_)
+        if not r["full"] and not (nok_ >= 8 and r["score"] >= 80):      # v124: 8/9 allowed when the AI score is ≥80
+            r["why_not"].append(f"Scanner {nok_}/9 (need 9/9, or 8/9 with score ≥80)")
         if r["score"] < 70:
             r["why_not"].append(f"Score {r['score']} < 70")
         if not r.get("hold") and vx_ < 2:

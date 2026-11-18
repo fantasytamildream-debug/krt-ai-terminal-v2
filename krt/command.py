@@ -43,7 +43,8 @@ def _row(sym, q, lv, oi, bv):
            else "DOWN" if pct < -0.3 else "FLAT")
     setup = ("BREAKOUT" if pdh and ltp > pdh and vr >= 1.5 else "BREAKDOWN" if pdl and ltp < pdl and vr >= 1.5 else
              "NEAR PDH" if pdh and 0 <= (pdh - ltp) / pdh * 100 <= 0.5 else "NEAR PDL" if pdl and 0 <= (ltp - pdl) / pdl * 100 <= 0.5 else "–")
-    b = (bv or {}).get("spikes") or []
+    today = str(pd.Timestamp.now(tz="Asia/Kolkata").date())
+    b = [x for x in ((bv or {}).get("spikes") or []) if str(x.get("time", ""))[:10] == today]      # v124: TODAY's big-player spikes only
     return {"symbol": sym, "ltp": ltp, "pct": round(pct, 2), "rvol": vr or None, "volume": q.get("volume"),
             "vwap": vw, "vwap_pos": None if not vw else ("ABOVE" if ltp >= vw else "BELOW"),
             "oi": (oi or {}).get("kind"), "oi_chg_pct": (oi or {}).get("oi_chg_pct"), "sector": SECTOR.get(sym, "Others"),
@@ -51,7 +52,37 @@ def _row(sym, q, lv, oi, bv):
             "big": {"side": b[0]["side"], "mult": b[0]["mult"], "time": b[0]["time"]} if b else None}
 
 
-def movers(live_q, levels, oi_rows, bv_get=None, n=25):
+def advise(r, mkt=None, strike=None):
+    """v124 plain guidance for one mover: CE / PE / avoid, when to enter, SL, strike. Built from the row's own live numbers."""
+    pct, vw, ltp, rv = r.get("pct") or 0, r.get("vwap"), r.get("ltp") or 0, r.get("rvol") or 0
+    pdh, pdl, dp = r.get("pdh"), r.get("pdl"), r.get("day_pos")
+    big = r.get("big") or {}
+    up_side = pct > 0
+    side = "CE" if up_side else "PE"
+    against_big = big and ((up_side and big.get("side") == "SELL") or (not up_side and big.get("side") == "BUY"))
+    with_big = big and ((up_side and big.get("side") == "BUY") or (not up_side and big.get("side") == "SELL"))
+    vw_ok = vw is None or (ltp >= vw if up_side else ltp <= vw)
+    mkt_against = (mkt == "BEAR" and up_side) or (mkt == "BULL" and not up_side)
+    st = f"{strike['strike']:g} {side}" if strike else f"ATM {side}"
+    if abs(pct) >= 4 or (dp is not None and ((up_side and dp >= 97) or (not up_side and dp <= 3)) and rv < 1.5):
+        return {"tag": "LATE", "txt": f"Already moved {pct:+.1f}% — don't chase. Wait for a pullback to VWAP {vw:g}." if vw else f"Already moved {pct:+.1f}% — don't chase."}
+    if against_big:
+        return {"tag": "AVOID", "txt": f"Big players {'SELLING' if up_side else 'BUYING'} today ({big['mult']}× at {big['time'][11:16]}) — against this move. Skip {side}."}
+    if not vw_ok:
+        return {"tag": "AVOID", "txt": f"Price is {'below' if up_side else 'above'} VWAP {vw:g} — the move is weak. Skip for now."}
+    if abs(pct) < 0.5 or rv < 1.2:
+        return {"tag": "WAIT", "txt": f"Small move / normal volume ({rv or '–'}×). Watch only."}
+    lvl = pdh if up_side else pdl
+    trig = (f"a 5-min close {'above' if up_side else 'below'} {lvl:g} (prev-day {'high' if up_side else 'low'})" if lvl and ((ltp < lvl) if up_side else (ltp > lvl))
+            else f"a pullback to VWAP {vw:g} that holds" if vw else "the next 5-min candle in the same direction")
+    sl = f"SL if price {'falls below' if up_side else 'rises above'} VWAP {vw:g}" if vw else "SL below the last 5-min candle"
+    tag = "CE" if up_side else "PE"
+    note = " · market is against it → 1 lot only" if mkt_against else ""
+    plus = " · 🐋 big players on the same side" if with_big else ""
+    return {"tag": "BUY " + tag, "txt": f"BUY {r['symbol']} {st} on {trig}. {sl}.{plus}{note}", "strike": strike}
+
+
+def movers(live_q, levels, oi_rows, bv_get=None, n=25, mkt=None, strike_of=None):
     live_q = live_q or {}
     oi = {}
     for r in oi_rows or []:
@@ -65,7 +96,19 @@ def movers(live_q, levels, oi_rows, bv_get=None, n=25):
         except Exception:
             bv = None
         rows.append(_row(s, q, (levels or {}).get(s), oi.get(s), bv))
-    srt = lambda f, key, rev=True: sorted([r for r in rows if f(r)], key=key, reverse=rev)[:n]
+    srt0 = lambda f, key, rev=True: sorted([r for r in rows if f(r)], key=key, reverse=rev)[:n]
+
+    def srt(f, key, rev=True):
+        L = srt0(f, key, rev)
+        for r in L:
+            if "ai" not in r:
+                st = None
+                try:
+                    st = strike_of(r["symbol"], "CE" if r["pct"] > 0 else "PE", r["ltp"]) if strike_of else None
+                except Exception:
+                    st = None
+                r["ai"] = advise(r, mkt, st)
+        return L
     sec = {}
     for r in rows:
         if r["sector"] != "Others":

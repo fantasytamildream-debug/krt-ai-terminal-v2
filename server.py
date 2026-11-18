@@ -707,7 +707,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v123"
+APP_VERSION = "v124"
 EVC = {"t": 0, "d": None}
 
 
@@ -1035,6 +1035,21 @@ def _v3_inputs():
     return full, money, nifty, lq, FSm.C.get("levels") or {}, age, rg, AL
 
 
+CCST = {}
+
+
+def _cc_strike(sym, side, px):
+    """Nearest listed strike (nearest expiry ≥1 day) — cached per day / symbol / side / 1% price bucket."""
+    key = (str(now_ist().date()), sym, side, round(px / max(px * 0.01, 0.05)))
+    if key not in CCST:
+        from krt import bigvol as BV
+        from krt.instruments import load as load_inst
+        CCST[key] = BV.strike_for(load_inst(ROOT / "data" / "cache"), sym, side, px)
+        if len(CCST) > 3000:
+            CCST.clear()
+    return CCST[key]
+
+
 def cc_state():
     """🏛 V3.0 Command Center: top strip + top movers (5 s cache)."""
     if time.time() - V3C["cc"][0] < 5 and V3C["cc"][1]:
@@ -1059,7 +1074,8 @@ def cc_state():
         scan = {"last": STATE.get("full_last"), "running": STATE.get("full_running"), "age": None if age is None else int(age),
                 "fresh": "LIVE" if age is not None and age <= 180 else "STALE" if age is not None else "NO DATA", "market_open": market_open(now_ist())}
         d = {"strip": GD.strip(rg, BV.feed_report().get("summary"), risk, scan), "regime": rg,
-             "movers": CMD.movers(lq, lv, oi, BV.get), "time": now_ist().strftime("%d %b %H:%M:%S")}
+             "movers": CMD.movers(lq, lv, oi, BV.get, mkt=("BEAR" if "BEAR" in str(rg.get("label")) else "BULL" if "BULL" in str(rg.get("label")) else None),
+                                  strike_of=_cc_strike), "time": now_ist().strftime("%d %b %H:%M:%S")}
     except Exception as e:
         traceback.print_exc()
         d = {"err": str(e)[:120]}
@@ -1079,7 +1095,9 @@ def guide_state():
         calls = list((_S.load().get("calls") or {}).values())
         d = GD.build(rg, jbrain_state(), money, nifty, jv.get("top") or [], list(BV.FEED.values()), list(BV.EARLY.values()), calls,
                      (adv_state() or {}).get("calls") or [], (events_state() or {}).get("results") or [],
-                     coach_of=lambda c: CO.advise(c), now=now_ist().tz_localize(None))
+                     coach_of=lambda c: CO.advise(c), now=now_ist().tz_localize(None),
+                     smc=__import__("krt.smc", fromlist=["STATE"]).STATE.get("setups") or [],
+                     breadth=(lambda b: {"up": b[0], "down": b[1]} if b else None)(__import__("krt.calls", fromlist=["breadth_now"]).breadth_now()))
     except Exception as e:
         traceback.print_exc()
         d = {"err": str(e)[:120]}
@@ -1138,9 +1156,20 @@ def jv_combos():
         ear = bool(r.get("early"))
         ct = r["time"] if ear else r["time"][11:16]
         seen = r["time"] if ear else (r.get("seen") or ct)[:5]
-        out.append({"key": f"{c['id']}|{r['time']}", "t": seen, "d": day, "dl": dlab, "k": "combo", "side": c["side"], "id": c["id"],
-                    "when": f"{dlab} · " + (f"⚡ early, seen {seen}" if ear else f"candle {ct}–{r.get('end') or ''} · alert {seen}"),
-                    "txt": f"BUY {c['symbol']} {c.get('strike') or ''} {c['side']} — {c.get('source')} call + {'⚡ early ' if ear else ''}big {r['side']} {r['mult']}× at {ct} "
+        if r.get("backfill"):
+            seen = r.get("end") or ct
+        ctime = str(c.get("time") or "")[:5]
+        # v124: the big-player move must be close to the call (≤45 min before it, or after it) — an old spike is not a reason now
+        try:
+            gap = (pd.Timestamp(f"{day} {ctime}") - pd.Timestamp(f"{day} {ct}")).total_seconds() / 60
+        except Exception:
+            gap = 0
+        if gap > 45:
+            continue
+        t_ = max(seen, ctime)                     # the combo exists only once BOTH happened → that is its time
+        out.append({"key": f"{c['id']}|{r['time']}", "t": t_, "d": day, "dl": dlab, "k": "combo", "side": c["side"], "id": c["id"],
+                    "when": f"{dlab} · JARVIS alert {t_} · call {ctime} · big {r['side']} {'seen ' + seen if ear else 'candle ' + ct}",
+                    "txt": f"BUY {c['symbol']} {c.get('strike') or ''} {c['side']} — {c.get('source')} call ({ctime}) + {'⚡ early ' if ear else ''}big {r['side']} {r['mult']}× at {ct} "
                            f"@ ₹{r['price']:g} · entry ₹{c.get('entry')} · SL ₹{c.get('sl')} · T1 ₹{(c.get('targets') or ['–'])[0]} · LTP ₹{c.get('ltp')}"})
     out.sort(key=lambda a: a["t"], reverse=True)
     return out
@@ -1175,9 +1204,11 @@ def jv_alerts():
         for r in BV.FEED.values():
             if r["date"] == day:
                 o = r.get("opt") or {}
-                out.append({"t": (r.get("seen") or r["time"][11:16])[:5], "d": r["date"], "dl": dlab, "k": "whale", "side": r["side"], "exch": r.get("exch"),
-                            "sym": r["symbol"],
-                            "when": f"{dlab} · candle {r['time'][11:16]}–{r.get('end') or ''} · alert {(r.get('seen') or '')[:5]}",
+                bf = bool(r.get("backfill"))
+                out.append({"t": (r.get("end") if bf else (r.get("seen") or r["time"][11:16]))[:5], "d": r["date"], "dl": dlab, "k": "whale", "side": r["side"],
+                            "exch": r.get("exch"), "sym": r["symbol"], "old": bf,
+                            "when": f"{dlab} · candle {r['time'][11:16]}–{r.get('end') or ''} · "
+                                    + ("loaded after a server restart (old candle, not new)" if bf else f"alert {(r.get('seen') or '')[:5]}"),
                             "txt": (f"Big {r['side']} in {r['symbol']} · {r['mult']}× avg vol @ {r['price']:g}" if r["side"] != "ABSORB" else
                                     f"Big volume (absorption) in {r['symbol']} · {r['mult']}× avg vol @ {r['price']:g}")
                                    + (f" → watch {o['strike']:g} {o['side']}" if o else "")})

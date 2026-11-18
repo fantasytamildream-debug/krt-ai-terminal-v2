@@ -119,7 +119,7 @@ def strike_for(inst, sym, side, px, mcx=False):
         return None
 
 
-def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None):
+def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None, ref_now=None):
     today = today or str(pd.Timestamp.now(tz="Asia/Kolkata").date())
     for x in sp:
         k = f"{sym}|{x['time']}"
@@ -127,12 +127,19 @@ def _feed_add(sym, sp, exch, inst, px_now, send=None, today=None):
             continue
         side = "CE" if x["side"] == "BUY" else "PE" if x["side"] == "SELL" else None
         end = (pd.Timestamp(x["time"]) + pd.Timedelta(minutes=CFG["bar"])).strftime("%H:%M")
-        seen = pd.Timestamp.now(tz="Asia/Kolkata").strftime("%H:%M:%S")
+        nowk = pd.Timestamp.now(tz="Asia/Kolkata")
+        seen = nowk.strftime("%H:%M:%S")
+        # v124: a candle that closed >15 min ago (e.g. re-loaded after a server restart) is history, not a new alert
+        try:
+            rn = pd.Timestamp(ref_now) if ref_now is not None else nowk.tz_localize(None)
+            backfill = (rn - (pd.Timestamp(x["time"]) + pd.Timedelta(minutes=CFG["bar"]))).total_seconds() > 900
+        except Exception:
+            backfill = False
         row = {"symbol": sym, "exch": exch, "time": x["time"], "date": x["time"][:10], "side": x["side"], "mult": x["mult"], "price": x["price"],
-               "end": end, "seen": seen,
+               "end": end, "seen": seen, "backfill": backfill,
                "now": px_now, "opt": strike_for(inst, sym, side, px_now or x["price"], exch == "MCX") if side else None}
         FEED[k] = row
-        if send and x["time"][:10] == today and x["mult"] >= CFG["push_mult"] and k not in SW["pushed"] and side and exch != "MCX":
+        if send and not backfill and x["time"][:10] == today and x["mult"] >= CFG["push_mult"] and k not in SW["pushed"] and side and exch != "MCX":
             SW["pushed"].add(k)
             o = row["opt"] or {}
             try:
@@ -178,7 +185,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
                 bias, label, td = verdict(sp, str(now.date()))
                 CACHE[sym] = (time.time(), {"symbol": sym, "spikes": sp, "bias": bias, "label": label, "today": td,
                                             "last_bar": str(df.index[-1]) if df is not None and len(df) else None})
-                _feed_add(sym, sp, "NSE", inst, (lq.get(sym) or {}).get("ltp"), send, str(now.date()))
+                _feed_add(sym, sp, "NSE", inst, (lq.get(sym) or {}).get("ltp"), send, str(now.date()), now)
             except Exception as e:
                 STATE["err"] = str(e)[:80]
             n += 1
@@ -195,7 +202,7 @@ def sweep(ag, inst, now, priority=(), send=None, mcx_only=False):
             sp = spikes(m15)
             bias, label, td = verdict(sp, str(now.date()))
             CACHE["MCX:" + name] = (time.time(), {"symbol": name, "spikes": sp, "bias": bias, "label": label, "today": td})
-            _feed_add(name, sp, "MCX", inst, float(m15["close"].iloc[-1]) if len(m15) else None, send, str(now.date()))
+            _feed_add(name, sp, "MCX", inst, float(m15["close"].iloc[-1]) if len(m15) else None, send, str(now.date()), now)
     except Exception as e:
         STATE["err"] = str(e)[:80]
     keep = sorted({k.split("|")[1][:10] for k in FEED}, reverse=True)[:CFG["feed_days"]]

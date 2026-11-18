@@ -263,7 +263,7 @@ def _new(kind, src, r, opt, now, day, hold=0, session=None):
         pass
     why = quality_v6(c, now)
     if why and why[0] in SHADOW_CODES:
-        c.update(shadow=True, shadow_why=why[1])     # main list-ல் வராது · paper-ல் track ஆகும் → optimizer recover பார்க்கும்
+        c.update(shadow=True, shadow_why=why[1], shadow_code=why[0])     # main list-ல் வராது · paper-ல் track ஆகும் → optimizer recover பார்க்கும்
         return c
     if why:
         try:
@@ -299,7 +299,7 @@ def proven_sources(d, now_ts=None):
         s_["n"] += 1
         s_["w" if p_ > 0 else "l"] += abs(p_)
     ok = {k for k, v in st.items() if v["n"] >= 15 and v["w"] > v["l"] and (v["w"] / v["l"] if v["l"] else 9) >= 1.5}
-    PROVEN.update(t=_t.time(), set=ok, rows=st)
+    PROVEN.update(t=_t.time(), set=ok, rows=st, recent=recent_form(d))
     return ok     # இவை மற்ற modules-ஓட duplicate / day-max கணக்கில் சேராது (தனி box)
 
 
@@ -320,6 +320,29 @@ def breadth_now():
     return sum(1 for x in q if x > 0), sum(1 for x in q if x < 0)
 
 
+def _is_dup_shadow(x):
+    return x.get("shadow_code") == "Q_DUP_ANY" or "already called today" in str(x.get("shadow_why") or "") or "|IMM" in str(x.get("id"))
+
+
+def recent_form(d, n=30, days=30):
+    """v124: each module's LAST 30 closed calls (last 30 days) — shown AND hidden (hidden calls are tracked at real prices).
+    A module that was hidden for losing could never come back before (its hidden calls were not counted). Duplicates excluded."""
+    import pandas as _pd
+    cut = str((_pd.Timestamp.now(tz="Asia/Kolkata") - _pd.Timedelta(days=days)).date())
+    by = {}
+    for x in (d.get("calls") or {}).values():
+        if x["status"] in OPEN or x["status"] == "VOID" or x.get("kind") == "PICK" or (x.get("date") or "") < cut or _is_dup_shadow(x):
+            continue
+        by.setdefault(x.get("source") or x["kind"], []).append(x)
+    out = {}
+    for k, L in by.items():
+        L = sorted(L, key=lambda x: (x.get("date") or "", x.get("time") or ""))[-n:]
+        w = sum(x.get("pnl_lot") or 0 for x in L if (x.get("pnl_lot") or 0) > 0)
+        l_ = -sum(x.get("pnl_lot") or 0 for x in L if (x.get("pnl_lot") or 0) < 0)
+        out[k] = {"n": len(L), "w": w, "l": l_, "net": round(w - l_), "win": round(sum(1 for x in L if (x.get("pnl_lot") or 0) > 0) / len(L) * 100) if L else None}
+    return out
+
+
 def best_gate(c, d, now):
     """🏆 v110 BEST-SETUPS gate — quality only, NO count limit. A failing call becomes a shadow call (not shown in the main list,
     still tracked) so we can prove the filter. → None or (code, reason)."""
@@ -327,9 +350,9 @@ def best_gate(c, d, now):
         return None
     is_idx = c["symbol"] in IDX_SYMS
     proven_sources(d)
-    m = PROVEN["rows"].get(c.get("source") or c["kind"])
-    if m and m["n"] >= BEST["weak_n"] and (m["w"] <= m["l"] or (m["w"] / m["l"] if m["l"] else 9) < 1.0):
-        return ("Q_WEAK_MODULE", f"{c.get('source')} has lost money over {m['n']} closed calls (net ₹{m['w'] - m['l']:,.0f}) — watch-only")
+    m = (PROVEN.get("recent") or {}).get(c.get("source") or c["kind"])      # v124: recent form (shown + hidden), not all-time
+    if m and m["n"] >= BEST["weak_n"] and m["w"] <= m["l"]:
+        return ("Q_WEAK_MODULE", f"{c.get('source')} lost money in its last {m['n']} calls (net ₹{m['net']:,}, {m['win']}% win) — watch-only until it recovers")
     if not is_idx:
         vr = c.get("vol_ratio")
         if vr is not None and float(vr) < 1.5:
@@ -1538,15 +1561,26 @@ def module_health(d, now):
     """🩺 ஒவ்வொரு module-ம் வேலை செய்யுதா: கடைசி call · இன்று calls · இன்று reject ஆனது (எந்த gate) · நிலை."""
     import collections
     day = str(now.date())
-    calls = [x for x in (d.get("calls") or {}).values() if not x.get("shadow")]
-    last, today = {}, collections.Counter()
+    calls = [x for x in (d.get("calls") or {}).values() if x.get("kind") != "PICK"]
+    last, today, hid, hid_pl, hid_why = {}, collections.Counter(), collections.Counter(), collections.Counter(), {}
     for x in calls:
         src = x.get("source") or x["kind"]
         k = f"{x['date']} {x.get('time') or ''}"
         if k > last.get(src, ""):
             last[src] = k
         if x["date"] == day:
-            today[src] += 1
+            if x.get("shadow"):
+                if not _is_dup_shadow(x):
+                    hid[src] += 1
+                    hid_pl[src] += x.get("pnl_lot") or 0
+                    hid_why.setdefault(src, x.get("shadow_why"))
+            else:
+                today[src] += 1
+    try:
+        from .ai import RETIRED as _RET
+    except Exception:
+        _RET = {}
+    recent = recent_form(d)
     rej = collections.defaultdict(collections.Counter)
     if SKIPPED.get("day") == day:
         for r in SKIPPED["log"]:
@@ -1564,10 +1598,14 @@ def module_health(d, now):
         days = (pd.Timestamp(day) - pd.Timestamp(lk[:10])).days if lk else None
         rc = rej.get(src) or collections.Counter()
         paused = src in PAUSED_SRC
-        st = ("🟢 வேலை செய்யுது" if today[src] else "⏸ Auto-paused (நஷ்டம் தரும் module — shadow-ல் test ஆகுது, லாபம் வந்தா தானா resume)" if paused else
+        st = ("🟢 வேலை செய்யுது" if today[src] else
+              f"🟢 working — {hid[src]} signal(s) today, hidden ({(hid_why.get(src) or 'filter')[:70]}) · today ₹{hid_pl[src]:+,.0f}" if hid[src] else
+              f"⚫ retired — {_RET[src]}" if src in _RET else "⏸ Auto-paused (நஷ்டம் தரும் module — shadow-ல் test ஆகுது, லாபம் வந்தா தானா resume)" if paused else
               "🟡 signal வருது, gate block" if rc else
               "🔴 3+ நாள் call இல்லை" if days is not None and days >= 3 else "⚪ இன்று signal இல்லை")
-        rows.append({"source": src, "last": lk, "days": days, "today": today[src], "rejects": sum(rc.values()),
+        rf = recent.get(src) or {}
+        rows.append({"source": src, "last": lk, "days": days, "today": today[src], "hidden": hid[src], "hidden_pl": round(hid_pl[src]),
+                     "recent": f"last {rf['n']}: {rf['win']}% win · ₹{rf['net']:+,}" if rf else None, "rejects": sum(rc.values()),
                      "top": [f"{k} ×{v}" for k, v in rc.most_common(2)], "status": st, "proven": src in pv})
     # v120: V4 strategies always listed (they used to vanish when no call came) — with the live setup and why it is not a call yet
     try:
