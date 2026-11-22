@@ -1579,6 +1579,9 @@ def add_gu_classic(c0, ev, now, K, lite=False):
         c["hold_until"] = min(c.get("hold_until") or exp_prev, exp_prev)
         c.update(grade="A" if not lite else "B", qcodes=[], qtext=[], ul_token=c0.get("ul_token"), ul_sl=ev.get("ul_sl"),
                  trail_after_t1=True, trail_after_t2=True, gu={"lite": lite, "drop": ev.get("drop")}, source_label="GU Classic LITE" if lite else "GU Classic")
+        if (ev.get("checks") or {}).get("C · Quiet base (4–12 bars ≤1 ATR)"):        # v128: quiet-base GU calls won 4/4 (Oct 30–Nov 17; small sample)
+            c["source_label"] = ("GU Classic ⭐ quiet base")
+            c["reasons"] = list(c.get("reasons") or []) + ["⭐ Quiet base ✓ — every past GU call with a quiet base won (4/4, small sample)"]
         d["calls"][c["id"]] = c
         STORE.dirty = True
         STORE.save(force=True)

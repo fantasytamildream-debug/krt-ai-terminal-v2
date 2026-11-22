@@ -2025,7 +2025,11 @@ function guClassicHTML(s){
    <div class="hint">Daily support / resistance zones (10-bar pivot · ATR50) அருகில் உள்ள stocks → zone-க்கு ±2.5% OTM strikes (அதிக OI top 2, OI ≥${K.min_oi_lots||50} lots, expiry ≥${K.min_dte||4} நாள்) → <b>ஒவ்வொரு 5-min candle-லும் ஒரே நேரத்தில்:</b>
    A · OI peak-ல் இருந்து ≥${K.oi_drop||8}% குறைவு + தொடர்ந்து falling · B · volume (கடைசி 3-ல் 2 SMA20-க்கு மேல், option + stock) · C · 4–12 bars அமைதியான base (≤1 ATR) · H · premium jump · Stock 5-min close zone-ஐ தாண்டணும் · NIFTY 20-day trend · 9:30–2:30 → <b>TRADE ALERT</b>.</div>
    <div class="hint">Exit: T1/T2/T3/T4 = premium <b>+25% / +50% / +75% / +100%</b> · SL = stock எதிர் zone-ஐ தாண்டினா (அல்லது premium −${Math.round((K.sl_cap||.4)*100)}% cap) · swing max ${K.hold_days||5} நாள் · expiry-க்கு முந்தைய நாள் exit · T1 → SL entry–T1 நடு. NIFTY-D20: <b>${esc((g||{}).nifty_d20||"–")}</b> · Classic ✓ இப்போ: <b>${((g||{}).why||{}).classic??0}</b> · <b style="color:#fb923c">🟠 LITE</b> = stock zone break + NIFTY + OI ≥4% + core (A/B/C/H) 2/4 → daily calls (max 3, grade B)</div>
-   <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Last run ${esc((g||{}).last_run||"–")}</span><span class="cb-stat">Watch strikes ${(g||{}).n_contracts??0}</span><span class="cb-stat">Selection ${esc(Object.values((g||{}).sel_times||{}).join(", ")||"–")}</span>${(s.gu||{}).err?`<span class="cb-stat dn">${esc(s.gu.err)}</span>`:""}</div></div>
+   <div class="cb-stats" style="margin-top:6px"><span class="cb-stat">Last run ${esc((g||{}).last_run||"–")}</span><span class="cb-stat">Watch strikes ${(g||{}).n_contracts??0}</span><span class="cb-stat">Selection ${esc(Object.values((g||{}).sel_times||{}).join(", ")||"–")}</span>${(s.gu||{}).err?`<span class="cb-stat dn">${esc(s.gu.err)}</span>`:""}</div>
+   ${((s.gu_runs||{}).rows||[]).length?`<details style="margin-top:6px"><summary><b>🧾 GU run log ${esc(s.gu_runs.day||"")}</b> <small class="hint">every 5-min run · survives restarts · why no call</small></summary>
+     ${simpleTbl(s.gu_runs.rows,[["Time",r=>`<b>${esc(r.time)}</b>`],["Contracts",r=>r.contracts],["Expiry days",r=>esc((r.dte||[]).join(", ")||"–")],["Full ✓ / LITE ✓",r=>`${r.ok} / ${r.lite}`],
+       ["Closest one",r=>`<span class="hint">${esc(r.best||"–")}</span>`],["Missing",r=>`<span class="hint dn">${(r.failed||[]).map(esc).join(" · ")||"–"}</span>`]])}
+     <div class="hint">GU needs an option expiry ≥4 trading days away and NIFTY + breadth on its side today. In expiry week only next-month contracts qualify, and their OI unwinds much less — so GU is often quiet then.</div></details>`:""}</div>
    ${segBlock(TR,["Gamma Unwind Classic"],"GU CLASSIC")}
    ${cons.length?`<h3 class="sec">👀 Watch list — எந்த check pass / fail (${cons.length})</h3>`+simpleTbl(cons.slice(0,15),[["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b><div class="hint">${esc(c.expiry)} · edge ${n2(c.edge)}</div>`],
      ["OI drop",c=>`${c.eval.classic.drop}%${c.eval.classic.strong?" 💪":""}`],
@@ -2991,7 +2995,17 @@ function ccSwing(K){ const hs=[],ls=[]; for(let i=2;i<K.length-2;i++){ if(K[i][2
 async function ccPick(sym){ CC.sym=sym; CC.chain=null; CC.exp=null; CC.strike=null; CC.opt=null; CC.K=null;
   const M=((LAST_S||{}).cc||{}).movers||{}; CC.row=["gainers","losers","volume","oi","breakouts","breakdowns"].map(k=>(M[k]||[]).find(r=>r.symbol===sym)).find(Boolean)||null;
   try{ const p=document.getElementById("p-cc"); if(p&&p.hidden) goTab("cc"); }catch(e){}
-  ccRenderSel(); ccLoadChart(); ccLoadChain(); try{ document.getElementById("ccSel").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+  CC.lh=null; ccRenderSel(); ccLoadChart(); ccLoadChain(); ccLoadLevels(); try{ document.getElementById("ccSel").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+async function ccLoadLevels(){ if(!CC.sym) return; CC.lh={loading:true}; ccRenderSel();
+  try{ const r=await fetch(`/api/cc/levels?symbol=${encodeURIComponent(CC.sym)}`,{cache:"no-store"}); CC.lh=await r.json(); }catch(e){ CC.lh={ok:false,msg:String(e)}; } ccRenderSel(); }
+function lhHTML(){ const L=CC.lh; if(!CC.sym||!L) return ""; if(L.loading) return '<div class="hint">📜 Loading 2-year level history…</div>'; if(!L.ok) return `<div class="hint">📜 ${esc(L.msg||"no level history")}</div>`;
+  const col=r=>r.strength==="STRONG"?"#16a34a":r.strength==="WEAK"?"#dc2626":"#d97706";
+  return `<div class="cpbox" style="margin-top:8px;border-color:#a78bfa"><b>📜 Level history — ${esc(CC.sym)}</b> <small class="hint">${L.days} daily candles (${esc(L.from)} → ${esc(L.to)}) · how often each zone held, and what happened after it broke</small>
+    ${(L.lines||[]).map(t=>`<div style="margin:4px 0">👉 ${esc(t)}</div>`).join("")}
+    ${simpleTbl(L.zones||[],[["Zone",r=>`<b>${n2(r.lo)}–${n2(r.hi)}</b><div class="hint">${esc(r.role)} · ${r.dist_pct>0?"+":""}${r.dist_pct}%</div>`],["Strength",r=>`<b style="color:${col(r)}">${esc(r.strength)}</b>`],
+      ["Tested",r=>`${r.tests}× · held ${r.held} (${r.held_pct}%)`],["After a break",r=>r.broke?`${r.broke}× · avg ${r.avg5>0?"+":""}${r.avg5}% in 5 days · follow ${r.follow} · failed ${r.failed}`:'<span class="hint">never broken</span>'],
+      ["Last test",r=>esc(r.last)],["Recent tests",r=>`<span class="hint">${(r.log||[]).map(t=>`${esc(t.date.slice(2))} ${t.result==="HELD"?"✅":"💥"}`).join(" ")}</span>`]])}
+    <div class="hint">HELD = price came into the zone and closed back away within 3 days · BROKE = a daily close beyond it. Daily closed candles only, from Angel One. History describes the past — it does not predict.</div></div>`; }
 async function ccLoadChart(){ if(!CC.sym) return; try{ const r=await fetch(`/api/candles?symbol=${encodeURIComponent(CC.sym)}&tf=${CC.tf}`,{cache:"no-store"}); const j=await r.json(); CC.K=j.ok?j.candles:[]; CC.Kmsg=j.ok?"":(j.msg||"No candles from Angel (market closed / not configured)."); }catch(e){ CC.K=[]; CC.Kmsg=String(e); } ccRenderSel(); }
 async function ccLoadChain(){ if(!CC.sym) return; CC.chain={loading:true}; ccRenderSel();
   try{ const r=await fetch(`/api/cc/chain?symbol=${encodeURIComponent(CC.sym)}${CC.exp?"&expiry="+CC.exp:""}`,{cache:"no-store"}); CC.chain=await r.json(); }catch(e){ CC.chain={ok:false,msg:String(e)}; } ccRenderSel(); }
@@ -3002,11 +3016,11 @@ function ccChartHTML(){ if(!CC.sym) return '<div class="hint">👆 Click any sto
   const r=CC.row||{}, K=CC.K;
   const tfb=["1","3","5","15","60","D"].map(t=>`<button class="pickbtn ${CC.tf===t?"on":""}" onclick="CC.tf='${t}';ccLoadChart()">${t==="D"?"Day":t==="60"?"1h":t+"m"}</button>`).join("");
   let ch='<div class="hint">Loading candles…</div>';
-  if(K&&K.length){ const sw=ccSwing(K.slice(-60)); ch=proChart("ccstk",K,{key:CC.sym+CC.tf,vwap:CC.tf!=="D",lines:[r.pdh?{y:r.pdh,t:"PDH",c:"#16a34a",d:"6 4"}:null,r.pdl?{y:r.pdl,t:"PDL",c:"#dc2626",d:"6 4"}:null,sw.res?{y:sw.res,t:"Resist",c:"#d97706"}:null,sw.sup?{y:sw.sup,t:"Support",c:"#2962ff"}:null]}); }
+  if(K&&K.length){ const sw=ccSwing(K.slice(-60)); ch=proChart("ccstk",K,{key:CC.sym+CC.tf,vwap:CC.tf!=="D",zones:((CC.lh||{}).zones||[]).map(z=>({top:z.hi,bot:z.lo,fill:z.strength==="STRONG"?"rgba(124,58,237,.10)":"rgba(124,58,237,.04)",stroke:"#7c3aed",label:`${z.strength} ${z.held}/${z.tests}`})),lines:[r.pdh?{y:r.pdh,t:"PDH",c:"#16a34a",d:"6 4"}:null,r.pdl?{y:r.pdl,t:"PDL",c:"#dc2626",d:"6 4"}:null,sw.res?{y:sw.res,t:"Resist",c:"#d97706"}:null,sw.sup?{y:sw.sup,t:"Support",c:"#2962ff"}:null]}); }
   else if(K) ch=`<div class="hint">${esc(CC.Kmsg||"No candles.")}</div>`;
   return `<div class="ctop"><h2>📈 ${esc(CC.sym)} ${r.ltp?`₹${n2(r.ltp)} ${pc(r.pct)}`:""} <small class="hint">${esc(r.sector||"")} ${r.setup&&r.setup!=="–"?"· "+esc(r.setup):""}</small></h2><button class="pickbtn" onclick="COPSEL='${esc(CC.sym)}';goTab('cr')">open in Chart Room ↗</button></div>
    <div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">${tfb}</div>${ch}
-   <div class="hint">Real Angel OHLCV · VWAP (blue, today) · EMA20 (grey) · PDH / PDL = previous-day high / low (breakout / breakdown levels) · dotted = nearest swing resistance / support.</div>`; }
+   <div class="hint">Real Angel OHLCV · VWAP (blue) · EMA20 (orange) · PDH / PDL · purple bands = 2-year level-history zones (held / tested).</div>${lhHTML()}`; }
 function ccChainHTML(){ const C=CC.chain; if(!CC.sym) return ""; if(!C||C.loading) return '<div class="hint">Loading option chain…</div>'; if(!C.ok) return `<div class="hint">⚠ ${esc(C.msg||"Option chain not available")}</div>`;
   const R=C.rows||[], strikes=[...new Set(R.map(r=>r.strike))].sort((a,b)=>a-b);
   const flt=x=>CC.mny==="All"||x&&x.moneyness===CC.mny||(CC.mny==="ITM"&&x&&x.moneyness==="ATM")||(CC.mny==="OTM"&&x&&x.moneyness==="ATM");
@@ -3880,7 +3894,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v127";
+const APPV="v128";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
