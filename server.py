@@ -1,6 +1,6 @@
 """KRT Terminal — local website. KRT.bat double-click செய்தால் இது ஓடும்.
 உங்கள் PC-ல் மட்டும் (127.0.0.1) — வெளியே யாருக்கும் தெரியாது."""
-import base64, json, os, re, threading, time, traceback, webbrowser
+import base64, json, os, re, sys, threading, time, traceback, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import pandas as pd
@@ -755,7 +755,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v130"
+APP_VERSION = "v132"
 EVC = {"t": 0, "d": None}
 
 
@@ -1815,24 +1815,24 @@ def candles_api(sym, tf):
     return out
 
 
-STC = {"t": 0, "d": None}
+STRC = {"t": 0, "d": None}          # v132: was also named STC — clashed with the status cache below
 
 
 def strat_state():
-    if time.time() - STC["t"] > 10:
+    if time.time() - STRC["t"] > 10:
         try:
             from krt import combo as CB, spreads as SPR
             from krt.calls import STORE as _S, module_health, proven_sources
             D = _S.load()
             t = now_ist()
-            STC.update(t=time.time(), d={"combo": CB.STATE, "spreads": SPR.report(D), "health": module_health(D, t), "proven": sorted(proven_sources(D)),
+            STRC.update(t=time.time(), d={"combo": CB.STATE, "spreads": SPR.report(D), "health": module_health(D, t), "proven": sorted(proven_sources(D)),
                                           "mgu": [{"index": x.get("index"), **(x.get("mgu") or {})} for x in ((STATE.get("full") or {}).get("index") or []) if x.get("mgu")],
                                           "mgu_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "MANNAN-GU"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40],
                                           "combo_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "COMBO"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40]})
         except Exception as e:
             traceback.print_exc()
-            STC.update(t=time.time(), d={"err": str(e)[:200]})
-    return STC["d"]
+            STRC.update(t=time.time(), d={"err": str(e)[:200]})
+    return STRC["d"]
 
 
 FPC = {"t": 0, "d": None}
@@ -1900,6 +1900,23 @@ def _step(name, fn):
 
 
 STATUS_LOCK = threading.Lock()
+STB = {"start": None, "tid": None, "where": None, "last_ms": None, "slow": [], "built": None}   # v132 status-build watchdog
+
+
+def _status_watch():
+    """A status build has run > 45 s → log WHERE it is stuck (Render logs) once, and expose it in /api/ticks."""
+    st = STB.get("start")
+    if not st or time.time() - st < 45 or STB.get("where"):
+        return
+    try:
+        fr = sys._current_frames().get(STB.get("tid"))
+        if fr is not None:
+            stk = traceback.format_stack(fr)[-6:]
+            STB["where"] = " ← ".join(x.strip().splitlines()[0].replace('File "', "").split(", in ")[-1] + "@" + x.strip().split(", line ")[1].split(",")[0]
+                                      for x in reversed(stk) if ", line " in x)[:300]
+            print("⚠ STATUS BUILD STUCK", int(time.time() - st), "s:\n" + "".join(stk), flush=True)
+    except Exception:
+        STB["where"] = "unknown"
 STC = {"t": 0, "b": None, "gz": None}
 
 
@@ -2193,6 +2210,9 @@ def tick_loop():
                     from krt import crash as CRH
                     from krt.ai import STATE as _AST3
                     from krt.notify import both as _both3
+                    _nf = next((x for x in (STATE.get("full") or {}).get("index") or [] if x.get("index") == "NIFTY"), {})
+                    if str((STATE.get("full") or {}).get("session") or "")[:10] == str(t.date()):
+                        CRH.seed_day(t, _nf.get("day_high"), _nf.get("day_low"))     # v131: day high survives a restart (slow-bleed signal)
                     CRH.tick(TICK["items"], t, _AST3.get("risk") or {}, ((FPM.STATE.get("bars") or {}).get("NIFTY") or {}).get(1), _both3)
                 except Exception:
                     pass
@@ -2535,10 +2555,20 @@ class H(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
         if self.path == "/api/ticks":
-            return self._send(200, _json({**TICK, "v": APP_VERSION}))
+            _status_watch()
+            sb = STB.get("start")
+            return self._send(200, _json({**TICK, "v": APP_VERSION, "sbusy": ({"s": int(time.time() - sb), "where": STB.get("where")} if sb and time.time() - sb > 20 else None)}))
         if self.path == "/api/status":
             # v112: build the big status JSON at most once per 3 s and share it across clients (lower peak RAM), gzip once.
-            with STATUS_LOCK:
+            # v132: if another request is already building, serve the LAST status at once (was: wait in a queue → page stuck on "Loading…")
+            got = STATUS_LOCK.acquire(False) if STC["b"] else STATUS_LOCK.acquire(timeout=100)
+            if not got:
+                _status_watch()
+                if STC["b"]:
+                    return self._send_status()
+                return self._send(503, _json({"err": "status is being built — retrying"}))
+            try:
+              STB.update(start=time.time(), tid=threading.get_ident(), where=None)
               if time.time() - STC["t"] >= 3 or not STC["b"]:
                 cfg = load_settings().get("chartink", {})
                 full_ = STATE.get("full")
@@ -2559,12 +2589,18 @@ class H(BaseHTTPRequestHandler):
                     pass
                 cl = saved_clauses()
 
+                _slow = []
+
                 def _safe(fn):
+                    t_ = time.time()
                     try:
                         return fn()
                     except Exception as e_:             # one broken section must never take the whole page down (HTTP 500)
                         traceback.print_exc()
                         return {"err": f"{getattr(fn, '__name__', 'section')}: {type(e_).__name__}: {str(e_)[:120]}"}
+                    finally:
+                        if time.time() - t_ > 1.5:
+                            _slow.append(f"{getattr(fn, '__name__', '?')} {time.time() - t_:.1f}s")
                 STC.update(t=time.time(), gz=None, b=_json({
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
@@ -2574,10 +2610,17 @@ class H(BaseHTTPRequestHandler):
                     "riser": _safe(riser_state),
                     "pink_hist": _safe(pink_hist), "radar": _safe(radar_state), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
+                    "status_build": {"last_ms": STB.get("last_ms"), "slow": STB.get("slow"), "built": real_hms()},
                     "market_open": market_open(now_ist()), "next_auto": next_auto(),
                     "chartink": {"ce_url": cfg.get("ce_url"), "pe_url": cfg.get("pe_url"),
                                  "ce_saved": bool(cl.get("ce")), "pe_saved": bool(cl.get("pe"))},
                 }).encode("utf-8"))
+                STB.update(last_ms=round((time.time() - STB["start"]) * 1000), slow=_slow[:8])
+                if STB["last_ms"] > 8000:
+                    print("⚠ slow status build", STB["last_ms"], "ms:", _slow, flush=True)
+            finally:
+                STB.update(start=None, where=None)
+                STATUS_LOCK.release()
             return self._send_status()                  # socket write outside the lock (slow phone never blocks others)
         if self.path == "/api/v4":
             from krt import v4

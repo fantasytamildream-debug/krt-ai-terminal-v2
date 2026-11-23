@@ -483,6 +483,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
       <div class="risktag" id="riskTag"></div>
       <div class="trendcall" id="trendCall"></div>
       <div id="mannanBox"></div>
+      <div id="sbusy" class="hint" style="color:#f59e0b"></div>
     </div>
     <div class="meta num" id="meta"></div>
   </div>
@@ -3899,7 +3900,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v130";
+const APPV="v132";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3946,7 +3947,8 @@ async function mannanPoll(){ let wait=3000;
       const el=$("mannanBox"); if(el) el.innerHTML=mannanHTML(M); } }catch(e){}
   setTimeout(mannanPoll,wait); }
 setTimeout(mannanPoll,1500);
-async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok) applyTicks(await r.json()); }catch(e){} setTimeout(tickPoll,2000); }
+async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok){ const T=await r.json(); applyTicks(T);
+    const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:""; } }catch(e){} setTimeout(tickPoll,2000); }
 /* 🕐 AM/PM (railway time இல்லை) */
 function ampm(t){ const m=String(t||"").match(/(\d{1,2}):(\d{2})(:\d{2})?/); if(!m) return String(t||""); let h=+m[1]; const ap=h>=12?"PM":"AM"; h=h%12||12; return `${h}:${m[2]}${m[3]||""} ${ap}`; }
 function mergeMcx(s){ try{ const MC=(s.mcx||{}).calls||[]; const T=(s.full||{}).tracking; if(!T||!MC.length) return; const day=String(s.now||"").slice(0,10);
@@ -3979,7 +3981,7 @@ function render(s){
     vb.className=s.version===APPV&&!ST.load_failed?"":"verwarn";
     if(ST.load_failed){ vb.innerHTML=`⚠ <b>பழைய calls history load ஆகல</b> — ${esc(ST.error||"GitHub load பிழை")}. உங்க பழைய data GitHub-ல் பத்திரமா இருக்கு (overwrite ஆகாது). சரி பண்ண: GitHub → Settings → Developer settings → Personal access tokens → புது token (data repo · Contents: Read and write) → Render → Environment → <b>GITHUB_TOKEN</b> மாத்தி Save. Token சரியானதும் 1 நிமிடத்தில் தானா history வரும் + இப்போ வந்த calls merge ஆகும்.`; }
     else
-    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}${(s.sys||{}).up_min!=null?` · ⏱ up ${s.sys.up_min<120?Math.round(s.sys.up_min)+"m":Math.round(s.sys.up_min/60)+"h"}`:""}${(s.sys||{}).rss_mb?` · RAM ${s.sys.rss_mb} MB${(s.sys.mem||{}).peak?` (peak ${s.sys.mem.peak})`:""}${s.sys.rss_mb>430?" ⚠ near the 512 MB limit":""}${(s.sys.mem||{}).skipped?` · ${s.sys.mem.skipped}× AI layers paused for memory`:""}`:""}</span>${(()=>{ const H=(s.sys||{}).heal||{}; const a=[]; Object.entries(H.moved||{}).forEach(([m,p])=>a.push(`${m}.py was in the wrong place (${p}) — loaded it anyway; please move it into krt/`)); (H.embedded||[]).forEach(m=>a.push(`krt/${m}.py was missing — restored from the built-in copy`)); (H.missing||[]).forEach(m=>a.push(`krt/${m}.py is missing — upload it into the krt folder`)); return a.length?`<div class="hint" style="color:#f59e0b">🩹 ${a.map(esc).join(" · ")}</div>`:""; })()}${Object.keys((s.sys||{}).loop_err||{}).length?`<div class="hint dn">⚠ failing steps: ${Object.entries(s.sys.loop_err).map(([k,v])=>`${esc(k)} (${esc(v.time)}: ${esc(v.err)})`).join(" · ")}</div>`:""}`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
+    vb.innerHTML=s.version===APPV?`<span class="hint">✅ ${APPV} · server ${esc(s.version)}${ST.remote?` · 💾 ${ST.calls} calls saved`:""}${(s.sys||{}).up_min!=null?` · ⏱ up ${s.sys.up_min<120?Math.round(s.sys.up_min)+"m":Math.round(s.sys.up_min/60)+"h"}`:""}${(s.sys||{}).rss_mb?` · RAM ${s.sys.rss_mb} MB${(s.sys.mem||{}).peak?` (peak ${s.sys.mem.peak})`:""}${s.sys.rss_mb>430?" ⚠ near the 512 MB limit":""}${(s.status_build||{}).last_ms>3000?` · ⏳ page data took ${(s.status_build.last_ms/1000).toFixed(1)} s${(s.status_build.slow||[]).length?" ("+esc(s.status_build.slow.join(", "))+")":""}`:""}${(s.sys.mem||{}).skipped?` · ${s.sys.mem.skipped}× AI layers paused for memory`:""}`:""}</span>${(()=>{ const H=(s.sys||{}).heal||{}; const a=[]; Object.entries(H.moved||{}).forEach(([m,p])=>a.push(`${m}.py was in the wrong place (${p}) — loaded it anyway; please move it into krt/`)); (H.embedded||[]).forEach(m=>a.push(`krt/${m}.py was missing — restored from the built-in copy`)); (H.missing||[]).forEach(m=>a.push(`krt/${m}.py is missing — upload it into the krt folder`)); return a.length?`<div class="hint" style="color:#f59e0b">🩹 ${a.map(esc).join(" · ")}</div>`:""; })()}${Object.keys((s.sys||{}).loop_err||{}).length?`<div class="hint dn">⚠ failing steps: ${Object.entries(s.sys.loop_err).map(([k,v])=>`${esc(k)} (${esc(v.time)}: ${esc(v.err)})`).join(" · ")}</div>`:""}`:`⚠ Version mismatch — page ${APPV}, server ${esc(s.version||"பழையது (v82-க்கு முன்)")}. GitHub-ல் server.py / krt / web எல்லாம் upload ஆச்சா பாருங்க, Render redeploy முடிஞ்சதும் Ctrl+F5.`; }catch(e){}
   try{ if(s.error) s.error=rateTxt(s.error); if(s.full&&s.full.errors) s.full.errors=s.full.errors.map(rateTxt); }catch(e){}
   try{ PINKMODS=(((s.full||{}).ai||{}).opt||{}).mods||{}; }catch(e){ PINKMODS={}; }
   const f=s.full, r=s.result;
@@ -4033,8 +4035,10 @@ function render(s){
 }
 async function load(){
   let data=null;
-  try { const r = await fetch("/api/status",{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status); data = await r.json(); }
-  catch(e){ $("subline").textContent=(String(e&&e.name)==="SyntaxError"?"Data பிழை (server JSON) — ":"Server-ஐ அடைய முடியவில்லை (Render restart / sleep) — ")+(e.message||"")+" · 10 sec-ல் மறுபடி"; clearTimeout(pollT); pollT=setTimeout(load,10000); return; }
+  const ac=window.AbortController?new AbortController():null, to=setTimeout(()=>{ try{ ac&&ac.abort(); }catch(e){} },30000);   /* v132: never wait forever */
+  try { const r = await fetch("/api/status",{cache:"no-store",signal:ac?ac.signal:undefined}); if(r.status===503) throw new Error("server is preparing data"); if(!r.ok) throw new Error("HTTP "+r.status); data = await r.json(); }
+  catch(e){ clearTimeout(to); const ab=String(e&&e.name)==="AbortError"; $("subline").textContent=(String(e&&e.name)==="SyntaxError"?"Data பிழை (server JSON) — ":ab?"⏳ Server slow (no reply in 30 s) — ":"Server-ஐ அடைய முடியவில்லை (Render restart / sleep) — ")+(ab?"":(e.message||""))+" · retrying in 5 sec"; clearTimeout(pollT); pollT=setTimeout(load,5000); return; }
+  clearTimeout(to);
   try { render(data); } catch(e){ console.error("render",e); $("subline").textContent="⚠ Page பிழை: "+(e.message||e)+" — screenshot அனுப்புங்க (server சரியா ஓடுது)"; clearTimeout(pollT); pollT=setTimeout(load,15000); }
   try { loadV4(); } catch(e){}
 }
