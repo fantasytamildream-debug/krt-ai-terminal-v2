@@ -2861,14 +2861,18 @@ const ccLS=(k,v)=>{ try{ if(v===undefined) return localStorage.getItem(k); local
 const PGO={}; let PGN=0;
 function paperOpt(o){ if(!o||!o.token) return ""; const k="g"+(++PGN); PGO[k]=o; if(PGN>4000){ PGN=0; } return `<button class="pickbtn pp" onclick="paperGo(PGO['${k}'])">📝 Paper</button>`; }
 const AIC={"TAKE":"#16a34a","BUY CE":"#16a34a","BUY PE":"#dc2626","WAIT":"#d97706","LATE":"#64748b","AVOID":"#dc2626"};
+/* v130 short version: tag + first sentence (≤70 chars), full text on hover */
+function aiShort(a,n=70){ if(!a) return "–"; const f=String(a.txt||"").split(/(?<=\.)\s/)[0].replace(/\.$/,""); const t=f.length>n?f.slice(0,n-1)+"…":f;
+  return `<b style="color:#fff;background:${AIC[a.tag]||"#475569"};border-radius:6px;padding:1px 6px;font-size:10.5px">${esc(a.tag)}</b> <span title="${esc(a.txt||"")}" style="font-size:11px">${esc(t)}</span>`; }
+const OISH={"Long Built Up":"Long build","Short Built Up":"Short build","Short Covering":"Short cover","Long Unwinding":"Long unwind"};
 function aiTag(a){ if(!a) return "–"; return `<b style="color:#fff;background:${AIC[a.tag]||"#475569"};border-radius:6px;padding:1px 7px;font-size:11px">${esc(a.tag)}</b><div style="font-size:11.5px;max-width:330px;margin-top:2px">${esc(a.txt)}</div>`; }
 /* 🐋 big players with AI action + strike + live premium + Paper — Command Center & JARVIS */
 function bpHTML(B,where){ const col=x=>x==="BUY"?"#22c55e":x==="SELL"?"#ef4444":"#f59e0b";
   return `<div class="labbox" style="border:2px solid #38bdf8;font-size:12.5px"><h2>🐋 Big players now — can I take it? <small class="hint">newest alert first · strike + live premium + AI answer · confirmed only when price breaks the spike candle</small></h2>
    ${B.length?`<div style="max-height:520px;overflow:auto">${simpleTbl(B,[["Time",r=>`<b>${esc((r.seen||r.end||"").slice(0,5))}</b><div class="hint">candle ${esc(String(r.time).slice(11,16))}–${esc(r.end||"")}${r.backfill?" · old":""}</div>`],
-     ["Stock",r=>`<b style="color:${col(r.side)};cursor:pointer" onclick="ccPick('${esc(r.symbol)}')">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORB"} ${esc(r.symbol)}</b><div class="hint">${r.mult}× vol · candle ${n2(r.low)}–${n2(r.high)} · now ₹${n2(r.now)}</div>`],
-     ["Strike · premium",r=>r.opt?`<b style="color:${col(r.side)}">${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">LTP ${r.opt_ltp?"₹"+n2(r.opt_ltp):"–"} · exp ${esc(r.opt.expiry)} · lot ${r.opt.lot??"–"}</div>`:"–"],
-     ["🤖 Can I take it?",r=>aiTag(r.ai)+((r.ai||{}).plan?`<div class="hint">premium plan: entry ₹${n2(r.ai.plan.entry)} · SL ₹${n2(r.ai.plan.sl)} · T ₹${r.ai.plan.targets.map(n2).join(" / ")} (model)</div>`:"")],
+     ["Stock",r=>`<b style="color:${col(r.side)};cursor:pointer" onclick="ccPick('${esc(r.symbol)}')">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORB"} ${esc(r.symbol)}</b><div class="hint">${r.mult}× vol · now ₹${n2(r.now)}</div>`],
+     ["Strike",r=>r.opt?`<b style="color:${col(r.side)}" title="exp ${esc(r.opt.expiry)} · lot ${r.opt.lot??"–"}">${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">${r.opt_ltp?"₹"+n2(r.opt_ltp):"–"} · lot ${r.opt.lot??"–"}</div>`:"–"],
+     ["🤖 Can I take it?",r=>`<div style="max-width:380px">${aiShort(r.ai,80)}${(r.ai||{}).plan?`<div class="hint">entry ₹${n2(r.ai.plan.entry)} · SL ₹${n2(r.ai.plan.sl)} · T1 ₹${n2(r.ai.plan.targets[0])}</div>`:""}</div>`],
      ["",r=>r.opt&&r.opt.token&&r.ai&&["TAKE","WAIT"].includes(r.ai.tag)?paperOpt({symbol:r.symbol,side:r.opt.side,strike:r.opt.strike,expiry:r.opt.expiry,contract:r.opt.contract,token:r.opt.token,exch:r.opt.exch,lot:r.opt.lot,ltp:r.opt_ltp,sl:(r.ai.plan||{}).sl,from_src:"🐋 Big player "+r.side,src_modules:["Big Players"]}):""]],
      r=>r.side==="BUY"?"uprow":r.side==="SELL"?"slrow":"")}</div>`:'<div class="hint">No big-player spikes yet today.</div>'}
    <div class="hint">TAKE = confirmed + not late + 1-lot risk ≤ ₹2,500 · WAIT = enter only on the 5-min close given · LATE = don't chase · AVOID = failed / too risky. Premium SL / targets are estimates (Δ 0.5). Paper adds it to Paper Trade at the live price.</div></div>`; }
@@ -2958,13 +2962,13 @@ function ccMoversHTML(s){ const M=(s.cc||{}).movers||{}, R=M[CC.tab]||[];
   if(CC.tab==="sectors") body=simpleTbl(R,[["Sector",x=>`<b>${esc(x.sector)}</b>`],["Avg",x=>pc(x.pct)],["Breadth",x=>`${x.up}/${x.n} up`],
      ["Leader",x=>`<b class="up" style="cursor:pointer" onclick="ccPick('${esc(x.leader)}')">${esc(x.leader)}</b> ${pc(x.leader_pct)}`],["Laggard",x=>`<b class="dn" style="cursor:pointer" onclick="ccPick('${esc(x.laggard)}')">${esc(x.laggard)}</b> ${pc(x.laggard_pct)}`],
      ["Stocks",x=>`<span class="hint">${x.stocks.slice(0,8).map(t=>`<a href="#" onclick="ccPick('${esc(t)}');return false">${esc(t)}</a>`).join(" ")}</span>`]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
-  else body=simpleTbl(R,[["Symbol",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${esc(x.symbol)}</b>${x.big?`<div class="hint">🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}</div>`:""}`],
-     ["LTP",x=>"₹"+n2(x.ltp)],["%",x=>pc(x.pct)],["RVOL",x=>x.rvol?`<b>${x.rvol}×</b>`:"–"],["OI",x=>x.oi?`${esc(x.oi)}${x.oi_chg_pct!=null?`<div class="hint">${x.oi_chg_pct>0?"+":""}${x.oi_chg_pct}%</div>`:""}`:"–"],
-     ["VWAP",x=>x.vwap?`<span class="${x.vwap_pos==="ABOVE"?"up":"dn"}">${x.vwap_pos}</span><div class="hint">₹${n2(x.vwap)}</div>`:'<span class="hint">n/a</span>'],
-     ["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],["Setup",x=>`<b>${esc(x.setup)}</b><div class="hint">${esc(x.momentum)}</div>`],
-     ["Strike · premium",x=>{ const st=(x.ai||{}).strike; return st?`<b>${n2(st.strike)} ${st.side}</b><div class="hint">LTP ${x.opt_ltp?"₹"+n2(x.opt_ltp):"–"} · exp ${esc(st.expiry)}</div>`:"–"; }],
-     ["🤖 What to do",x=>aiTag(x.ai)],["In list since",x=>`<b>${esc(x.since||"–")}</b>`],
-     ["",x=>{ const st=(x.ai||{}).strike; return st&&st.token&&/^BUY/.test((x.ai||{}).tag)?paperOpt({symbol:x.symbol,side:st.side,strike:st.strike,expiry:st.expiry,contract:st.contract,token:st.token,exch:st.exch,lot:st.lot,ltp:x.opt_ltp,from_src:"🚀 Top Movers guide",src_modules:["Top Movers guide"]}):""; }]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
+  else body=simpleTbl(R,[["Since",x=>`<b>${esc(x.since||"–")}</b>`],
+     ["🤖 What to do",x=>{ const st=(x.ai||{}).strike; return `<div style="min-width:230px;max-width:330px">${aiShort(x.ai)}${st&&st.token&&/^BUY/.test((x.ai||{}).tag)?"<div style='margin-top:3px'>"+paperOpt({symbol:x.symbol,side:st.side,strike:st.strike,expiry:st.expiry,contract:st.contract,token:st.token,exch:st.exch,lot:st.lot,ltp:x.opt_ltp,from_src:"🚀 Top Movers guide",src_modules:["Top Movers guide"]})+"</div>":""}</div>`; }],
+     ["Stock",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${esc(x.symbol)}</b> ${pc(x.pct)}<div class="hint">₹${n2(x.ltp)}${x.big?` · 🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}`:""}</div>`],
+     ["Strike",x=>{ const st=(x.ai||{}).strike; return st?`<b class="${st.side==="CE"?"up":"dn"}" title="exp ${esc(st.expiry)}">${n2(st.strike)} ${st.side}</b><div class="hint">${x.opt_ltp?"₹"+n2(x.opt_ltp):"–"}</div>`:"–"; }],
+     ["RVOL",x=>x.rvol?`<b>${x.rvol}×</b>`:"–"],["OI",x=>x.oi?`<span style="font-size:11px">${esc(OISH[x.oi]||x.oi)}</span>${x.oi_chg_pct!=null?` <span class="hint">${x.oi_chg_pct>0?"+":""}${x.oi_chg_pct}%</span>`:""}`:"–"],
+     ["Setup",x=>`<span style="font-size:11px"><b>${esc(x.setup&&x.setup!=="–"?x.setup:"")}</b> ${esc(x.momentum||"")}</span>`],["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],
+     ["VWAP",x=>x.vwap?`<span class="${x.vwap_pos==="ABOVE"?"up":"dn"}" style="font-size:11px">${x.vwap_pos==="ABOVE"?"▲":"▼"} ₹${n2(x.vwap)}</span>`:'<span class="hint">n/a</span>']],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
   return `<div class="labbox" style="font-size:12.5px"><div class="ctop"><h2>🚀 Live Top Movers <small class="hint">NSE F&O stocks · Angel live quotes · ${M.n||0} stocks · breadth ${(M.breadth||{}).up??"–"} up / ${(M.breadth||{}).down??"–"} down</small></h2></div>
    <div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">${tabs}</div><div style="max-height:380px;overflow:auto">${body}</div>
    <div class="hint">Click a symbol → its chart + real option chain open below (no page change). RVOL = volume vs normal for this time of day. 🐋 = big-player spike TODAY. "What to do" = CE / PE / avoid + the exact entry trigger and SL from the stock's live price, VWAP and previous-day levels — a plan, not a promise of profit.</div></div>`; }
@@ -3895,7 +3899,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v129";
+const APPV="v130";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
