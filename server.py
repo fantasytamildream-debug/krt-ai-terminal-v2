@@ -755,7 +755,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v132"
+APP_VERSION = "v133"
 EVC = {"t": 0, "d": None}
 
 
@@ -1187,6 +1187,41 @@ def mannan_state():
     d_ = {"time": now_ist().strftime("%H:%M:%S"), "rows": rows, "sources": MANNAN_SRC, "nifty": npct, "market_open": market_open(now_ist())}
     MNC.update(t=time.time(), d=d_)
     return d_
+
+
+RMC = {"t": 0, "d": None, "trk": 0, "cal": None}
+
+
+def roadmap_state():
+    """🗺 v133 Level Roadmap for the 4 indices — live, light (no status bundle), cached 3 s."""
+    if time.time() - RMC["t"] < 3 and RMC["d"]:
+        return RMC["d"]
+    from krt import roadmap as RMP
+    t = now_ist()
+    full = STATE.get("full") or {}
+    I = {x.get("index"): x for x in full.get("index") or []}
+    P = full.get("predict") or {}
+    acc = (P.get("acc") or {}).get("dir_pct")
+    today = str(full.get("session") or "")[:10] == str(t.date())
+    out = {}
+    for n in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+        ix = I.get(n) or {}
+        if today:
+            RMP.seed_day(n, t, ix.get("day_high"), ix.get("day_low"))
+        spot = (TICK["items"].get(n) or {}).get("ltp") or ix.get("spot")
+        try:
+            out[n] = RMP.build(n, spot, t, ix if today else {}, P if (n == "NIFTY" and today) else None, acc)
+        except Exception as e:
+            out[n] = {"err": str(e)[:120]}
+    if market_open(t) and time.time() - RMC["trk"] > 60:
+        RMC["trk"] = time.time()
+        try:
+            from krt.calls import STORE as _S, CALLS_LOCK as _CL
+            RMC["cal"] = RMP.track(out.get("NIFTY"), _S, t, _CL)
+        except Exception:
+            traceback.print_exc()
+    RMC.update(t=time.time(), d={"time": real_hms(), "market_open": market_open(t), "maps": out, "calibration": RMC["cal"]})
+    return RMC["d"]
 
 
 EXC = {"t": 0, "d": None}
@@ -1900,6 +1935,34 @@ def _step(name, fn):
 
 
 STATUS_LOCK = threading.Lock()
+SWR = {}
+
+
+def _swr(fn, every=2):
+    """v133 stale-while-revalidate: heavy sections (Angel quotes, option chains) refresh in a BACKGROUND thread;
+    the status build takes the last finished copy instantly (page data was taking 21 s: cc 11 s + sniper 6 s + guide 4 s)."""
+    k = fn.__name__
+
+    def run():
+        e = SWR.get(k)
+        if e is None:
+            v = fn()
+            SWR[k] = {"v": v, "t": time.time(), "busy": False}
+            return v
+        if not e["busy"] and time.time() - e["t"] > every:
+            e["busy"] = True
+
+            def bg():
+                try:
+                    e.update(v=fn(), t=time.time())
+                except Exception:
+                    traceback.print_exc()
+                finally:
+                    e["busy"] = False
+            threading.Thread(target=bg, daemon=True, name="swr-" + k).start()
+        return e["v"]
+    run.__name__ = k
+    return run
 STB = {"start": None, "tid": None, "where": None, "last_ms": None, "slow": [], "built": None}   # v132 status-build watchdog
 
 
@@ -2222,6 +2285,13 @@ def tick_loop():
                     TICK["items"][n] = {"ltp": float(q["ltp"]), "pct": round(float(q.get("percentChange") or 0), 2),
                                         "chg": round(float(q.get("netChange") or 0), 2), "mcx": n not in INDEX_SPOT and n != "INDIA VIX"}
             TICK.update(t=real_hms(), err=None)
+            if nse:
+                try:                                 # 🗺 v133 level roadmap — keep live index ticks (no API call)
+                    from krt import roadmap as RMP
+                    for n_ in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+                        RMP.push(n_, t, (TICK["items"].get(n_) or {}).get("ltp"))
+                except Exception:
+                    pass
             try:                                     # v110: market filters use LIVE NIFTY % (was Friday's % until the deep scan finished)
                 from krt.calls import MARKET as _MKT
                 if (TICK["items"].get("NIFTY") or {}).get("ltp") and nse:
@@ -2554,6 +2624,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
+        if self.path == "/api/roadmap":
+            try:
+                return self._send(200, _json(roadmap_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120], "maps": {}}))
         if self.path == "/api/ticks":
             _status_watch()
             sb = STB.get("start")
@@ -2605,9 +2681,9 @@ class H(BaseHTTPRequestHandler):
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": _safe(mannan_report), "version": APP_VERSION, "keepalive": KEEP,
-                    "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(bigvol_state), "jbrain": _safe(jbrain_state), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state),
-                    "cc": _safe(cc_state), "experts": _safe(experts_state), "gu_runs": _safe(gu_runs_state), "loops": dict(LOOPS, mem=MEM.get("rss")), "guide": _safe(guide_state), "jsniper": _safe(jsniper_state), "smc": _safe(smc_state),
-                    "riser": _safe(riser_state),
+                    "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(_swr(bigvol_state)), "jbrain": _safe(_swr(jbrain_state)), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state),
+                    "cc": _safe(_swr(cc_state)), "experts": _safe(_swr(experts_state)), "gu_runs": _safe(gu_runs_state), "loops": dict(LOOPS, mem=MEM.get("rss")), "guide": _safe(_swr(guide_state)), "jsniper": _safe(_swr(jsniper_state)), "smc": _safe(_swr(smc_state)),
+                    "riser": _safe(_swr(riser_state)),
                     "pink_hist": _safe(pink_hist), "radar": _safe(radar_state), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,
                     "configured": angel_configured(), "hosted": HOSTED, "now": str(now_ist()),
                     "status_build": {"last_ms": STB.get("last_ms"), "slow": STB.get("slow"), "built": real_hms()},

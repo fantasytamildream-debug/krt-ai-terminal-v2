@@ -478,6 +478,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
       <h1 id="headline"><span class="dot" id="dot"></span>Loading…</h1>
       <div class="idxtick" id="idxTicker"></div>
       <div id="predBox"></div>
+      <div id="roadmapBox"></div>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
@@ -3900,7 +3901,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v132";
+const APPV="v133";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3920,6 +3921,32 @@ function applyTicks(j){
     if(old&&old.ltp!==x.ltp){ el.classList.remove("flup","fldn"); void el.offsetWidth; el.classList.add(x.ltp>old.ltp?"flup":"fldn"); } });
   if(j.t){ TICKT=j.t; const tt=$("tkTime"); if(tt) tt.textContent="⚡ live "+ampm(j.t); }
 }
+/* 🗺 v133 LEVEL ROADMAP — chance each nearby level breaks in 30 / 60 min, live every 5 s */
+let RMIDX="NIFTY", RMD=null;
+try{ RMIDX=localStorage.getItem("rmidx")||"NIFTY"; }catch(e){}
+function rmSet(n){ RMIDX=n; try{ localStorage.setItem("rmidx",n); }catch(e){} rmRender(); }
+function rmPill(r){ const up=r.dir==="UP", c=up?"#22c55e":"#ef4444", hot=r.p60>=70?"#facc15":r.p60>=40?"#fb923c":"#94a3b8";
+  return `<div style="flex:1 1 150px;min-width:140px;border:2px solid ${c};border-radius:10px;padding:5px 8px;background:rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:16px;color:${c}">${up?"⬆":"⬇"} ${Number(r.level).toLocaleString("en-IN")}</b><small class="hint">${r.dist>0?"+":""}${Math.round(r.dist)} pts</small></div>
+    <div style="font-size:12px">30 min <b style="color:${hot}">${r.p30}%</b> · 60 min <b style="font-size:15px;color:${hot}">${r.p60}%</b></div>
+    <div style="height:6px;border-radius:3px;background:#1e293b;margin:3px 0"><i style="display:block;height:6px;border-radius:3px;width:${r.p60}%;background:${hot}"></i></div>
+    ${r.then?`<div class="hint" style="font-size:10.5px">if it ${up?"crosses":"breaks"} → ${Number(r.then.level).toLocaleString("en-IN")} ${r.then.p}%</div>`:""}
+    ${(r.tags||[]).length?`<div style="font-size:10.5px;color:#fde68a">${r.tags.map(esc).join(" · ")}</div>`:""}</div>`; }
+function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RMD.maps||{})[RMIDX];
+  const tabs=["NIFTY","BANKNIFTY","SENSEX","FINNIFTY"].map(n=>`<button style="padding:2px 9px;font-size:12px;border-radius:7px;border:1px solid #38bdf8;cursor:pointer;background:${n===RMIDX?"#38bdf8":"transparent"};color:${n===RMIDX?"#0b1220":"#e2e8f0"}" onclick="rmSet('${n}')">${n}</button>`).join(" ");
+  if(!M||M.err||!M.down){ el.innerHTML=`<div class="predbox" style="border-color:#38bdf8"><b>🗺 Level Roadmap</b> ${tabs}<div class="hint">${esc((M||{}).err||"waiting for live price…")}</div></div>`; return; }
+  const C=(RMD.calibration||{}).cal||[], cn=C.filter(x=>x.n);
+  el.innerHTML=`<div class="predbox" style="border-color:#38bdf8">
+   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:16px;color:#38bdf8">🗺 Level Roadmap — ${esc(M.name)} ${Number(M.spot).toLocaleString("en-IN")}</b><span>${tabs}</span></div>
+   <div class="hint" style="font-size:11.5px">Chance each level BREAKS (trades beyond it) in the next 30 / 60 min · likely 60-min range <b>${Number(M.range60[0]).toLocaleString("en-IN")} – ${Number(M.range60[1]).toLocaleString("en-IN")}</b> · ${esc(M.time)}${M.mins_left<60?` · ${M.mins_left} min to close`:""}</div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.down.map(rmPill).join("")}</div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.up.map(rmPill).join("")}</div>
+   <div style="font-size:12.5px;margin-top:6px">${(M.lines||[]).map(l=>`<div>${esc(l)}</div>`).join("")}</div>
+   <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how these % are made · track record</summary>
+    <div class="hint" style="font-size:11px">Speed: ${esc(M.sigma_src)} (σ ${M.sigma}%/min). Direction: ${esc(M.drift)}. Math: chance a random walk with this speed and bias reaches the level in time (first-passage). Round levels tagged with OI walls, today's high/low and scan support/resistance — walls can slow a move but are not counted in the %.</div>
+    <div class="hint" style="font-size:11px">Track record (NIFTY, saved every 15 min, checked 60 min later): ${cn.length?cn.map(x=>`said ${x.band} → touched ${x.hit_pct}% (${x.n})`).join(" · "):"building — first results after ~1 hour of live market"}. Probabilities, not promises.</div></details></div>`; }
+async function rmPoll(){ let w=5000; try{ const r=await fetch("/api/roadmap",{cache:"no-store"}); if(r.ok){ RMD=await r.json(); if(!RMD.market_open) w=30000; rmRender(); } }catch(e){} setTimeout(rmPoll,w); }
+setTimeout(rmPoll,1200);
 /* 👑 v129 MANNAN STRATEGY BOX — your 8 chosen strategies, checked every 3 s, new call → popup + sound */
 let MNSEEN=null, MNDATA=null;
 const MNV={"TAKE":"#16a34a","WAIT":"#d97706","HOLD":"#2563eb","LATE":"#64748b","AVOID":"#dc2626","DON'T TAKE":"#dc2626","DONE":"#475569"};
