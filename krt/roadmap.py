@@ -188,10 +188,39 @@ def build(name, spot, now, ix=None, pred=None, acc_pct=None, n_down=4, n_up=3):
         lines.append(f"{'⬇' if side is down else '⬆'} {chain}")
         if r0.get("then"):
             lines.append(f"IF {r0['level']:,.0f} {word} → next stop {r0['then']['level']:,.0f} (chance {r0['then']['p']}% after the break)")
+    vd = verdict(down, up, mu_up, sig, name)
     sd60 = sig * math.sqrt(min(60, left) or 1)
     return {"name": name, "spot": round(spot, 2), "time": now.strftime("%H:%M:%S"), "down": down, "up": up, "lines": lines,
             "sigma": round(sig, 4), "sigma_src": sig_src, "drift": drift_txt, "range60": [round(spot * (1 - sd60 / 100), 0), round(spot * (1 + sd60 / 100), 0)],
-            "day": d or None, "mins_left": round(left), "key_down": key[0]["level"], "key_up": key[1]["level"]}
+            "day": d or None, "mins_left": round(left), "verdict": vd, "key_down": key[0]["level"], "key_up": key[1]["level"]}
+
+
+def _f(x):
+    return f"{x:,.0f}"
+
+
+def verdict(down, up, mu_up, sig, name="NIFTY"):
+    """ONE clear answer: which way, how far it will likely go, what would cancel it."""
+    zz = mu_up * math.sqrt(60) / sig if sig else 0          # bias in σ-units over an hour
+    if abs(zz) < 0.15:
+        lo = next((r for r in down if r["p60"] < 50), down[-1])
+        hi = next((r for r in up if r["p60"] < 50), up[-1])
+        return {"dir": "RANGE", "head": f"↔ {name} likely stays between {_f(lo['level'])} and {_f(hi['level'])} for the next hour",
+                "target": None, "next": None,
+                "cancel": f"No clear side. Trade only a clean break: below {_f(lo['level'])} → PE · above {_f(hi['level'])} → CE.", "conf": None}
+    dn = zz < 0
+    side, other = (down, up) if dn else (up, down)
+    sure = [r for r in side if r["p60"] >= 60]
+    tgt = sure[-1] if sure else side[0]
+    i = side.index(tgt)
+    nxt = side[i + 1] if i + 1 < len(side) else None
+    stop = next((r for r in other if r["p60"] < 50), other[-1])
+    w = "falls" if dn else "rises"
+    head = (f"{'⬇' if dn else '⬆'} {name} likely {w} to {_f(tgt['level'])} in the next hour ({tgt['p60']}% chance)" if sure else
+            f"{'⬇' if dn else '⬆'} {name} leaning {'down' if dn else 'up'} — may test {_f(tgt['level'])} ({tgt['p60']}% chance)")
+    return {"dir": "DOWN" if dn else "UP", "head": head, "target": tgt["level"], "conf": tgt["p60"],
+            "next": (f"Only if {_f(tgt['level'])} {'breaks' if dn else 'is crossed'} → next {_f(nxt['level'])} ({nxt['p60']}% — not sure)" if nxt else None),
+            "cancel": f"View wrong if {name} goes {'above' if dn else 'below'} {_f(stop['level'])} — then stop {'PE' if dn else 'CE'} trades."}
 
 
 def track(rm, store, now, lock=None):

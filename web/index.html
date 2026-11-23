@@ -3901,7 +3901,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v133";
+const APPV="v134";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3938,10 +3938,16 @@ function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RM
   const C=(RMD.calibration||{}).cal||[], cn=C.filter(x=>x.n);
   el.innerHTML=`<div class="predbox" style="border-color:#38bdf8">
    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:16px;color:#38bdf8">🗺 Level Roadmap — ${esc(M.name)} ${Number(M.spot).toLocaleString("en-IN")}</b><span>${tabs}</span></div>
-   <div class="hint" style="font-size:11.5px">Chance each level BREAKS (trades beyond it) in the next 30 / 60 min · likely 60-min range <b>${Number(M.range60[0]).toLocaleString("en-IN")} – ${Number(M.range60[1]).toLocaleString("en-IN")}</b> · ${esc(M.time)}${M.mins_left<60?` · ${M.mins_left} min to close`:""}</div>
+   <div class="hint" style="font-size:11.5px">Likely 60-min range <b>${Number(M.range60[0]).toLocaleString("en-IN")} – ${Number(M.range60[1]).toLocaleString("en-IN")}</b> · ${esc(M.time)}${M.mins_left<60?` · ${M.mins_left} min to close`:""}</div>
+   ${(()=>{ const V=M.verdict||{}, c=V.dir==="DOWN"?"#ef4444":V.dir==="UP"?"#22c55e":"#eab308";
+     return `<div style="margin-top:6px;padding:8px 10px;border-radius:10px;border-left:6px solid ${c};background:rgba(0,0,0,.3)">
+       <div style="font-size:19px;font-weight:800;color:${c}">${esc(V.head||"")}</div>
+       ${V.next?`<div style="font-size:13.5px;margin-top:3px">➜ ${esc(V.next)}</div>`:""}
+       <div style="font-size:13.5px;margin-top:3px">🛑 ${esc(V.cancel||"")}</div></div>`; })()}
+   <details style="margin-top:5px"><summary class="hint" style="font-size:11.5px">all levels (break chance 30 / 60 min)</summary>
    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.down.map(rmPill).join("")}</div>
    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.up.map(rmPill).join("")}</div>
-   <div style="font-size:12.5px;margin-top:6px">${(M.lines||[]).map(l=>`<div>${esc(l)}</div>`).join("")}</div>
+   <div class="hint" style="font-size:11px;margin-top:4px">In a fast market price can touch levels on BOTH sides within an hour — that's why both sides can show high %. The line above is the more likely direction.</div></details>
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how these % are made · track record</summary>
     <div class="hint" style="font-size:11px">Speed: ${esc(M.sigma_src)} (σ ${M.sigma}%/min). Direction: ${esc(M.drift)}. Math: chance a random walk with this speed and bias reaches the level in time (first-passage). Round levels tagged with OI walls, today's high/low and scan support/resistance — walls can slow a move but are not counted in the %.</div>
     <div class="hint" style="font-size:11px">Track record (NIFTY, saved every 15 min, checked 60 min later): ${cn.length?cn.map(x=>`said ${x.band} → touched ${x.hit_pct}% (${x.n})`).join(" · "):"building — first results after ~1 hour of live market"}. Probabilities, not promises.</div></details></div>`; }

@@ -96,3 +96,13 @@ def test_roadmap_endpoint_and_swr():
     assert f() == {"n": 1}                                  # served instantly, refresh in background
     time.sleep(0.4)
     assert f()["n"] >= 2 and f.__name__ == "slowsec"
+
+
+def test_verdict_one_clear_answer():
+    now, px = _feed(step=-3)                                  # strong fall → momentum bias down
+    m = RM.build("NIFTY", px, now, {}, None, None)
+    V = m["verdict"]
+    assert V["dir"] == "DOWN" and "falls to" in V["head"] or "leaning down" in V["head"]
+    assert "above" in V["cancel"]
+    now, px = _feed(step=0)
+    assert RM.build("NIFTY", px, now, {}, None, None)["verdict"]["dir"] == "RANGE"
