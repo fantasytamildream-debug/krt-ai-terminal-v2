@@ -755,7 +755,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v128"
+APP_VERSION = "v129"
 EVC = {"t": 0, "d": None}
 
 
@@ -1112,6 +1112,81 @@ def opt_quotes(items, ttl=20):
         for k in sorted(OQC, key=lambda k: OQC[k][0])[:800]:
             OQC.pop(k, None)
     return {str(tk): (OQC.get(str(tk)) or (0, {}))[1] for _, tk in items if tk}
+
+
+MANNAN_SRC = ["Index OI", "5-min ORB", "Gamma Unwind Classic", "🛢 🥈 Order Flow + Profile", "👑 Mannan Commodity",
+              "Breakout CE", "V4 ⚡ ICT Silver Bullet", "👑 Money Machine"]
+MNC = {"t": 0, "d": None}
+
+
+def mannan_state():
+    """👑 v129 your 8 chosen strategies — every call today, the moment it is created, with a TAKE / WAIT / LATE / DON'T TAKE answer and a
+    confidence % = the strategy's real win rate (all its closed calls) adjusted for today's conditions. 2 s cache."""
+    if time.time() - MNC["t"] < 2 and MNC["d"]:
+        return MNC["d"]
+    from krt.calls import STORE as _S, PROVEN, OPEN as _OP, MARKET, _is_dup_shadow, proven_sources
+    d = _S.load()
+    if not PROVEN.get("tiers"):
+        try:
+            proven_sources(d)
+        except Exception:
+            pass
+    T_ = PROVEN.get("tiers") or {}
+    day = str(now_ist().date())
+    npct = MARKET.get("nifty_pct")
+    rows = []
+    for c in (d.get("calls") or {}).values():
+        if c.get("date") != day or c.get("kind") == "PICK" or (c.get("source") not in MANNAN_SRC) or _is_dup_shadow(c):
+            continue
+        tr = T_.get(c.get("source")) or {}
+        base = max(35, min(80, tr.get("win") or 50))
+        conf, why = float(base), [f"{c.get('source')}: {tr.get('win', '–')}% win over {tr.get('n', '–')} calls"]
+        mcx = c.get("kind") in ("MCX", "MANNAN-CMD") or c.get("exch") == "MCX"
+        if not mcx and npct is not None:
+            if (c.get("side") == "CE" and npct >= 0.25) or (c.get("side") == "PE" and npct <= -0.25):
+                conf += 8
+                why.append(f"NIFTY {npct:+.2f}% — with the market")
+            elif (c.get("side") == "CE" and npct <= -0.25) or (c.get("side") == "PE" and npct >= 0.25):
+                conf -= 15
+                why.append(f"NIFTY {npct:+.2f}% — AGAINST the market")
+        if (c.get("vol_ratio") or 0) >= 1.5:
+            conf += 4
+            why.append(f"volume {c.get('vol_ratio')}×")
+        if c.get("pink"):
+            conf += 5
+            why.append("pink module")
+        if c.get("grade") == "A":
+            conf += 3
+        e, sl, ltp = float(c.get("entry") or 0), float(c.get("sl") or 0), float(c.get("ltp") or c.get("entry") or 0)
+        T = c.get("targets") or []
+        st = c.get("status")
+        if st not in _OP:
+            v, t = "DONE", f"Finished — {st} ({'+' if (c.get('pnl_lot') or 0) >= 0 else '−'}₹{abs(round(c.get('pnl_lot') or 0)):,}/lot)"
+        elif c.get("hits"):
+            v, t = "HOLD", f"T1 hit — hold half, SL at entry ₹{e:g}. New entry now = late."
+        elif c.get("shadow"):
+            conf -= 20
+            v, t = "DON'T TAKE", f"Hidden by the filter — {c.get('shadow_why') or 'filter'}"
+        elif e and ltp > e * 1.05:
+            conf -= 10
+            v, t = "LATE", f"Premium ran {round((ltp / e - 1) * 100)}% above entry — wait for a pullback near ₹{e:g}, don't chase."
+        elif e and sl and ltp <= sl + (e - sl) * 0.3:
+            v, t = "AVOID", f"Close to SL ₹{sl:g} — skip."
+        elif conf >= 60:
+            v, t = "TAKE", f"Entry OK near ₹{e:g} (up to ₹{round(e * 1.05, 2):g}) · SL ₹{sl:g}" + (f" · T1 ₹{T[0]:g}" if T else "") + " · 1 lot, risk ≤ ₹2,500."
+        else:
+            v, t = "WAIT", f"Weaker today ({round(conf)}%) — skip or half size; entry near ₹{e:g}, SL ₹{sl:g}."
+        rows.append({"id": c["id"], "time": str(c.get("time") or "")[:5], "source": c.get("source_label") or c.get("source"), "src": c.get("source"),
+                     "symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "expiry": c.get("expiry"), "entry": e or None, "sl": sl or None,
+                     "targets": T[:3], "ltp": ltp or None, "status": st, "pnl_lot": c.get("pnl_lot"), "lot": c.get("lot"), "token": c.get("token"),
+                     "exch": c.get("exch"), "contract": c.get("contract"), "hidden": bool(c.get("shadow")), "verdict": v, "txt": t,
+                     "conf": int(max(5, min(95, round(conf)))), "why": why})
+    order = {"TAKE": 0, "WAIT": 1, "HOLD": 2, "LATE": 3, "AVOID": 4, "DON'T TAKE": 5, "DONE": 6}
+    rows.sort(key=lambda r: r["time"], reverse=True)              # newest first …
+    rows.sort(key=lambda r: order.get(r["verdict"], 9))           # … inside each group (TAKE on top)
+    d_ = {"time": now_ist().strftime("%H:%M:%S"), "rows": rows, "sources": MANNAN_SRC, "nifty": npct, "market_open": market_open(now_ist())}
+    MNC.update(t=time.time(), d=d_)
+    return d_
 
 
 EXC = {"t": 0, "d": None}
@@ -2453,6 +2528,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(200, _json({"ok": False, "msg": str(e)[:120]}))
             return self._send(200, _json({"ok": bool(c_), "candles": c_ or []}))
+        if self.path == "/api/mannan":                  # 👑 v129 Mannan Strategy Box — fast (polled every 3 s)
+            try:
+                return self._send(200, _json(mannan_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120], "rows": []}))
         if self.path == "/api/ticks":
             return self._send(200, _json({**TICK, "v": APP_VERSION}))
         if self.path == "/api/status":
