@@ -479,6 +479,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
       <div class="idxtick" id="idxTicker"></div>
       <div id="predBox"></div>
       <div id="roadmapBox"></div>
+      <div id="brainBox"></div>
       <p id="subline">Data வருகிறது.</p><div class="progress" id="prog"></div>
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
@@ -1896,9 +1897,11 @@ function voiceToggle(){ try{ localStorage.setItem("krt_voice",voiceOn()?"0":"1")
 /* ===== 🔊 V11 VOICE ENGINE — queue: ஒரு message இன்னொன்றை வெட்டாது (பழைய speak() cancel() பண்ணி pink alert-ஐ அழிச்சது) ===== */
 const VQ=[]; let VQB=false, VUNL=false, VLOG=[];
 function speak(t,pri){ if(!t||!voiceOn()||!window.speechSynthesis) return; t=String(t).replace(/\s+/g," ").trim();
-  if(VQ.includes(t)) return; if(pri) VQ.unshift(t); else VQ.push(t); if(VQ.length>15) VQ.length=15;
+  if(VQ.some(x=>x.t===t)) return; const it={t,at:Date.now(),pri:!!pri};
+  if(pri){ const i=VQ.findIndex(x=>!x.pri); if(i<0) VQ.push(it); else VQ.splice(i,0,it); } else { VQ.push(it); const np=VQ.filter(x=>!x.pri); if(np.length>4) VQ.splice(VQ.indexOf(np[0]),1); }
   VLOG.unshift({t:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),m:t}); VLOG.length=Math.min(VLOG.length,25); vPump(); }
-function vPump(){ if(VQB||!VQ.length) return; VQB=true; const t=VQ.shift(); let done=false;
+function vPump(){ while(VQ.length&&Date.now()-VQ[0].at>(VQ[0].pri?120000:45000)) VQ.shift();   /* v135: never speak old news late */
+  if(VQB||!VQ.length) return; VQB=true; const t=VQ.shift().t; let done=false;
   const fin=()=>{ if(done) return; done=true; VQB=false; setTimeout(vPump,400); };
   try{ const u=new SpeechSynthesisUtterance(t); u.lang="en-IN"; u.rate=0.97; u.onend=fin; u.onerror=fin; speechSynthesis.speak(u); setTimeout(fin,Math.min(30000,3000+t.length*85)); }catch(e){ fin(); } }
 function voiceUnlock(){ if(VUNL) return; VUNL=true; try{ const u=new SpeechSynthesisUtterance("Voice alerts on"); u.lang="en-IN"; u.volume=voiceOn()?1:0; speechSynthesis.speak(u); }catch(e){} }
@@ -3580,8 +3583,12 @@ function moodHTML(s){
 
 /* ⚠ V100 CRASH / SURGE RADAR banner + 🎯 SNIPER tab */
 let CRASH_LV="NONE";
+function crashVoice(C){ if(!C) return; const key=(C.level||"NONE")+(C.side||""); if(key===CRASH_LV) return; const prev=CRASH_LV; CRASH_LV=key;
+  if(!C.level||C.level==="NONE") return; const dn=C.side==="DOWN", sig=String((C.signals||[])[0]||"").replace(/[^A-Za-z0-9 .%+\-]/g," ").replace(/\s+/g," ");
+  try{ speak(C.level==="ALERT"?(dn?"Crash alert. Big selling now. Do not buy call options. Protect your positions.":"Surge alert. Big buying now. Do not buy put options."):
+    (dn?"Warning. Big selling may start. Tighten stop loss on call options.":"Warning. Big buying may start. Tighten stop loss on put options.")+(sig?" "+sig:""),true); }catch(e){} }
 function crashHTML(s){ const C=((s.sniper||{}).crash)||{}; if(!C.level||C.level==="NONE") return "";
-  const dn=C.side==="DOWN", key=C.level+C.side; if(key!==CRASH_LV){ CRASH_LV=key; try{ speak(dn?"எச்சரிக்கை. பெரிய selling வர வாய்ப்பு. CE positions கவனம்.":"எச்சரிக்கை. பெரிய buying வர வாய்ப்பு. PE positions கவனம்."); }catch(e){} }
+  const dn=C.side==="DOWN"; crashVoice(C);
   return `<div class="labbox" style="border:3px solid ${dn?"var(--pe)":"var(--ce)"};background:${dn?"rgba(239,68,68,.12)":"rgba(34,197,94,.12)"};animation:pulse 1.6s infinite">
     <h2>${C.level==="ALERT"?(dn?"🚨 CRASH ALERT — பெரிய SELL நடக்குது":"🚀 SURGE ALERT — பெரிய BUY நடக்குது"):(dn?"⚠ பெரிய SELL வர வாய்ப்பு":"⚠ பெரிய BUY வர வாய்ப்பு")} <small class="hint">${esc(C.time||"")}</small></h2>
     <div>${(C.signals||[]).map(x=>`• ${esc(x)}`).join("<br>")}</div>
@@ -3901,7 +3908,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v134";
+const APPV="v135";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3921,6 +3928,10 @@ function applyTicks(j){
     if(old&&old.ltp!==x.ltp){ el.classList.remove("flup","fldn"); void el.offsetWidth; el.classList.add(x.ltp>old.ltp?"flup":"fldn"); } });
   if(j.t){ TICKT=j.t; const tt=$("tkTime"); if(tt) tt.textContent="⚡ live "+ampm(j.t); }
 }
+/* ⏱ v135 worker timer — polls keep their speed when the tab is in the background (voice + alerts on time) */
+const WT=(()=>{ try{ const w=new Worker(URL.createObjectURL(new Blob(["onmessage=e=>{const d=e.data;setTimeout(()=>postMessage(d[0]),d[1]);}"],{type:"text/javascript"})));
+  const cb={}; let n=0; w.onmessage=e=>{ const f=cb[e.data]; delete cb[e.data]; if(f) f(); }; return (f,ms)=>{ const id=++n; cb[id]=f; w.postMessage([id,ms]); }; }
+  catch(e){ return (f,ms)=>setTimeout(f,ms); } })();
 /* 🗺 v133 LEVEL ROADMAP — chance each nearby level breaks in 30 / 60 min, live every 5 s */
 let RMIDX="NIFTY", RMD=null;
 try{ RMIDX=localStorage.getItem("rmidx")||"NIFTY"; }catch(e){}
@@ -3951,8 +3962,28 @@ function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RM
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how these % are made · track record</summary>
     <div class="hint" style="font-size:11px">Speed: ${esc(M.sigma_src)} (σ ${M.sigma}%/min). Direction: ${esc(M.drift)}. Math: chance a random walk with this speed and bias reaches the level in time (first-passage). Round levels tagged with OI walls, today's high/low and scan support/resistance — walls can slow a move but are not counted in the %.</div>
     <div class="hint" style="font-size:11px">Track record (NIFTY, saved every 15 min, checked 60 min later): ${cn.length?cn.map(x=>`said ${x.band} → touched ${x.hit_pct}% (${x.n})`).join(" · "):"building — first results after ~1 hour of live market"}. Probabilities, not promises.</div></details></div>`; }
-async function rmPoll(){ let w=5000; try{ const r=await fetch("/api/roadmap",{cache:"no-store"}); if(r.ok){ RMD=await r.json(); if(!RMD.market_open) w=30000; rmRender(); } }catch(e){} setTimeout(rmPoll,w); }
+async function rmPoll(){ let w=5000; try{ const r=await fetch("/api/roadmap",{cache:"no-store"}); if(r.ok){ RMD=await r.json(); if(!RMD.market_open) w=30000; rmRender(); } }catch(e){} WT(rmPoll,w); }
 setTimeout(rmPoll,1200);
+/* 🧠 v135 MARKET BEHAVIOUR BRAIN */
+let BRD=null, BRIDX="NIFTY", BRV=null;
+function brSet(n){ BRIDX=n; brRender(); }
+function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.answers||{})[BRIDX], tu=BRD.tuned||{}, tr=BRD.track||{};
+  const tabs=["NIFTY","BANKNIFTY"].map(n=>`<button style="padding:2px 9px;font-size:12px;border-radius:7px;border:1px solid #a78bfa;cursor:pointer;background:${n===BRIDX?"#a78bfa":"transparent"};color:${n===BRIDX?"#0b1220":"#e2e8f0"}" onclick="brSet('${n}')">${n}</button>`).join(" ");
+  const mem=`Memory: ${(BRD.days||{})[BRIDX]||"–"} days of 5-min market behaviour${BRD.built?` · last learned ${esc(BRD.built)}`:""}${tu.wset?` · judging "similar" by <b>${esc(tu.wset)}</b> (k ${tu.k})`:""}${tu.skill!=null?` · skill vs normal rate <b class="${tu.skill>0?"up":"dn"}">${tu.skill>0?"+":""}${tu.skill}%</b> (tested on last ${tu.days||15} days)`:""}`;
+  const trk=tr.n?`Track record: right <b class="up">${tr.right}</b> · wrong <b class="dn">${tr.wrong}</b> of ${tr.n} checked (60 min later, move ≥0.2%)`:"Track record: builds from today — every 15 min the answer is saved and checked 60 min later";
+  if(!A){ el.innerHTML=`<div class="predbox" style="border-color:#a78bfa"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain</b><span>${tabs}</span></div>
+     <div class="hint">${esc(BRD.err||(BRD.built?"waiting for the next closed 5-min candle…":"loading 6 months of market memory (first start takes ~1 min)…"))}</div><div class="hint" style="font-size:11px">${mem}</div></div>`; return; }
+  const P=A.p||{}, b=P.base||{}, chip=(l,v,bb,c)=>`<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:8px;background:rgba(0,0,0,.35);border:1px solid ${c}"><b style="color:${c}">${v}%</b> ${l} <small class="hint">normal ${bb}%</small></span>`;
+  el.innerHTML=`<div class="predbox" style="border-color:#a78bfa">
+   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain — ${esc(A.name)} ${Number(A.spot).toLocaleString("en-IN")}</b><span>${tabs}</span></div>
+   <div class="hint" style="font-size:11.5px">Right now: <b style="color:#e2e8f0">${esc(A.pattern)}</b> · candle ${esc(A.bar)} · ${P.n} most similar moments from the past</div>
+   <div style="margin-top:6px;padding:8px 10px;border-radius:10px;border-left:6px solid ${A.color};background:rgba(0,0,0,.3)"><div style="font-size:18px;font-weight:800;color:${A.color}">${esc(A.head)}</div>
+     ${A.side?`<div style="font-size:13px;margin-top:3px">Options: <b class="${A.side==="CE"?"up":"dn"}">${A.side} side</b> is favoured — take only ${A.side} calls from your strategies (Mannan box / JARVIS); skip ${A.side==="CE"?"PE":"CE"}.</div>`:`<div style="font-size:13px;margin-top:3px">Options: no side favoured — wait for a clean break (see Level Roadmap).</div>`}</div>
+   <div style="margin-top:6px;font-size:12px">Next 60 min, in similar past moments: ${chip("fell 0.3%+ more",P.fall,b.fall,"#f87171")}${chip("rose 0.3%+",P.rise,b.rise,"#4ade80")}${chip("crash 0.8%+",P.crash,b.crash,"#dc2626")}${chip("rally 0.8%+",P.rally,b.rally,"#16a34a")} <span class="hint">typical move ${P.med60>0?"+":""}${P.med60}%</span></div>
+   <div class="hint" style="font-size:11px;margin-top:4px">${mem}</div><div class="hint" style="font-size:11px">${trk}. It learns every evening: adds the day to memory and re-tests 4 ways of matching on the last 15 days, keeping the best. History, not a promise.</div></div>`; }
+async function brPoll(){ let w=30000; try{ const r=await fetch("/api/behaviour",{cache:"no-store"}); if(r.ok){ BRD=await r.json(); if(!BRD.market_open) w=120000; brRender();
+   const A=(BRD.answers||{}).NIFTY; if(A){ const k=A.verdict+A.bar.slice(0,2); if(BRV!==null&&A.verdict!==BRV&&A.verdict!=="MIXED") speak(A.verdict==="CRASH RISK"?"Market brain. Big fall risk is high now. Avoid call options.":A.verdict==="RALLY CHANCE"?"Market brain. Big rise chance is high now. Avoid put options.":`Market brain. Nifty more likely ${A.verdict==="DOWN"?"lower":"higher"} in the next hour.`,A.verdict.includes(" ")); BRV=A.verdict; } } }catch(e){} WT(brPoll,w); }
+setTimeout(brPoll,2000);
 /* 👑 v129 MANNAN STRATEGY BOX — your 8 chosen strategies, checked every 3 s, new call → popup + sound */
 let MNSEEN=null, MNDATA=null;
 const MNV={"TAKE":"#16a34a","WAIT":"#d97706","HOLD":"#2563eb","LATE":"#64748b","AVOID":"#dc2626","DON'T TAKE":"#dc2626","DONE":"#475569"};
@@ -3978,10 +4009,18 @@ async function mannanPoll(){ let wait=3000;
           try{ if(window.Notification&&Notification.permission==="granted") new Notification(`👑 Mannan box: ${x.symbol} ${x.strike??""} ${x.side}`,{body:`${x.verdict} ${x.conf}% · entry ₹${x.entry} · SL ₹${x.sl}`}); }catch(e){} });
         setTimeout(()=>{ if(MNSEEN) MNSEEN.fresh=new Set(); },60000); }
       const el=$("mannanBox"); if(el) el.innerHTML=mannanHTML(M); } }catch(e){}
-  setTimeout(mannanPoll,wait); }
+  WT(mannanPoll,wait); }
 setTimeout(mannanPoll,1500);
 async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok){ const T=await r.json(); applyTicks(T);
-    const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:""; } }catch(e){} setTimeout(tickPoll,2000); }
+    try{ crashVoice(T.crash); }catch(e){}
+    try{ bigVoice(T.big||[]); }catch(e){}
+    const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:""; } }catch(e){} WT(tickPoll,2000); }
+let BIGV=null;
+function bigVoice(B){ const ks=B.map(b=>b.k); if(BIGV===null){ BIGV=new Set(ks); return; }
+  const nw=B.filter(b=>!BIGV.has(b.k)); ks.forEach(k=>BIGV.add(k)); let n=0;
+  nw.forEach(b=>{ if(n>=2||(b.mult||0)<(b.early?4:5)) return; n++;
+    const buy=b.side==="BUY", txt=`${b.early?"Early ":""}big ${buy?"buyer":"seller"} in ${b.symbol}. ${Math.round(b.mult)} times volume.${b.strike?` Watch ${b.strike} ${buy?"call":"put"}.`:""}`;
+    speak(txt,true); try{ toast(`<b>${buy?"🟢":"🔴"} ${esc(b.time)} ${b.early?"⚡ EARLY ":""}BIG ${buy?"BUY":"SELL"} · ${esc(b.symbol)}</b> · ${b.mult}× volume${b.strike?` · watch ${esc(b.strike)} ${esc(b.opt||"")}`:""}`); }catch(e){} }); }
 /* 🕐 AM/PM (railway time இல்லை) */
 function ampm(t){ const m=String(t||"").match(/(\d{1,2}):(\d{2})(:\d{2})?/); if(!m) return String(t||""); let h=+m[1]; const ap=h>=12?"PM":"AM"; h=h%12||12; return `${h}:${m[2]}${m[3]||""} ${ap}`; }
 function mergeMcx(s){ try{ const MC=(s.mcx||{}).calls||[]; const T=(s.full||{}).tracking; if(!T||!MC.length) return; const day=String(s.now||"").slice(0,10);

@@ -755,7 +755,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v134"
+APP_VERSION = "v135"
 EVC = {"t": 0, "d": None}
 
 
@@ -1187,6 +1187,70 @@ def mannan_state():
     d_ = {"time": now_ist().strftime("%H:%M:%S"), "rows": rows, "sources": MANNAN_SRC, "nifty": npct, "market_open": market_open(now_ist())}
     MNC.update(t=time.time(), d=d_)
     return d_
+
+
+BHC = {"d": {}, "trk": None, "slot": None, "today": {}, "err": None, "time": None}
+
+
+def behav_loop():
+    """🧠 v135 Market Behaviour Brain: 6 months of 5-min memory, live answer after every 5-min candle, re-learns every evening."""
+    global ANGEL
+    from krt import behaviour as BH
+    built_day = None
+    while True:
+        time.sleep(15)
+        try:
+            if not angel_configured():
+                continue
+            t = now_ist()
+            from krt.angel_api import Angel
+            ANGEL = ANGEL or Angel()
+            hm = t.hour * 60 + t.minute
+            need = BH.M["built"] is None or (t.weekday() < 5 and hm >= 15 * 60 + 40 and built_day != str(t.date()))
+            if need and not (market_open(t) and BH.M["built"] is not None):
+                ok = BH.build(ROOT / "data" / "cache", ANGEL, t)
+                if ok and hm >= 15 * 60 + 40:
+                    built_day = str(t.date())
+                loop_mark("behaviour", ok, None if ok else BH.M.get("err"))
+                if not ok:
+                    time.sleep(300)
+                continue
+            if not (t.weekday() < 5 and 9 * 60 + 20 <= hm <= 15 * 60 + 32):
+                continue
+            slot = t.floor("5min")
+            if BHC["slot"] == slot or t.second < 10 and t.minute % 5 == 0:
+                continue
+            BHC["slot"] = slot
+            today = {}
+            for n, tok in (("NIFTY", "99926000"), ("BANKNIFTY", "99926009")):
+                df = ANGEL.candles("NSE", tok, "FIVE_MINUTE", t.normalize() + pd.Timedelta(hours=9, minutes=15), t)
+                if df is not None and len(df):
+                    today[n] = df
+            out = {}
+            for n in ("NIFTY", "BANKNIFTY"):
+                if n in today:
+                    out[n] = BH.live(n, today[n], today.get("BANKNIFTY" if n == "NIFTY" else "NIFTY"), t.tz_localize(None) if t.tzinfo else t)
+            BHC.update(d=out, today=today, time=real_hms(), err=None)
+            try:
+                from krt.calls import STORE as _S, CALLS_LOCK as _CL
+                BHC["trk"] = BH.track(out.get("NIFTY"), _S, t.tz_localize(None) if t.tzinfo else t, today.get("NIFTY"), _CL)
+            except Exception:
+                traceback.print_exc()
+            loop_mark("behaviour")
+        except Exception as e:
+            traceback.print_exc()
+            BHC["err"] = str(e)[:120]
+            loop_mark("behaviour", False, str(e)[:80])
+
+
+def behaviour_state():
+    from krt import behaviour as BH
+    tu = {k: v for k, v in (BH.M.get("tuned") or {}).items() if k != "scores"}
+    if tu.get("skill") is not None:
+        tu["skill"] = float(tu["skill"])
+    days = {n: len(set(h[0]["date"])) for n, h in (BH.M.get("hist") or {}).items()}
+    return {"time": BHC["time"], "answers": BHC["d"], "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
+            "err": BHC["err"] or BH.M.get("err"), "market_open": market_open(now_ist())}
 
 
 RMC = {"t": 0, "d": None, "trk": 0, "cal": None}
@@ -2624,6 +2688,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
+        if self.path == "/api/behaviour":
+            try:
+                return self._send(200, _json(behaviour_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120], "answers": {}}))
         if self.path == "/api/roadmap":
             try:
                 return self._send(200, _json(roadmap_state()))
@@ -2633,7 +2703,18 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/ticks":
             _status_watch()
             sb = STB.get("start")
-            return self._send(200, _json({**TICK, "v": APP_VERSION, "sbusy": ({"s": int(time.time() - sb), "where": STB.get("where")} if sb and time.time() - sb > 20 else None)}))
+            try:
+                from krt import crash as _CR, bigvol as _BV
+                _cr = {k: _CR.STATE.get(k) for k in ("level", "side", "signals", "time")}
+                _td = now_ist().strftime("%Y-%m-%d")
+                _bg = sorted([r for r in list(_BV.FEED.values()) if r.get("date") == _td and r.get("side") in ("BUY", "SELL") and not r.get("backfill")]
+                             + [r for r in list(_BV.EARLY.values()) if r.get("date") == _td], key=lambda r: r.get("seen") or str(r.get("full") or "")[11:19], reverse=True)[:8]
+                _big = [{"k": f"{r['symbol']}|{r['time']}|{'E' if r.get('early') else 'C'}", "symbol": r["symbol"], "side": r["side"], "mult": r.get("mult"),
+                         "early": bool(r.get("early")), "time": str(r["time"])[-5:], "strike": (r.get("opt") or {}).get("strike"),
+                         "opt": (r.get("opt") or {}).get("side")} for r in _bg]
+            except Exception:
+                _cr, _big = None, []
+            return self._send(200, _json({**TICK, "v": APP_VERSION, "crash": _cr, "big": _big, "sbusy": ({"s": int(time.time() - sb), "where": STB.get("where")} if sb and time.time() - sb > 20 else None)}))
         if self.path == "/api/status":
             # v112: build the big status JSON at most once per 3 s and share it across clients (lower peak RAM), gzip once.
             # v132: if another request is already building, serve the LAST status at once (was: wait in a queue → page stuck on "Loading…")
@@ -2970,6 +3051,7 @@ if __name__ == "__main__":
     threading.Thread(target=chart_loop, daemon=True).start()
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
+    threading.Thread(target=behav_loop, daemon=True).start()
     threading.Thread(target=paper_fast_loop, daemon=True).start()
     threading.Thread(target=bigvol_loop, daemon=True).start()
     threading.Thread(target=early_loop, daemon=True).start()
