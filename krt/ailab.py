@@ -323,10 +323,11 @@ def prebreak_run(ag, inst, now, full=None, live=True, max_day=10 ** 6):
     from .calls import CALLS_LOCK, STORE, _new
     from .optmath import plan as _plan
     bu = {}
-    for kind, xs in ((full or {}).get("oi_buildup") or {}).items():
-        for x in xs:
+    for kind, xs in list(((full or {}).get("oi_buildup") or {}).items()):
+        for x in list(xs):
             bu[x["symbol"]] = kind
-    rows = prebreak_scan(FS.C.get("bars") or {}, FS.C.get("live_q") or {}, bu)
+    # v141: copies — the deep scan fills these dicts in another thread ("dictionary changed size during iteration")
+    rows = prebreak_scan(dict(FS.C.get("bars") or {}), dict(FS.C.get("live_q") or {}), bu)
     P = STATE["prebreak"]
     day = str(now.date())
     FB = STATE.setdefault("pb_first", {})

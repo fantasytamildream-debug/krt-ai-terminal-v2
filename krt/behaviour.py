@@ -299,7 +299,8 @@ def live(name, today_df, other_df=None, now=None, prev_close=None):
             "UP": f"⬆ {name} more likely higher in the next hour — {up}% rose vs {dn}% fell in similar past moments",
             "MIXED": f"↔ {name}: no edge — similar past moments split {dn}% down / {up}% up. Don't force a trade."}[v]
     side = "PE" if v in ("DOWN", "CRASH RISK") else "CE" if v in ("UP", "RALLY CHANCE") else None
-    return {"name": name, "bar": td.index[-1].strftime("%H:%M"), "verdict": v, "color": c, "head": head, "side": side,
+    feat = {k: round(float(q[k]), 3) for k in ("r5", "r15", "r30", "dayp", "pos", "gap") if k in q.index}
+    return {"name": name, "bar": td.index[-1].strftime("%H:%M"), "verdict": v, "color": c, "head": head, "side": side, "feat": feat,
             "pattern": _describe(q, name), "p": a, "spot": round(float(q["close"]), 2), "wset": tuned["wset"], "k": tuned["k"]}
 
 

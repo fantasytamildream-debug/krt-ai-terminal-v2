@@ -768,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v140"
+APP_VERSION = "v141"
 EVC = {"t": 0, "d": None}
 
 
@@ -1293,7 +1293,13 @@ def behaviour_state():
             picks[n] = L
         except Exception:
             traceback.print_exc()
-    return {"time": BHC["time"], "answers": BHC["d"], "picks": picks, "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
+    try:
+        from krt.ai import STATE as _AIS
+        _rk = _AIS.get("risk") or {}
+        breadth = {"up": _rk.get("up"), "dn": _rk.get("dn")}
+    except Exception:
+        breadth = None
+    return {"time": BHC["time"], "answers": BHC["d"], "picks": picks, "breadth": breadth, "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
             "err": BHC["err"] or BH.M.get("err"), "market_open": market_open(now_ist())}
 
 

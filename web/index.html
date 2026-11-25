@@ -458,6 +458,27 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 .radarbox .nsrc{color:#cbd5e1}
 .pushbar{border:2px solid #22c55e;border-radius:12px;padding:8px 12px;margin:8px 0;background:rgba(34,197,94,.08);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .jrn .kpis .kpi b{font-size:18px}
+
+/* v141 neon glass panels (Market Brain · News Radar) + symbol icons */
+.np{--c:#38bdf8;border-radius:16px;border:1.5px solid var(--c);box-shadow:0 0 14px color-mix(in srgb,var(--c) 40%,transparent),inset 0 0 22px rgba(0,0,0,.35);background:linear-gradient(160deg,rgba(15,23,42,.94),rgba(2,6,23,.94));padding:12px 14px;margin-top:10px}
+.nph{display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;flex-wrap:wrap}
+.npg{display:grid;gap:10px}
+.nsub{border-radius:12px;border:1.5px solid var(--c,#334155);background:rgba(2,6,23,.55);padding:10px 12px;box-shadow:0 0 10px color-mix(in srgb,var(--c,#334155) 30%,transparent)}
+.ncards3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.nbig{border-radius:12px;border:2px solid var(--c);padding:10px;text-align:center;background:color-mix(in srgb,var(--c) 10%,rgba(2,6,23,.6))}
+.nbig b{display:block;font-size:26px}.nbar{height:9px;border-radius:5px;background:#1e293b;margin-top:6px;overflow:hidden}.nbar i{display:block;height:9px;border-radius:5px;background:var(--c)}
+.ndec{border-radius:12px;border:2px solid var(--c);padding:8px;text-align:center;opacity:.45;background:color-mix(in srgb,var(--c) 8%,transparent)}
+.ndec.on{opacity:1;box-shadow:0 0 16px var(--c)}.ndec b{display:block;font-size:20px}
+.nlv{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:14px}
+.nlv .tg{border-radius:8px;padding:2px 10px;font-weight:700;border:1.5px solid var(--c);color:var(--c);white-space:nowrap}
+.nchk{font-size:13.5px;line-height:1.9}.nchk i{font-style:normal;margin-right:6px}
+.nbadge{border-radius:999px;padding:3px 12px;font-weight:800;font-size:13px;border:2px solid var(--c);color:var(--c);box-shadow:0 0 10px color-mix(in srgb,var(--c) 50%,transparent)}
+.ntab{padding:4px 12px;border-radius:9px;border:1.5px solid #38bdf8;background:transparent;color:#e2e8f0;cursor:pointer;font-size:13px}.ntab.on{background:#38bdf8;color:#0b1220;font-weight:800}
+.nscard{border-radius:14px;border:2px solid var(--c);padding:10px 12px;background:linear-gradient(160deg,color-mix(in srgb,var(--c) 10%,rgba(2,6,23,.9)),rgba(2,6,23,.92));box-shadow:0 0 12px color-mix(in srgb,var(--c) 35%,transparent)}
+.nkv{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.nkv span{border:1px solid #334155;border-radius:8px;padding:3px 8px;font-size:13px}
+.sym-ic{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;vertical-align:middle;margin-right:5px;font-weight:800;color:#fff;overflow:hidden;flex:none}
+.sym-ic img{width:100%;height:100%;object-fit:contain;background:#fff;border-radius:50%}
+@media (max-width:760px){.ncards3{grid-template-columns:1fr 1fr 1fr;gap:6px}.nbig b{font-size:19px}}
 </style>
 <link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#0b1220"><link rel="icon" href="/icon.svg">
 </head>
@@ -1079,8 +1100,8 @@ function renderFull(s){
     <h2 class="sec">Stock footprint alerts (Volume ≥3× + OI buildup)</h2>${simpleTbl(fp.stocks,[["Time",r=>esc((r.signal_time||"").slice(11))],["Stock",r=>esc(r.symbol)],["Side",r=>`<b class="${r.side==='CE'?'up':'dn'}">${r.side}</b>`],["LTP",r=>n2(r.ltp)],["Change",r=>pc(r.pct)],["Vol",r=>n2(r.vol_ratio)+"×"],["OI",r=>esc(r.oi_tag)]])}`;
   const nw=s.news||{items:[]}, setupSyms=new Set([...(f.best||[]),...(f.ce||[]),...(f.pe||[]),...pts].map(r=>r.symbol));
   BEST=new Set((f.tracking||{}).best_ids||[]);
-  $("p-nw").innerHTML = (()=>{ try{ return diaryHTML(s,false); }catch(e){ console.error(e); return ""; } })()+radarHTML(s,false)+`<div class="hint">Moneycontrol, Economic Times, Business Standard, Google News — புதியது முதலில் (கடந்த 24 மணி). Tag = headline வார்த்தை மட்டும் (தவறலாம்). Setup உள்ள stock + news tag இருந்தால் green. ${nw.t?"Updated "+esc(hm(nw.t)):""} ${nw.err?"⚠ "+esc(nw.err):""}</div>
-    <div class="news">${newsHTML(nw.items, setupSyms)}</div>`;
+  $("p-nw").innerHTML = (()=>{ try{ return newsDashHTML(s); }catch(e){ console.error(e); return ""; } })()+`<details style="margin-top:10px"><summary class="hint">full details — results diary · radar · all news</summary>`+(()=>{ try{ return diaryHTML(s,false); }catch(e){ console.error(e); return ""; } })()+radarHTML(s,false)+`<div class="hint">Moneycontrol, Economic Times, Business Standard, Google News — புதியது முதலில் (கடந்த 24 மணி). Tag = headline வார்த்தை மட்டும் (தவறலாம்). Setup உள்ள stock + news tag இருந்தால் green. ${nw.t?"Updated "+esc(hm(nw.t)):""} ${nw.err?"⚠ "+esc(nw.err):""}</div>
+    <div class="news">${newsHTML(nw.items, setupSyms)}</div></details>`;
   const ck=s.result;
   const gm=f.gamma||{index:[],stocks:[],calendar:[]}, gtrig=[...gm.index,...gm.stocks].filter(g=>g.status==="TRIGGERED");
   $("p-gm").innerHTML = SX("guClassicHTML",()=>guClassicHTML(s)) + `<div class="v4strip" onclick="goTab('v4m')">🔥 <b>Gamma Blast → KRT AI V4 upgrade:</b> 4 index × 5 strategies (CQSMC · Order Flow · Gamma Squeeze · Silver Bullet · VWAP) — AI Master Scanner / Strategy Engine / Best Setups tabs பாருங்க →</div><div class="suggest" style="font-size:14px"><b>⚡ Gamma tab என்ன?</b> Option writers (sellers) பெரிய OI வைத்திருக்கும் strike = <b>wall</b>. விலை wall-ஐ உடைச்சா writers cover பண்ணுவாங்க → வேகமான move (gamma). இந்த tab 3 வழியில் call தரும்:
@@ -2415,6 +2436,54 @@ function journalHTML(J){ if(!J||!J.all||!J.all.n) return ""; const rs=v=>(v>=0?"
    ${(J.modules||[]).length?simpleTbl(J.modules,[["Module",m=>`<b>${esc(m.module)}</b>`],["Trades",m=>m.n],["Win %",m=>m.win_rate+"%"],["Net",m=>`<b class="${m.net>=0?'up':'dn'}">${rs(m.net)}</b>`],["PF",m=>m.pf??"–"],["Max DD",m=>"−₹"+n2(m.mdd)],["Exp/trade",m=>rs(m.exp)]],m=>m.net>0?"uprow":"slrow"):""}</details>`; }
 
 /* 📰 NEWS RADAR — focus list (news score + levels) · CONFIRMED = price + volume news பக்கம் → call */
+/* 📰 v141 NEWS DASHBOARD — results diary · market summary · live news · news setups (CE / PE + strike) */
+let NDT="today", NST="BOTH";
+function ndSet(k,v){ if(k==="d") NDT=v; else NST=v; try{ const el=$("ndash"); if(el&&LAST_S) el.outerHTML=newsDashHTML(LAST_S); }catch(e){} }
+function newsDashHTML(s){ const E=s.events||{}, RS=E.results||[], R=s.radar||{}, SU=R.setups||[], MB=R.market||{}, REC=R.recent||[], today=String(s.now||"").slice(0,10);
+  const T0=RS.filter(r=>r.days===0), Y=RS.filter(r=>r.days===-1), U=RS.filter(r=>r.days>0&&r.days<=30).sort((a,b)=>a.days-b.days), N7=RS.filter(r=>r.days>0&&r.days<=30);
+  const L=NDT==="today"?T0:NDT==="yesterday"?Y:U;
+  const allB=[...T0,...U], pos=allB.filter(r=>r.ai&&r.ai.side==="CE").length, neg=allB.filter(r=>r.ai&&r.ai.side==="PE").length;
+  const dtab=(k,l,n)=>`<button class="ntab${NDT===k?" on":""}" onclick="ndSet('d','${k}')">${l} (${n})</button>`;
+  const dcard=r=>{ const ai=r.ai||{}, c=ai.side==="CE"?"#22c55e":ai.side==="PE"?"#ef4444":"#f59e0b", sk=r.setup&&r.setup.side?strikeFor(E,today,r.symbol,r.setup.side):null;
+    return `<div class="nsub" style="--c:${c};margin-top:8px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <b style="font-size:17px;color:#fbbf24">${symIcon(r.symbol,22)}${r.days===0?"TODAY":r.days===-1?"YESTERDAY":r.days===1?"TOMORROW":"IN "+r.days+" DAYS"} – ${esc(r.symbol)} ${r.days===0?'<span class="nbadge" style="--c:#ef4444;font-size:11px;padding:1px 8px">NEW</span>':""}</b>
+      <small class="hint">${esc(r.date||"")}${r.exch?" · "+esc(r.exch):""}</small></div>
+      <div class="nchk" style="font-size:13.5px;line-height:1.75;margin-top:4px">
+       ${r.spot?`<div>🟢 LTP ${n2(r.spot)}${r.r20!=null?` · 20 days <b class="${r.r20>=0?"up":"dn"}">${r.r20>=0?"+":""}${r.r20}%</b>`:""}${r.implied?` · options expect <b>±${r.implied.pct}%</b> (ATM ${n2(r.implied.strike)} straddle ₹${n2(r.implied.straddle)})`:""}</div>`:""}
+       ${ai.watch?`<div>🟢 ${esc(ai.watch)}</div>`:""}
+       ${ai.lean?`<div>🟠 AI <b class="${ai.side==="CE"?"up":ai.side==="PE"?"dn":""}">${esc(ai.expect||ai.lean)}</b> — confidence ${esc(ai.conf||"–")} · rule-based — nobody knows the numbers before they come</div>`:""}
+       ${(ai.why||[]).slice(0,2).map(w=>`<div>🟢 ${esc(w)}</div>`).join("")}
+       ${sk?`<div>🎯 <b>${esc(r.symbol)} ${n2(sk.strike)} ${r.setup.side}</b> LTP ₹${n2(sk.ltp)} · SL ₹${n2(sk.prem_sl)} · T ₹${n2(sk.prem_target)}</div>`:""}</div></div>`; };
+  const heads=[...(MB.heads||[]).map(n=>({t:n.title,l:n.link})),...REC.map(n=>({t:n.title||n.text,l:n.link}))].filter(x=>x.t).slice(0,6);
+  const sc=x=>{ const ce=x.side==="CE", c=x.status==="CONFIRMED"?(ce?"#22c55e":"#ef4444"):x.status==="WATCH"?"#a78bfa":"#64748b", mv=x.move;
+    return `<div class="nscard" style="--c:${c}"><div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+      <b style="font-size:16px;color:${ce?"#4ade80":"#f87171"}">${symIcon(x.symbol,22)}BUY ${esc(x.symbol)} ${n2(x.strike)} ${x.side}</b><span class="nbadge" style="--c:${c};font-size:11px">${esc(x.status||"")}</span></div>
+      <div class="hint" style="font-size:12px">Exp ${esc(x.expiry||"–")} · lot ${x.lot||"–"} · ${esc(ampm(x.first)||"")} · news ${x.score>0?"+":""}${x.score}</div>
+      <div class="nkv"><span>Entry <b style="font-size:16px">₹${n2(x.entry)}</b></span><span style="border-color:#ef4444">SL <b class="dn">₹${n2(x.sl)}</b></span></div>
+      ${(x.targets||[]).length?`<div class="nkv">${x.targets.slice(0,3).map((t,j)=>`<span style="border-color:#22c55e">T${j+1} ₹${n2(t)}</span>`).join("")}</div>`:""}
+      <div style="margin-top:6px;font-size:15px">LTP <b>₹${n2(x.ltp)}</b>${mv!=null?` <b class="${mv>=0?"up":"dn"}">(${mv>=0?"+":""}${mv}%)</b>`:""}</div>
+      <div class="hint" style="font-size:11.5px">📰 ${esc(x.news||"")}</div>
+      ${x.token?paperOpt({symbol:x.symbol,side:x.side,strike:x.strike,expiry:x.expiry,contract:x.contract,token:x.token,exch:x.exch,lot:x.lot,ltp:x.ltp||x.entry,sl:x.sl,from_src:"📰 News Radar",src_modules:["📰 News Radar"]}):""}</div>`; };
+  const SS=SU.filter(x=>NST==="BOTH"||x.side===NST).slice(0,9);
+  return `<div id="ndash">
+   <div class="npg" style="grid-template-columns:minmax(0,2.4fr) minmax(0,1fr)">
+    <div class="np" style="--c:#38bdf8"><div class="nph" style="justify-content:space-between"><span>📅 Results Diary</span><span style="display:flex;gap:6px;flex-wrap:wrap">${dtab("today","Today",T0.length)}${dtab("yesterday","Yesterday",Y.length)}${dtab("upcoming","Upcoming",U.length)}</span></div>
+      ${L.length?L.slice(0,6).map(dcard).join(""):`<div class="hint" style="margin-top:8px">No results ${NDT==="today"?"today":NDT==="yesterday"?"yesterday":"in the next 30 days"} in the diary.</div>`}</div>
+    <div class="np" style="--c:#38bdf8"><div class="nph">📊 Market Summary</div>
+      <div class="nlv" style="grid-template-columns:1fr auto;margin-top:8px;font-size:15px"><span>Results today</span><b>${T0.length}</b><span>Upcoming (30 days)</span><b>${N7.length}</b>
+        <span>Positive bias</span><b class="up">${pos}</b><span class="dn">Negative bias</span><b class="dn">${neg}</b><span>Neutral / mixed</span><b style="color:#facc15">${allB.length-pos-neg}</b>
+        <span>Market</span><b class="${(MB.nifty||0)>=0?"up":"dn"}">${MB.nifty!=null?`NIFTY ${MB.nifty>=0?"+":""}${n2(MB.nifty)}%`:"–"}</b></div></div>
+   </div>
+   <div class="npg" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">
+    <div class="np" style="--c:#38bdf8"><div class="nph" style="justify-content:space-between"><span>📰 News Radar <span class="nbadge" style="--c:#22c55e;font-size:11px">● LIVE</span></span><small class="hint">${esc(R.time||"")} · ${R.items||0} news</small></div>
+      ${MB.move?`<div style="margin-top:6px;font-weight:800">🔷 ${MB.move==="RALLY"?"MARKET RALLY":"MARKET SELL-OFF"} — NIFTY ${MB.nifty>=0?"+":""}${n2(MB.nifty)}%${MB.banknifty!=null?` · BANKNIFTY ${MB.banknifty>=0?"+":""}${n2(MB.banknifty)}%`:""}</div>`:""}
+      ${heads.map(h=>`<div style="margin-top:4px;font-size:13.5px">🟡 ${h.l?`<a href="${esc(h.l)}" target="_blank" rel="noopener" style="color:inherit">${esc(h.t)}</a>`:esc(h.t)}</div>`).join("")||'<div class="hint">No scored headlines yet.</div>'}</div>
+    <div class="np" style="--c:#38bdf8"><div class="nph" style="justify-content:space-between"><span>🎯 News Setups – CE / PE + Strike</span><span class="nbadge" style="--c:#22c55e;font-size:11px">Entry OK ≤ +5%</span></div>
+      <div style="display:flex;gap:8px;margin-top:8px">${["CE","PE","BOTH"].map(k=>`<button class="ntab${NST===k?" on":""}" onclick="ndSet('s','${k}')">${k==="BOTH"?"Both":k} (${k==="BOTH"?SU.length:SU.filter(x=>x.side===k).length})</button>`).join("")}</div>
+      <div class="hint" style="margin-top:6px">✅ news + level · ✅ entry only within +5% of the first price</div></div>
+   </div>
+   ${SS.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px;margin-top:10px">${SS.map(sc).join("")}</div>`:`<div class="hint" style="margin-top:8px">No ${NST==="BOTH"?"":NST+" "}news setups right now.</div>`}
+  </div>`; }
 function radarHTML(s,compact){ const R=s.radar||{}, F=R.focus||[];
   const sh=compact?F.filter(f=>f.index||f.status==="CONFIRMED"||f.status==="WATCH").slice(0,5):F;
   if(!F.length&&!((R.market||{}).move)&&!(R.setups||[]).length) return compact?"":`<div class="radarbox"><b>📰 NEWS RADAR</b> <span class="hint">${R.err?"⚠ "+esc(R.err):"இப்போ strong news focus இல்லை (score ±3 வேணும்)"} ${R.time?"· "+esc(R.time):""}</span></div>`;
@@ -2877,7 +2946,7 @@ function aiTag(a){ if(!a) return "–"; return `<b style="color:#fff;background:
 function bpHTML(B,where){ const col=x=>x==="BUY"?"#22c55e":x==="SELL"?"#ef4444":"#f59e0b";
   return `<div class="labbox" style="border:2px solid #38bdf8;font-size:12.5px"><h2>🐋 Big players now — can I take it? <small class="hint">newest alert first · strike + live premium + AI answer · confirmed only when price breaks the spike candle</small></h2>
    ${B.length?`<div style="max-height:520px;overflow:auto">${simpleTbl(B,[["Time",r=>`<b>${esc((r.seen||r.end||"").slice(0,5))}</b><div class="hint">${r.early?"⚡ live — candle not closed yet":`candle ${esc(String(r.time).slice(11,16))}–${esc(r.end||"")}${r.backfill?" · old":""}`}</div>`],
-     ["Stock",r=>`<b style="color:${col(r.side)};cursor:pointer" onclick="ccPick('${esc(r.symbol)}')">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORB"} ${esc(r.symbol)}</b><div class="hint">${r.mult}× vol · now ₹${n2(r.now)}</div>`],
+     ["Stock",r=>`<b style="color:${col(r.side)};cursor:pointer" onclick="ccPick('${esc(r.symbol)}')">${symIcon(r.symbol,18)}${r.side==="BUY"?"BUYING":r.side==="SELL"?"SELLING":"ABSORB"} ${esc(r.symbol)}</b><div class="hint">${r.mult}× vol · now ₹${n2(r.now)}</div>`],
      ["Strike",r=>r.opt?`<b style="color:${col(r.side)}" title="exp ${esc(r.opt.expiry)} · lot ${r.opt.lot??"–"}">${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">${r.opt_ltp?"₹"+n2(r.opt_ltp):"–"} · lot ${r.opt.lot??"–"}</div>`:"–"],
      ["🤖 Can I take it?",r=>`<div style="max-width:380px">${aiShort(r.ai,80)}${(r.ai||{}).plan?`<div class="hint">entry ₹${n2(r.ai.plan.entry)} · SL ₹${n2(r.ai.plan.sl)} · T1 ₹${n2(r.ai.plan.targets[0])}</div>`:""}</div>`],
      ["",r=>r.opt&&r.opt.token&&r.ai&&["TAKE","WAIT"].includes(r.ai.tag)?paperOpt({symbol:r.symbol,side:r.opt.side,strike:r.opt.strike,expiry:r.opt.expiry,contract:r.opt.contract,token:r.opt.token,exch:r.opt.exch,lot:r.opt.lot,ltp:r.opt_ltp,sl:(r.ai.plan||{}).sl,from_src:"🐋 Big player "+r.side,src_modules:["Big Players"]}):""]],
@@ -2971,7 +3040,7 @@ function ccMoversHTML(s){ const M=(s.cc||{}).movers||{}, R=M[CC.tab]||[];
      ["Stocks",x=>`<span class="hint">${x.stocks.slice(0,8).map(t=>`<a href="#" onclick="ccPick('${esc(t)}');return false">${esc(t)}</a>`).join(" ")}</span>`]],x=>x.pct>0?"uprow":x.pct<0?"slrow":"");
   else body=simpleTbl(R,[["Since",x=>`<b>${esc(x.since||"–")}</b>`],
      ["🤖 What to do",x=>{ const st=(x.ai||{}).strike; return `<div style="min-width:230px;max-width:330px">${aiShort(x.ai)}${st&&st.token&&/^BUY/.test((x.ai||{}).tag)?"<div style='margin-top:3px'>"+paperOpt({symbol:x.symbol,side:st.side,strike:st.strike,expiry:st.expiry,contract:st.contract,token:st.token,exch:st.exch,lot:st.lot,ltp:x.opt_ltp,from_src:"🚀 Top Movers guide",src_modules:["Top Movers guide"]})+"</div>":""}</div>`; }],
-     ["Stock",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${esc(x.symbol)}</b> ${pc(x.pct)}<div class="hint">₹${n2(x.ltp)}${x.big?` · 🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}`:""}</div>`],
+     ["Stock",x=>`<b style="cursor:pointer;text-decoration:underline dotted" onclick="ccPick('${esc(x.symbol)}')">${symIcon(x.symbol,18)}${esc(x.symbol)}</b> ${pc(x.pct)}<div class="hint">₹${n2(x.ltp)}${x.big?` · 🐋 ${x.big.side} ${x.big.mult}× ${esc(x.big.time.slice(11,16))}`:""}</div>`],
      ["Strike",x=>{ const st=(x.ai||{}).strike; return st?`<b class="${st.side==="CE"?"up":"dn"}" title="exp ${esc(st.expiry)}">${n2(st.strike)} ${st.side}</b><div class="hint">${x.opt_ltp?"₹"+n2(x.opt_ltp):"–"}</div>`:"–"; }],
      ["RVOL",x=>x.rvol?`<b>${x.rvol}×</b>`:"–"],["OI",x=>x.oi?`<span style="font-size:11px">${esc(OISH[x.oi]||x.oi)}</span>${x.oi_chg_pct!=null?` <span class="hint">${x.oi_chg_pct>0?"+":""}${x.oi_chg_pct}%</span>`:""}`:"–"],
      ["Setup",x=>`<span style="font-size:11px"><b>${esc(x.setup&&x.setup!=="–"?x.setup:"")}</b> ${esc(x.momentum||"")}</span>`],["Sector",x=>`<span class="hint">${esc(x.sector)}</span>`],
@@ -3910,15 +3979,15 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v140";
+const APPV="v141";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
   const I=((s.full||{}).index||[]), order=["NIFTY","BANKNIFTY","FINNIFTY","SENSEX","MIDCPNIFTY"];
   const rows=order.map(n=>{ const x=I.find(y=>y.index===n), t=TICKS[n]; return t?{index:n,spot:t.ltp,pct:t.pct}:x; }).filter(Boolean);
   const mc=((s.mcx||{}).rows||[]).filter(r=>r.status==="OK"&&r.px).slice(0,4).map(r=>{ const t=TICKS[r.name]; return t?{name:r.name,px:t.ltp,pct:t.pct}:r; });
-  el.innerHTML=rows.map(x=>`<span id="${tkId(x.index)}" class="tk ${x.pct>=0?'up':'dn'}"><b>${esc(x.index)}</b> <span class="tkv">${n2(x.spot)}</span> <small class="tkp">${x.pct>=0?"▲ +":"▼ "}${n2(x.pct)}%</small></span>`).join("")
-    + (mc.length?mc.map(r=>`<span id="${tkId(r.name)}" class="tk mcx"><b>🛢 ${esc(r.name)}</b> <span class="tkv">${n2(r.px)}</span>${r.pct!=null?` <small class="tkp">${r.pct>=0?"▲ +":"▼ "}${n2(r.pct)}%</small>`:""}</span>`).join(""):"")
+  el.innerHTML=rows.map(x=>`<span id="${tkId(x.index)}" class="tk ${x.pct>=0?'up':'dn'}"><b>${symIcon(x.index,17)}${esc(x.index)}</b> <span class="tkv">${n2(x.spot)}</span> <small class="tkp">${x.pct>=0?"▲ +":"▼ "}${n2(x.pct)}%</small></span>`).join("")
+    + (mc.length?mc.map(r=>`<span id="${tkId(r.name)}" class="tk mcx"><b>${symIcon(r.name,17)}${esc(r.name)}</b> <span class="tkv">${n2(r.px)}</span>${r.pct!=null?` <small class="tkp">${r.pct>=0?"▲ +":"▼ "}${n2(r.pct)}%</small>`:""}</span>`).join(""):"")
     + `<span class="hint" id="tkTime">${TICKT?"⚡ live "+esc(TICKT):"live "+esc(String(((s.full||{}).tick_time)||"").slice(11,19))}</span>`;
 }
 /* v136: the headline follows TODAY's live NIFTY move (it used to show the 20/50-day trend — "trending up" even on a crash day) */
@@ -3944,6 +4013,33 @@ function applyTicks(j){
 const WT=(()=>{ try{ const w=new Worker(URL.createObjectURL(new Blob(["onmessage=e=>{const d=e.data;setTimeout(()=>postMessage(d[0]),d[1]);}"],{type:"text/javascript"})));
   const cb={}; let n=0; w.onmessage=e=>{ const f=cb[e.data]; delete cb[e.data]; if(f) f(); }; return (f,ms)=>{ const id=++n; cb[id]=f; w.postMessage([id,ms]); }; }
   catch(e){ return (f,ms)=>setTimeout(f,ms); } })();
+
+/* 🖼 v141 symbol icons — commodity / index symbols, company favicon for well-known F&O names (monogram if none) */
+const SYM_DOM={RELIANCE:"ril.com",TCS:"tcs.com",INFY:"infosys.com",HDFCBANK:"hdfcbank.com",ICICIBANK:"icicibank.com",SBIN:"sbi.co.in",AXISBANK:"axisbank.com",
+ KOTAKBANK:"kotak.com",LT:"larsentoubro.com",ITC:"itcportal.com",HINDUNILVR:"hul.co.in",BHARTIARTL:"airtel.in",WIPRO:"wipro.com",HCLTECH:"hcltech.com",
+ TECHM:"techmahindra.com",MARUTI:"marutisuzuki.com",TMPV:"tatamotors.com",TATAMOTORS:"tatamotors.com",TMCV:"tatamotors.com",TATASTEEL:"tatasteel.com",
+ BAJFINANCE:"bajajfinserv.in",BAJAJFINSV:"bajajfinserv.in","BAJAJ-AUTO":"bajajauto.com",ASIANPAINT:"asianpaints.com",SUNPHARMA:"sunpharma.com",
+ DRREDDY:"drreddys.com",CIPLA:"cipla.com",ADANIENT:"adani.com",ADANIPORTS:"adaniports.com",ADANIGREEN:"adanigreenenergy.com",NTPC:"ntpc.co.in",
+ POWERGRID:"powergrid.in",ONGC:"ongcindia.com",COALINDIA:"coalindia.in",BPCL:"bharatpetroleum.in",IOC:"iocl.com",HAL:"hal-india.co.in",BEL:"bel-india.in",
+ DABUR:"dabur.com",BRITANNIA:"britannia.co.in",NESTLEIND:"nestle.in",TITAN:"titancompany.in",TRENT:"trentlimited.com",DMART:"dmartindia.com",
+ ETERNAL:"zomato.com",PAYTM:"paytm.com",INDIGO:"goindigo.in",IDEA:"myvi.in",DLF:"dlf.in",VEDL:"vedantalimited.com",HINDALCO:"hindalco.com",
+ JSWSTEEL:"jsw.in","M&M":"mahindra.com",EICHERMOT:"eicher.in",HEROMOTOCO:"heromotocorp.com",BHEL:"bhel.com",CANBK:"canarabank.com",PNB:"pnbindia.in",
+ BANKBARODA:"bankofbaroda.in",FEDERALBNK:"federalbank.co.in",AUBANK:"aubank.in",INDUSINDBK:"indusind.com",IREDA:"ireda.in",POLICYBZR:"policybazaar.com",
+ APLAPOLLO:"aplapollo.com",TATAPOWER:"tatapower.com",MOTILALOFS:"motilaloswal.com",ULTRACEMCO:"ultratechcement.com",GRASIM:"grasim.com",
+ SHRIRAMFIN:"shriramfinance.in",KALYANKJIL:"kalyanjewellers.net",TVSMOTOR:"tvsmotor.com",HDFCLIFE:"hdfclife.com",SBILIFE:"sbilife.co.in",
+ LUPIN:"lupin.com",ZYDUSLIFE:"zyduslife.com",PIDILITIND:"pidilite.com",HAVELLS:"havells.com",VOLTAS:"voltas.com",BIOCON:"biocon.com",
+ GAIL:"gailonline.com",BANDHANBNK:"bandhanbank.com",IDFCFIRSTB:"idfcfirstbank.com",YESBANK:"yesbank.in",MUTHOOTFIN:"muthootfinance.com",
+ MANAPPURAM:"manappuram.com",BLUESTARCO:"bluestarindia.com",INOXWIND:"inoxwind.com",DATAPATTNS:"datapatternsindia.com",ABB:"abb.com",SIEMENS:"siemens.com",
+ COPPER:null};
+const SYM_EMO={GOLD:"🥇",GOLDM:"🥇",GOLDPETAL:"🥇",SILVER:"🥈",SILVERM:"🥈",SILVERMIC:"🥈",CRUDEOIL:"🛢️",CRUDEOILM:"🛢️",NATURALGAS:"🔥",NATGASMINI:"🔥",
+ COPPER:"🟤",ZINC:"⚙️",ALUMINIUM:"⚙️",LEAD:"⚙️",NICKEL:"⚙️"};
+const SYM_IDX={NIFTY:["N50","#2563eb"],BANKNIFTY:["BNK","#7c3aed"],FINNIFTY:["FIN","#0891b2"],SENSEX:["SX","#dc2626"],MIDCPNIFTY:["MID","#ea580c"]};
+function symIcon(sym,sz=18){ sym=String(sym||"").toUpperCase().replace(/\s.*$/,""); const st=`width:${sz}px;height:${sz}px;font-size:${Math.round(sz*.48)}px`;
+  if(SYM_EMO[sym]) return `<span class="sym-ic" style="${st};font-size:${Math.round(sz*.85)}px">${SYM_EMO[sym]}</span>`;
+  if(SYM_IDX[sym]) return `<span class="sym-ic" style="${st};background:${SYM_IDX[sym][1]};font-size:${Math.round(sz*.36)}px">${SYM_IDX[sym][0]}</span>`;
+  let h=0; for(const c of sym) h=(h*31+c.charCodeAt(0))%360; const mono=`<span class="sym-ic" style="${st};background:hsl(${h} 60% 38%)">${esc(sym.slice(0,2))}</span>`;
+  const d=SYM_DOM[sym]; if(!d) return mono;
+  return `<span class="sym-ic" style="${st};background:hsl(${h} 60% 38%)"><img loading="lazy" alt="" src="https://www.google.com/s2/favicons?domain=${d}&sz=64" onerror="this.parentNode.textContent='${esc(sym.slice(0,2))}'"></span>`; }
 /* 🗺 v133 LEVEL ROADMAP — chance each nearby level breaks in 30 / 60 min, live every 5 s */
 let RMIDX="NIFTY", RMD=null;
 try{ RMIDX=localStorage.getItem("rmidx")||"NIFTY"; }catch(e){}
@@ -3974,44 +4070,64 @@ function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RM
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how these % are made · track record</summary>
     <div class="hint" style="font-size:11px">Speed: ${esc(M.sigma_src)} (σ ${M.sigma}%/min). Direction: ${esc(M.drift)}. Math: chance a random walk with this speed and bias reaches the level in time (first-passage). Round levels tagged with OI walls, today's high/low and scan support/resistance — walls can slow a move but are not counted in the %.</div>
     <div class="hint" style="font-size:11px">Track record (NIFTY, saved every 15 min, checked 60 min later): ${cn.length?cn.map(x=>`said ${x.band} → touched ${x.hit_pct}% (${x.n})`).join(" · "):"building — first results after ~1 hour of live market"}. Probabilities, not promises.</div></details></div>`; }
-async function rmPoll(){ let w=5000; try{ const r=await fetch("/api/roadmap",{cache:"no-store"}); if(r.ok){ RMD=await r.json(); if(!RMD.market_open) w=30000; rmRender(); } }catch(e){} WT(rmPoll,w); }
+async function rmPoll(){ let w=5000; try{ const r=await fetch("/api/roadmap",{cache:"no-store"}); if(r.ok){ RMD=await r.json(); if(!RMD.market_open) w=30000; rmRender(); } }catch(e){} try{ brRender(); }catch(e){} WT(rmPoll,w); }
 setTimeout(rmPoll,1200);
 /* 🧠 v135 MARKET BEHAVIOUR BRAIN */
 let BRD=null, BRIDX="NIFTY", BRV=null;
 function brSet(n){ BRIDX=n; brRender(); }
 function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.answers||{})[BRIDX], tu=BRD.tuned||{}, tr=BRD.track||{};
-  const tabs=["NIFTY","BANKNIFTY","SENSEX","FINNIFTY"].map(n=>`<button style="padding:2px 9px;font-size:12px;border-radius:7px;border:1px solid #a78bfa;cursor:pointer;background:${n===BRIDX?"#a78bfa":"transparent"};color:${n===BRIDX?"#0b1220":"#e2e8f0"}" onclick="brSet('${n}')">${n}</button>`).join(" ");
-  const mem=`Memory: ${(BRD.days||{})[BRIDX]||"–"} days of 5-min market behaviour${BRD.built?` · last learned ${esc(BRD.built)}`:""}${tu.wset?` · judging "similar" by <b>${esc(tu.wset)}</b> (k ${tu.k})`:""}${tu.skill!=null?` · skill vs normal rate <b class="${tu.skill>0?"up":"dn"}">${tu.skill>0?"+":""}${tu.skill}%</b> (tested on last ${tu.days||15} days)`:""}`;
-  const trk=tr.n?`Track record: right <b class="up">${tr.right}</b> · wrong <b class="dn">${tr.wrong}</b> of ${tr.n} checked (60 min later, move ≥0.2%)`:"Track record: builds from today — every 15 min the answer is saved and checked 60 min later";
-  if(!A){ el.innerHTML=`<div class="predbox" style="border-color:#a78bfa"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain</b><span>${tabs}</span></div>
-     <div class="hint">${esc(BRD.err||(BRD.built?"waiting for the next closed 5-min candle…":"loading 6 months of market memory (first start takes ~1 min)…"))}</div><div class="hint" style="font-size:11px">${mem}</div></div>`; return; }
-  const P=A.p||{}, b=P.base||{}, chip=(l,v,bb,c)=>`<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:8px;background:rgba(0,0,0,.35);border:1px solid ${c}"><b style="color:${c}">${v}%</b> ${l} <small class="hint">normal ${bb}%</small></span>`;
-  const up=P.up||0, dn=P.dn||0, fl=Math.max(0,100-up-dn), V=A.verdict;
-  const big=V==="CRASH RISK"?["⬇⬇ BIG FALL RISK","#dc2626","Don't buy CE. Protect CE positions. PE only on a bounce, small size."]:
-            V==="RALLY CHANCE"?["⬆⬆ BIG RISE CHANCE","#16a34a","Don't buy PE. CE on dips, small size."]:
-            V==="DOWN"?["⬇ GOING DOWN (more likely)","#ef4444","Prefer PE · skip fresh CE."]:
-            V==="UP"?["⬆ GOING UP (more likely)","#22c55e","Prefer CE · skip fresh PE."]:
-            ["↔ NO CLEAR DIRECTION","#eab308","Wait — trade only a clean break (see Level Roadmap)."];
-  el.innerHTML=`<div class="predbox" style="border-color:#a78bfa">
-   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:15px;color:#a78bfa">🧠 Market Brain — ${esc(A.name)} next 1 hour</b><span>${tabs}</span></div>
-   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px">
-     <div style="font-size:26px;font-weight:900;color:${big[1]}">${big[0]}</div>
-     <div style="font-size:14px">${esc(big[2])}</div></div>
-   ${(()=>{ const PK=((BRD.picks||{})[BRIDX])||[]; if(!PK.length) return "";
-      const one=k=>{ const ce=k.side==="CE", buy=k.mode==="BUY", c=ce?"#22c55e":"#ef4444";
-        return `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 10px;border-radius:10px;border:2px solid ${c};background:rgba(0,0,0,.35);margin:3px 6px 0 0">
-          <b style="font-size:15px;color:${c}">🎯 ${esc(A.name)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b>
-          <span style="font-size:13px">${buy?"looking good":esc(k.mode.toLowerCase())}${k.ltp?` · ₹${n2(k.ltp)}`:""} · exp ${esc(String(k.expiry||"").slice(0,10))}</span>
-          ${buy&&k.token?paperOpt({symbol:A.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🧠 Market Brain",src_modules:["Market Brain"]}):""}</span>`; };
-      return `<div style="margin-top:6px">${PK.map(one).join("")}${PK[0].mode!=="BUY"?`<span class="hint" style="font-size:11px"> no side yet — take one only after a clean break</span>`:""}</div>`; })()}
-   <div style="display:flex;height:22px;border-radius:8px;overflow:hidden;margin-top:6px;font-size:12px;font-weight:700;color:#0b1220">
-     <div style="width:${up}%;background:#22c55e;display:flex;align-items:center;justify-content:center">${up>=8?`⬆ ${up}%`:""}</div>
-     <div style="width:${fl}%;background:#64748b;display:flex;align-items:center;justify-content:center;color:#e2e8f0">${fl>=12?`flat ${fl}%`:""}</div>
-     <div style="width:${dn}%;background:#ef4444;display:flex;align-items:center;justify-content:center">${dn>=8?`⬇ ${dn}%`:""}</div></div>
-   <div class="hint" style="font-size:11px;margin-top:3px">From ${P.n} past moments that looked like now (${esc(A.pattern)}) — what NIFTY did in the next hour. Up/down = moved 0.2%+.</div>
-   <details style="margin-top:4px"><summary class="hint" style="font-size:11px">details · learning · track record</summary>
-    <div style="margin-top:4px;font-size:12px">${chip("fell 0.3%+ more",P.fall,b.fall,"#f87171")}${chip("rose 0.3%+",P.rise,b.rise,"#4ade80")}${chip("crash 0.8%+",P.crash,b.crash,"#dc2626")}${chip("rally 0.8%+",P.rally,b.rally,"#16a34a")} <span class="hint">typical move ${P.med60>0?"+":""}${P.med60}% · candle ${esc(A.bar)}</span></div>
-    <div class="hint" style="font-size:11px;margin-top:4px">${mem}</div><div class="hint" style="font-size:11px">${trk}. It learns every evening: adds the day to memory and re-tests 4 ways of matching on the last 15 days, keeping the best. History, not a promise.</div></details></div>`; }
+  const tabs=["NIFTY","BANKNIFTY","SENSEX","FINNIFTY"].map(n=>`<button class="ntab${n===BRIDX?" on":""}" style="border-color:#a78bfa;${n===BRIDX?"background:#a78bfa":""}" onclick="brSet('${n}')">${n}</button>`).join(" ");
+  const mem=`Memory: ${(BRD.days||{})[BRIDX]||"–"} days of 5-min market behaviour${BRD.built?` · last learned ${esc(BRD.built)}`:""}${tu.wset?` · matching by <b>${esc(tu.wset)}</b> (k ${tu.k})`:""}${tu.skill!=null?` · skill vs normal rate <b class="${tu.skill>0?"up":"dn"}">${tu.skill>0?"+":""}${tu.skill}%</b>`:""}`;
+  const trk=tr.n?`Track record: right <b class="up">${tr.right}</b> · wrong <b class="dn">${tr.wrong}</b> of ${tr.n} checked`:"Track record: builds during market hours (each answer checked 60 min later)";
+  if(!A){ el.innerHTML=`<div class="np" style="--c:#a78bfa"><div class="nph" style="justify-content:space-between"><span>🧠 Market Brain — ${esc(BRIDX)} next 1 hour</span><span>${tabs}</span></div>
+     <div class="hint">${esc(BRD.err||(BRD.built?"waiting for the next closed 5-min candle (market hours)…":"loading market memory (first start ~3 min)…"))}</div><div class="hint" style="font-size:11px">${mem}</div></div>`; return; }
+  const P=A.p||{}, up=P.up||0, dn=P.dn||0, fl=Math.max(0,100-up-dn), V=A.verdict, F=A.feat||{}, B=BRD.breadth||{};
+  const bias=V==="UP"||V==="RALLY CHANCE"?["BULLISH BIAS","#22c55e","🐂"]:V==="DOWN"||V==="CRASH RISK"?["BEARISH BIAS","#ef4444","🐻"]:["NO CLEAR BIAS","#eab308","↔"];
+  const M=((RMD||{}).maps||{})[BRIDX]||null, f0=x=>Number(x).toLocaleString("en-IN");
+  let hi=null, lo=null, tU=[], tD=[];
+  if(M&&M.up&&M.down){ const h=M.up.find(r=>r.p60<50)||M.up[M.up.length-1], l=M.down.find(r=>r.p60<50)||M.down[M.down.length-1];
+    hi=h.level; lo=l.level; tU=M.up.filter(r=>r.level>hi).slice(0,3).map(r=>r.level); tD=M.down.filter(r=>r.level<lo).slice(0,3).map(r=>r.level);
+    if(!tU.length) tU=[hi+ (M.up[1]?M.up[1].level-M.up[0].level:50)]; if(!tD.length) tD=[lo-(M.down[0]&&M.down[1]?M.down[0].level-M.down[1].level:50)]; }
+  const ck=(ok,l,v)=>`<div><i>${ok===null?"⚪":ok?"✅":"❌"}</i><b>${l}:</b> ${v}</div>`, bu=V==="UP"||V==="RALLY CHANCE", be=V==="DOWN"||V==="CRASH RISK";
+  const dec=bu?"CE":be?"PE":"WAIT";
+  const PK=((BRD.picks||{})[BRIDX])||[];
+  const pick=k=>{ const ce=k.side==="CE", c=ce?"#22c55e":"#ef4444", buy=k.mode==="BUY";
+    return `<div class="nsub" style="--c:${c};display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 320px">${symIcon(A.name,22)}<b style="font-size:17px;color:${c}">${esc(A.name)} ${f0(k.strike)} ${k.side}</b>
+      <span style="font-size:13px">${buy?"looking good now":ce?`if it sustains above ${hi?f0(hi):"the range"}`:`if it breaks below ${lo?f0(lo):"the range"}`}${k.ltp?` · ₹${n2(k.ltp)}`:""} · exp ${esc(String(k.expiry||"").slice(0,10))}</span>
+      ${buy&&k.token?paperOpt({symbol:A.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🧠 Market Brain",src_modules:["Market Brain"]}):""}</div>`; };
+  const bb=Math.round(up/Math.max(1,up+dn)*100);
+  el.innerHTML=`<div class="np" style="--c:#a78bfa">
+   <div class="nph" style="justify-content:space-between"><span>🧠 Market Brain — ${esc(A.name)} next 1 hour <small class="hint" style="font-weight:400">candle ${esc(A.bar)} · ${f0(A.spot)}</small></span><span>${tabs}</span></div>
+   <div class="npg" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-top:8px">
+     <div class="nsub" style="--c:#22c55e">
+       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:18px">📈 NEXT 1 HOUR OUTLOOK</b><span class="nbadge" style="--c:${bias[1]}">${bias[2]} ${bias[0]}</span></div>
+       <div class="ncards3" style="margin-top:8px">
+         <div class="nbig" style="--c:#22c55e">🐂 BULLISH<b>${up}%</b><div class="nbar"><i style="width:${up}%"></i></div></div>
+         <div class="nbig" style="--c:#eab308">↔ SIDEWAYS<b>${fl}%</b><div class="nbar"><i style="width:${fl}%"></i></div></div>
+         <div class="nbig" style="--c:#ef4444">🐻 BEARISH<b>${dn}%</b><div class="nbar"><i style="width:${dn}%"></i></div></div></div></div>
+     <div class="nsub" style="--c:#38bdf8"><b style="font-size:16px">🎯 Key levels (next 1 hour)</b>
+       ${hi?`<div class="nlv" style="margin-top:8px"><span class="tg" style="--c:#22c55e">Breakout above</span><b>${f0(hi)}</b><span class="tg" style="--c:#22c55e">Targets (UP) ›</span><span>${tU.map(f0).join(" / ")}</span>
+         <span class="tg" style="--c:#ef4444">Breakdown below</span><b>${f0(lo)}</b><span class="tg" style="--c:#ef4444">Targets (DOWN) ›</span><span>${tD.map(f0).join(" / ")}</span></div>`:'<div class="hint">levels load with the Level Roadmap…</div>'}</div>
+     <div class="nsub" style="--c:#eab308"><b style="font-size:16px">🎯 Trade decision</b>
+       <div class="ncards3" style="margin-top:8px">
+         <div class="ndec${dec==="CE"?" on":""}" style="--c:#22c55e">↗ <b>CE</b><small>${hi?`above ${f0(hi)}`:""}</small></div>
+         <div class="ndec${dec==="PE"?" on":""}" style="--c:#ef4444">↘ <b>PE</b><small>${lo?`below ${f0(lo)}`:""}</small></div>
+         <div class="ndec${dec==="WAIT"?" on":""}" style="--c:#eab308">⏸ <b>WAIT</b><small>inside the range</small></div></div></div>
+     <div class="nsub" style="--c:#a78bfa"><b style="font-size:16px">⚙ Setup conditions</b><div class="nchk" style="margin-top:4px">
+       ${ck(F.dayp==null?null:(bu?F.dayp>0:be?F.dayp<0:null),"Trend",F.dayp==null?"–":`day ${F.dayp>0?"+":""}${F.dayp.toFixed(2)}% (${F.dayp>0.3?"bullish":F.dayp<-0.3?"bearish":"flat"})`)}
+       ${ck(F.r30==null?null:(bu?F.r30>0:be?F.r30<0:Math.abs(F.r30)<0.15),"Momentum",F.r30==null?"–":`30 min ${F.r30>0?"+":""}${F.r30.toFixed(2)}%`)}
+       ${ck(F.pos==null?null:(bu?F.pos>0.5:be?F.pos<0.5:null),"Day range",F.pos==null?"–":F.pos>=0.85?"near the day HIGH":F.pos<=0.15?"near the day LOW":`${Math.round(F.pos*100)}% of today's range`)}
+       ${ck(B.dn==null?null:(bu?B.dn<50:be?B.dn>50:null),"Breadth",B.dn==null?"–":`${100-B.dn}% of stocks up`)}
+       ${ck(V==="MIXED"?null:true,"History",V==="MIXED"?"similar past moments split — no edge":`${bu?up:dn}% of ${P.n} similar moments went ${bu?"up":"down"}`)}</div></div>
+   </div>
+   ${PK.length?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">${PK.map(pick).join("")}</div>`:""}
+   <div style="display:flex;height:30px;border-radius:12px;overflow:hidden;margin-top:10px;font-weight:800;font-size:13.5px;color:#0b1220">
+     <div style="width:${bb}%;background:#4ade80;display:flex;align-items:center;justify-content:center">${bb>=18?`~${bb}% bullish${hi?` (if ${f0(hi)} holds)`:""}`:""}</div>
+     <div style="width:${100-bb}%;background:#f87171;display:flex;align-items:center;justify-content:center">${100-bb>=18?`~${100-bb}% bearish${lo?` (below ${f0(lo)})`:""}`:""}</div></div>
+   <div style="margin-top:6px;font-size:13.5px">▶ <b>Bias:</b> ${bu?`Bullish for the next hour${hi?` — strongest if ${esc(A.name)} closes above ${f0(hi)} with volume`:""}.`:be?`Bearish for the next hour${lo?` — strongest if ${esc(A.name)} closes below ${f0(lo)}`:""}.`:`No edge — wait for a clean break${hi&&lo?` (above ${f0(hi)} → CE · below ${f0(lo)} → PE)`:""}.`}</div>
+   <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how it works · learning · track record</summary>
+    <div class="hint" style="font-size:11px">Now: ${esc(A.pattern)}. Bullish / bearish = share of the ${P.n} most similar past moments where NIFTY moved ±0.2 % in the next hour (sideways = the rest). Crash 0.8 %+: ${P.crash}% (normal ${(P.base||{}).crash}%) · rally 0.8 %+: ${P.rally}% (normal ${(P.base||{}).rally}%). Key levels come from the Level Roadmap.</div>
+    <div class="hint" style="font-size:11px">${mem}</div><div class="hint" style="font-size:11px">${trk}. History, not a promise.</div></details></div>`; }
 async function brPoll(){ let w=30000; try{ const r=await fetch("/api/behaviour",{cache:"no-store"}); if(r.ok){ BRD=await r.json(); if(!BRD.market_open) w=120000; brRender();
    const A=(BRD.answers||{}).NIFTY; if(A){ const k=A.verdict+A.bar.slice(0,2); if(BRV!==null&&A.verdict!==BRV&&A.verdict!=="MIXED") speak(A.verdict==="CRASH RISK"?"Market brain. Big fall risk is high now. Avoid call options.":A.verdict==="RALLY CHANCE"?"Market brain. Big rise chance is high now. Avoid put options.":`Market brain. Nifty more likely ${A.verdict==="DOWN"?"lower":"higher"} in the next hour.`,A.verdict.includes(" ")); BRV=A.verdict; } } }catch(e){} WT(brPoll,w); }
 setTimeout(brPoll,2000);
@@ -4021,7 +4137,7 @@ const MNV={"TAKE":"#16a34a","WAIT":"#d97706","HOLD":"#2563eb","LATE":"#64748b","
 function mannanHTML(M){ const R=(M||{}).rows||[], live=R.filter(r=>!["DONE"].includes(r.verdict)), done=R.filter(r=>r.verdict==="DONE");
   const row=r=>{ const tk=((LAST_S||{}).ticks||{})[r.token]; return `<div style="display:grid;grid-template-columns:62px 1fr minmax(210px,34%);gap:8px;align-items:center;padding:6px 8px;border-radius:9px;background:rgba(0,0,0,.25);margin-top:5px;${MNSEEN&&MNSEEN.fresh&&MNSEEN.fresh.has(r.id)?"outline:2px solid #fde047;":""}">
      <div><b style="font-size:15px">${esc(r.time)}</b><div class="hint" style="font-size:10.5px">${r.hidden?"hidden":""}</div></div>
-     <div><b style="font-size:14.5px" class="${r.side==="CE"?"up":"dn"}">BUY ${esc(r.symbol)} ${esc(r.strike??"")} ${esc(r.side)}</b> <small class="hint">${esc(r.source)}</small>
+     <div><b style="font-size:14.5px" class="${r.side==="CE"?"up":"dn"}">${symIcon(r.symbol,20)}BUY ${esc(r.symbol)} ${esc(r.strike??"")} ${esc(r.side)}</b> <small class="hint">${esc(r.source)}</small>
        <div style="font-size:12px">Entry ₹${n2(r.entry)} · SL ₹${n2(r.sl)} · T ${(r.targets||[]).map(n2).join(" / ")||"–"} · LTP <b>₹${n2(r.ltp)}</b>${r.pnl_lot!=null&&r.status!=="OPEN"?` · ${r.pnl_lot>=0?"+":"−"}₹${n2(Math.abs(r.pnl_lot))}/lot`:""}</div></div>
      <div style="border-left:3px solid ${MNV[r.verdict]};padding-left:8px"><b style="color:#fff;background:${MNV[r.verdict]};border-radius:6px;padding:1px 8px">🤖 ${esc(r.verdict)}</b> <b style="font-size:15px">${r.conf}%</b> <small class="hint">confidence</small>
        <div style="font-size:11.5px;margin-top:2px">${esc(r.txt)}</div><details><summary class="hint" style="font-size:10.5px">why ${r.conf}%</summary>${(r.why||[]).map(w=>`<div class="hint" style="font-size:10.5px">• ${esc(w)}</div>`).join("")}</details>
