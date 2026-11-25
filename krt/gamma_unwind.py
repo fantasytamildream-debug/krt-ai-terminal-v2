@@ -465,7 +465,7 @@ def run(ag, inst, C, ltp_of, now, regime, sl_today=0):
     day = str(now.date())
     mins = now.hour * 60 + now.minute
     if ST["day"] != day:
-        ST.update(day=day, sel={}, zones=[], contracts=[], signals={}, armed={}, entries=0, cool={})
+        ST.update(day=day, sel={}, zones=[], contracts=[], signals={}, armed={}, entries=0, cool={}, sel_try=0)   # v136: sel_try reset daily
     ST["regime"] = regime
     slot = "13:15" if mins >= 13 * 60 + 15 else "09:20" if mins >= 9 * 60 + 20 else None
     health = {"api_fail": 0, "stale": 0, "checked": 0}

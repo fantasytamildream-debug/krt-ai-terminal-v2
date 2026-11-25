@@ -112,10 +112,13 @@ def run(ag, now, idx_rows, nifty_pct):
             for s in live:
                 for l in s["legs"]:
                     toks.setdefault(l["exch"], []).append(l["token"])
+            CALLS_LOCK.release()                       # v136: quotes outside the calls lock
             try:
                 qs = ag.quotes(toks) or {}
             except Exception:
                 qs = {}
+            finally:
+                CALLS_LOCK.acquire()
             spot = {x["index"]: x.get("spot") for x in idx_rows or []}
             for s in live:
                 cost = value(s, qs)

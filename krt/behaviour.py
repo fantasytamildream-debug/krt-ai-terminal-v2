@@ -12,6 +12,7 @@ Learning: every evening it re-tests 4 ways of judging "similar" on the last 15 d
 import math
 import pickle
 import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -171,16 +172,24 @@ def build(store_dir, ag, now, log=print):
         start = (df.index.max() + pd.Timedelta(minutes=5)) if df is not None and len(df) else end - pd.Timedelta(days=180)
         start = max(start, end - pd.Timedelta(days=180))
         parts = [df] if df is not None else []
-        s = start
-        while s < end:
-            e = min(end, s + pd.Timedelta(days=60))
-            try:
-                x = ag.candles("NSE", t, "FIVE_MINUTE", s, e)
+        # v136: NEWEST first, 30-day pieces, retry when Angel rate-limits (it returns an empty table) — v135 kept only the OLDEST
+        # 40 days (May–July) and compared today with a July close → "day +7.20 %, gap +6.89 %"
+        e = end
+        while e > start:
+            s = max(start, e - pd.Timedelta(days=30))
+            x = None
+            for attempt in range(3):
+                try:
+                    x = ag.candles("NSE", t, "FIVE_MINUTE", s, e)
+                except Exception as ex:
+                    log(f"behaviour candles {n}: {ex}")
+                    x = None
                 if x is not None and len(x):
-                    parts.append(x[["open", "high", "low", "close"]])
-            except Exception as ex:
-                log(f"behaviour candles {n}: {ex}")
-            s = e + pd.Timedelta(minutes=1)
+                    break
+                time.sleep(2.5 * (attempt + 1))
+            if x is not None and len(x):
+                parts.append(x[["open", "high", "low", "close"]])
+            e = s - pd.Timedelta(minutes=1)
         if parts:
             d = pd.concat(parts)
             d = d[~d.index.duplicated(keep="last")].sort_index()
@@ -193,6 +202,10 @@ def build(store_dir, ag, now, log=print):
     if "NIFTY" not in raw:
         M["err"] = "no candle history yet (Angel)"
         return False
+    last = raw["NIFTY"].index.max()
+    prev_wd = (end.normalize() - pd.offsets.BDay(1)) if end.hour * 60 + end.minute < 15 * 60 + 35 else end.normalize()
+    M["fresh"] = bool(last.normalize() >= prev_wd - pd.Timedelta(days=3))        # holidays allowed
+    M["last_day"] = str(last.date())
     hist = {}
     for n in ("NIFTY", "BANKNIFTY"):
         if n in raw:
@@ -230,8 +243,8 @@ def _describe(q, name):
     return " · ".join(t)
 
 
-def live(name, today_df, other_df=None, now=None):
-    """Today's 5-min candles → answer for the last CLOSED candle."""
+def live(name, today_df, other_df=None, now=None, prev_close=None):
+    """Today's 5-min candles → answer for the last CLOSED candle. prev_close (from the live index %) overrides history."""
     with LOCK:
         hist = M["hist"].get(name)
         raw = (M.get("raw") or {}).get(name)
@@ -253,7 +266,13 @@ def live(name, today_df, other_df=None, now=None):
     F = features(full, oth)
     if F.empty:
         return None
-    q = F.iloc[-1]
+    q = F.iloc[-1].copy()
+    if prev_close:
+        stale = pre is None or not len(pre) or (td.index[0].normalize() - pre.index.max().normalize()).days > 4
+        q["dayp"] = (float(q["close"]) / prev_close - 1) * 100
+        q["gap"] = (float(td["open"].iloc[0]) / prev_close - 1) * 100
+        if stale:
+            q["prevday"] = 0.0
     a = answer(H, Z, q, tuned["wset"], tuned["k"], before=str(td.index[0].date()))
     dn, up = a["dn"], a["up"]
     edge = dn - up

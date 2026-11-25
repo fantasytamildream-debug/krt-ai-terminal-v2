@@ -342,7 +342,11 @@ def track(ag, now):
         op = [c for c in d["calls"].values() if (c["kind"] == "MCX" or c.get("exch") == "MCX") and c["status"] in OPEN]
         if not op:
             return 0
-        qs = ag.quotes({"MCX": [c["token"] for c in op]}) or {}
+        CALLS_LOCK.release()                           # v136: quotes outside the calls lock
+        try:
+            qs = ag.quotes({"MCX": [c["token"] for c in op]}) or {}
+        finally:
+            CALLS_LOCK.acquire()
         hm = now.strftime("%H:%M")
         for c in op:
             q = qs.get(c["token"]) or {}

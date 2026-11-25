@@ -3408,7 +3408,7 @@ function warnHTML(w){ return (w||[]).length?`<div style="color:#f59e0b;font-size
 function riseTag(id,s){ const r=(((s||LAST_S||{}).riser||{}).live||[]).find(x=>x.id===id); return r?`<span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800">🚀 ${r.state==="STRONG"?"STRONG ":""}RISING +${r.chg3m}% / 3 min</span>`:""; }
 let RISE_SEEN=null;
 function riserHTML(s){ const R=s.riser||{}, L=R.live||[], A=(R.alerts||[]).filter(a=>a.time);
-  const k=A.map(a=>a.id+a.ltp).join(","); if(RISE_SEEN!==null&&k!==RISE_SEEN&&A[0]){ try{ speak(`Rising. ${A[0].symbol} ${A[0].strike} ${A[0].side==="CE"?"C E":"P E"} up ${A[0].chg3m} percent in 3 minutes.`); }catch(e){} } RISE_SEEN=k;
+  const k=A.map(a=>a.id+a.ltp).join(","); RISE_SEEN=k;   /* v136: voice + popup now come from the 2-second tick feed (riseVoice) */
   if(!L.length&&!A.length) return "";
   return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">🌱 building +2.5% · 🚀 rising +4% · 🔥 strong +8% in 3 min · checks every 10 s · ${esc(R.time||"")}</small></h2>
     ${L.length?L.map(r=>`<div class="rrow" style="border-color:${r.state==="BUILDING"?"#f59e0b":"#16a34a"}"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥 STRONG":r.state==="RISING"?"🚀 RISING":"🌱 BUILDING"} · ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><span class="hint">${esc(r.source||"")}${r.hidden?' · <b style="color:#f59e0b">hidden module (losing record)</b>':""}</span></div>
@@ -3908,7 +3908,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v135";
+const APPV="v136";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3919,8 +3919,18 @@ function idxTicker(s){
     + (mc.length?mc.map(r=>`<span id="${tkId(r.name)}" class="tk mcx"><b>🛢 ${esc(r.name)}</b> <span class="tkv">${n2(r.px)}</span>${r.pct!=null?` <small class="tkp">${r.pct>=0?"▲ +":"▼ "}${n2(r.pct)}%</small>`:""}</span>`).join(""):"")
     + `<span class="hint" id="tkTime">${TICKT?"⚡ live "+esc(TICKT):"live "+esc(String(((s.full||{}).tick_time)||"").slice(11,19))}</span>`;
 }
+/* v136: the headline follows TODAY's live NIFTY move (it used to show the 20/50-day trend — "trending up" even on a crash day) */
+let DAILY_TR=null;
+function heroHead(p){ const d=DAILY_TR==="TRENDING UP"?"up":DAILY_TR==="TRENDING DOWN"?"down":DAILY_TR?"sideways":null, tail=d?` · bigger trend ${d}`:"";
+  if(p==null||isNaN(p)) return ["Market unclear — wait","var(--watch)"];
+  if(p<=-1) return [`📉 Market falling hard today — NIFTY ${p.toFixed(2)}%${tail}`,"var(--pe)"];
+  if(p<=-0.3) return [`🔻 Market down today — NIFTY ${p.toFixed(2)}%${tail}`,"var(--pe)"];
+  if(p>=1) return [`🚀 Market rising strongly today — NIFTY +${p.toFixed(2)}%${tail}`,"var(--ce)"];
+  if(p>=0.3) return [`🟢 Market up today — NIFTY +${p.toFixed(2)}%${tail}`,"var(--ce)"];
+  return [`↔ Market flat today — NIFTY ${p>=0?"+":""}${p.toFixed(2)}%${tail}`,"var(--watch)"]; }
 function applyTicks(j){
   if(j.v) APPV_SRV=j.v;
+  try{ const np=((j.items||{}).NIFTY||{}).pct, hl=$("headline"); if(np!=null&&hl&&DAILY_TR!==null){ const [h,c]=heroHead(np); hl.innerHTML=`<span class="dot live" style="background:${c}"></span>${esc(h)}`; } }catch(e){}
   Object.entries(j.items||{}).forEach(([n,x])=>{ const old=TICKS[n]; TICKS[n]=x; const el=$(tkId(n)); if(!el) return;
     const v=el.querySelector(".tkv"), p=el.querySelector(".tkp"); if(v) v.textContent=n2(x.ltp);
     if(p) p.textContent=(x.pct>=0?"▲ +":"▼ ")+n2(x.pct)+"%";
@@ -3974,13 +3984,25 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
   if(!A){ el.innerHTML=`<div class="predbox" style="border-color:#a78bfa"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain</b><span>${tabs}</span></div>
      <div class="hint">${esc(BRD.err||(BRD.built?"waiting for the next closed 5-min candle…":"loading 6 months of market memory (first start takes ~1 min)…"))}</div><div class="hint" style="font-size:11px">${mem}</div></div>`; return; }
   const P=A.p||{}, b=P.base||{}, chip=(l,v,bb,c)=>`<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:8px;background:rgba(0,0,0,.35);border:1px solid ${c}"><b style="color:${c}">${v}%</b> ${l} <small class="hint">normal ${bb}%</small></span>`;
+  const up=P.up||0, dn=P.dn||0, fl=Math.max(0,100-up-dn), V=A.verdict;
+  const big=V==="CRASH RISK"?["⬇⬇ BIG FALL RISK","#dc2626","Don't buy CE. Protect CE positions. PE only on a bounce, small size."]:
+            V==="RALLY CHANCE"?["⬆⬆ BIG RISE CHANCE","#16a34a","Don't buy PE. CE on dips, small size."]:
+            V==="DOWN"?["⬇ GOING DOWN (more likely)","#ef4444","Prefer PE · skip fresh CE."]:
+            V==="UP"?["⬆ GOING UP (more likely)","#22c55e","Prefer CE · skip fresh PE."]:
+            ["↔ NO CLEAR DIRECTION","#eab308","Wait — trade only a clean break (see Level Roadmap)."];
   el.innerHTML=`<div class="predbox" style="border-color:#a78bfa">
-   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain — ${esc(A.name)} ${Number(A.spot).toLocaleString("en-IN")}</b><span>${tabs}</span></div>
-   <div class="hint" style="font-size:11.5px">Right now: <b style="color:#e2e8f0">${esc(A.pattern)}</b> · candle ${esc(A.bar)} · ${P.n} most similar moments from the past</div>
-   <div style="margin-top:6px;padding:8px 10px;border-radius:10px;border-left:6px solid ${A.color};background:rgba(0,0,0,.3)"><div style="font-size:18px;font-weight:800;color:${A.color}">${esc(A.head)}</div>
-     ${A.side?`<div style="font-size:13px;margin-top:3px">Options: <b class="${A.side==="CE"?"up":"dn"}">${A.side} side</b> is favoured — take only ${A.side} calls from your strategies (Mannan box / JARVIS); skip ${A.side==="CE"?"PE":"CE"}.</div>`:`<div style="font-size:13px;margin-top:3px">Options: no side favoured — wait for a clean break (see Level Roadmap).</div>`}</div>
-   <div style="margin-top:6px;font-size:12px">Next 60 min, in similar past moments: ${chip("fell 0.3%+ more",P.fall,b.fall,"#f87171")}${chip("rose 0.3%+",P.rise,b.rise,"#4ade80")}${chip("crash 0.8%+",P.crash,b.crash,"#dc2626")}${chip("rally 0.8%+",P.rally,b.rally,"#16a34a")} <span class="hint">typical move ${P.med60>0?"+":""}${P.med60}%</span></div>
-   <div class="hint" style="font-size:11px;margin-top:4px">${mem}</div><div class="hint" style="font-size:11px">${trk}. It learns every evening: adds the day to memory and re-tests 4 ways of matching on the last 15 days, keeping the best. History, not a promise.</div></div>`; }
+   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center"><b style="font-size:15px;color:#a78bfa">🧠 Market Brain — ${esc(A.name)} next 1 hour</b><span>${tabs}</span></div>
+   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px">
+     <div style="font-size:26px;font-weight:900;color:${big[1]}">${big[0]}</div>
+     <div style="font-size:14px">${esc(big[2])}</div></div>
+   <div style="display:flex;height:22px;border-radius:8px;overflow:hidden;margin-top:6px;font-size:12px;font-weight:700;color:#0b1220">
+     <div style="width:${up}%;background:#22c55e;display:flex;align-items:center;justify-content:center">${up>=8?`⬆ ${up}%`:""}</div>
+     <div style="width:${fl}%;background:#64748b;display:flex;align-items:center;justify-content:center;color:#e2e8f0">${fl>=12?`flat ${fl}%`:""}</div>
+     <div style="width:${dn}%;background:#ef4444;display:flex;align-items:center;justify-content:center">${dn>=8?`⬇ ${dn}%`:""}</div></div>
+   <div class="hint" style="font-size:11px;margin-top:3px">From ${P.n} past moments that looked like now (${esc(A.pattern)}) — what NIFTY did in the next hour. Up/down = moved 0.2%+.</div>
+   <details style="margin-top:4px"><summary class="hint" style="font-size:11px">details · learning · track record</summary>
+    <div style="margin-top:4px;font-size:12px">${chip("fell 0.3%+ more",P.fall,b.fall,"#f87171")}${chip("rose 0.3%+",P.rise,b.rise,"#4ade80")}${chip("crash 0.8%+",P.crash,b.crash,"#dc2626")}${chip("rally 0.8%+",P.rally,b.rally,"#16a34a")} <span class="hint">typical move ${P.med60>0?"+":""}${P.med60}% · candle ${esc(A.bar)}</span></div>
+    <div class="hint" style="font-size:11px;margin-top:4px">${mem}</div><div class="hint" style="font-size:11px">${trk}. It learns every evening: adds the day to memory and re-tests 4 ways of matching on the last 15 days, keeping the best. History, not a promise.</div></details></div>`; }
 async function brPoll(){ let w=30000; try{ const r=await fetch("/api/behaviour",{cache:"no-store"}); if(r.ok){ BRD=await r.json(); if(!BRD.market_open) w=120000; brRender();
    const A=(BRD.answers||{}).NIFTY; if(A){ const k=A.verdict+A.bar.slice(0,2); if(BRV!==null&&A.verdict!==BRV&&A.verdict!=="MIXED") speak(A.verdict==="CRASH RISK"?"Market brain. Big fall risk is high now. Avoid call options.":A.verdict==="RALLY CHANCE"?"Market brain. Big rise chance is high now. Avoid put options.":`Market brain. Nifty more likely ${A.verdict==="DOWN"?"lower":"higher"} in the next hour.`,A.verdict.includes(" ")); BRV=A.verdict; } } }catch(e){} WT(brPoll,w); }
 setTimeout(brPoll,2000);
@@ -4014,7 +4036,12 @@ setTimeout(mannanPoll,1500);
 async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok){ const T=await r.json(); applyTicks(T);
     try{ crashVoice(T.crash); }catch(e){}
     try{ bigVoice(T.big||[]); }catch(e){}
-    const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:""; } }catch(e){} WT(tickPoll,2000); }
+    try{ riseVoice(T.rise||[]); }catch(e){}
+    const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.lock?` · calls lock held ${T.sbusy.lock.s}s by ${esc(T.sbusy.lock.by)} at ${esc(T.sbusy.lock.at)}`:T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:T.lock?`⏳ calls lock held ${T.lock.s}s by ${esc(T.lock.by)} at ${esc(T.lock.at)}`:""; } }catch(e){} WT(tickPoll,2000); }
+let RISEV=null;
+function riseVoice(R){ const ks=R.map(r=>r.k); if(RISEV===null){ RISEV=new Set(ks); return; } const nw=R.filter(r=>!RISEV.has(r.k)); ks.forEach(k=>RISEV.add(k));
+  nw.slice(0,2).forEach(r=>{ const ce=r.side==="CE"; speak(`${r.state==="STRONG"?"Strong move":"Rising"}. Buyers in ${r.symbol} ${r.strike} ${ce?"call":"put"}. Up ${Math.round(r.chg3m)} percent in 3 minutes.`,true);
+    try{ toast(`<b>🚀 ${r.state==="STRONG"?"STRONG MOVE":"RISING"} · ${esc(r.time||"")}</b><br>${esc(r.symbol)} ${esc(r.strike??"")} ${esc(r.side||"")} ₹${n2(r.ltp)} · +${r.chg3m}% in 3 min${r.hidden?" · hidden module call":""}<br>${esc(r.act||"")}`); }catch(e){} }); }
 let BIGV=null;
 function bigVoice(B){ const ks=B.map(b=>b.k); if(BIGV===null){ BIGV=new Set(ks); return; }
   const nw=B.filter(b=>!BIGV.has(b.k)); ks.forEach(k=>BIGV.add(k)); let n=0;
@@ -4063,9 +4090,8 @@ function render(s){
   let head="Scan இன்னும் நடக்கவில்லை", sub="“Full market scan” click பண்ணுங்க.", color="var(--late)";
   if (!s.configured){ head="Angel One connect ஆகவில்லை"; sub = s.hosted ? "Render → Environment-ல் ANGEL_API_KEY, ANGEL_CLIENT_ID, ANGEL_MPIN, ANGEL_TOTP_SECRET சேருங்க." : "Settings-ல் Angel One details கொடுங்க."; }
   if (f){
-    const m=f.trend;
-    head = m==="TRENDING UP"?"Market trending up":m==="TRENDING DOWN"?"Market trending down":m==="RANGE-BOUND"?"Market range-bound":"Market unclear — wait";
-    color = m==="TRENDING UP"?"var(--ce)":m==="TRENDING DOWN"?"var(--pe)":"var(--watch)";
+    DAILY_TR=f.trend; const nx=(f.index||[]).find(x=>x.index==="NIFTY")||{}, np=(TICKS.NIFTY||{}).pct??nx.pct;
+    [head,color]=heroHead(np);
     sub = (f.best||[]).length ? `${(f.best||[]).length} confirmed setup. Chart-ல் check பண்ணிட்டு முடிவு பண்ணுங்க.` : "Confirmed setup இல்லை — WAIT.";
   }
   if (s.full_error) sub = "Error: " + s.full_error;

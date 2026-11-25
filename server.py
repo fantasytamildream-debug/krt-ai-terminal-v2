@@ -677,6 +677,9 @@ def gu_loop():
             ltp_of = {}
             mins = t.hour * 60 + t.minute
             need_sel = (mins >= 13 * 60 + 15 and "13:15" not in G.ST["sel"]) or ("09:20" not in G.ST["sel"] and "13:15" not in G.ST["sel"]) or G.ST["day"] != str(t.date())
+            # v136 FIX: when the morning selection found 0 strikes, gamma_unwind.run() retries the selection — but we only fetched
+            # stock prices on the very first run, so every retry ran with NO prices → "Watch strikes 0" until 13:15 (GU silent)
+            need_sel = need_sel or (not G.ST.get("contracts") and G.ST.get("sel_try", 0) < 12)
             if need_sel:
                 names = [n for n in inst["fno"] if n in inst["eq"]]
                 qs = ANGEL.quotes({"NSE": [inst["eq"][n] for n in names]})
@@ -755,7 +758,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v135"
+APP_VERSION = "v136"
 EVC = {"t": 0, "d": None}
 
 
@@ -1206,8 +1209,10 @@ def behav_loop():
             from krt.angel_api import Angel
             ANGEL = ANGEL or Angel()
             hm = t.hour * 60 + t.minute
-            need = BH.M["built"] is None or (t.weekday() < 5 and hm >= 15 * 60 + 40 and built_day != str(t.date()))
-            if need and not (market_open(t) and BH.M["built"] is not None):
+            stale = BH.M["built"] is not None and not BH.M.get("fresh") and time.time() - BHC.get("tried", 0) > 1200
+            need = BH.M["built"] is None or stale or (t.weekday() < 5 and hm >= 15 * 60 + 40 and built_day != str(t.date()))
+            if need and (stale or not (market_open(t) and BH.M["built"] is not None)):
+                BHC["tried"] = time.time()
                 ok = BH.build(ROOT / "data" / "cache", ANGEL, t)
                 if ok and hm >= 15 * 60 + 40:
                     built_day = str(t.date())
@@ -1229,7 +1234,9 @@ def behav_loop():
             out = {}
             for n in ("NIFTY", "BANKNIFTY"):
                 if n in today:
-                    out[n] = BH.live(n, today[n], today.get("BANKNIFTY" if n == "NIFTY" else "NIFTY"), t.tz_localize(None) if t.tzinfo else t)
+                    _ti = TICK["items"].get(n) or {}
+                    _pc = (float(_ti["ltp"]) / (1 + float(_ti["pct"]) / 100)) if _ti.get("ltp") and _ti.get("pct") is not None else None
+                    out[n] = BH.live(n, today[n], today.get("BANKNIFTY" if n == "NIFTY" else "NIFTY"), t, _pc)
             BHC.update(d=out, today=today, time=real_hms(), err=None)
             try:
                 from krt.calls import STORE as _S, CALLS_LOCK as _CL
@@ -2712,9 +2719,20 @@ class H(BaseHTTPRequestHandler):
                 _big = [{"k": f"{r['symbol']}|{r['time']}|{'E' if r.get('early') else 'C'}", "symbol": r["symbol"], "side": r["side"], "mult": r.get("mult"),
                          "early": bool(r.get("early")), "time": str(r["time"])[-5:], "strike": (r.get("opt") or {}).get("strike"),
                          "opt": (r.get("opt") or {}).get("side")} for r in _bg]
+                from krt import riser as _RS
+                _rise = [{"k": f"{a['id']}|{a['ltp']}", "symbol": a["symbol"], "strike": a.get("strike"), "side": a.get("side"), "chg3m": a.get("chg3m"),
+                          "state": a.get("state"), "hidden": a.get("hidden"), "ltp": a.get("ltp"), "time": a.get("time"), "act": a.get("act")}
+                         for a in list(_RS.STATE.get("alerts") or [])[:6]]
             except Exception:
-                _cr, _big = None, []
-            return self._send(200, _json({**TICK, "v": APP_VERSION, "crash": _cr, "big": _big, "sbusy": ({"s": int(time.time() - sb), "where": STB.get("where")} if sb and time.time() - sb > 20 else None)}))
+                _cr, _big, _rise = None, [], []
+            try:
+                from krt.calls import CALLS_LOCK as _CLk
+                _lk = _CLk.held()
+            except Exception:
+                _lk = None
+            return self._send(200, _json({**TICK, "v": APP_VERSION, "crash": _cr, "big": _big, "rise": _rise,
+                                          "sbusy": ({"s": int(time.time() - sb), "where": STB.get("where"), "lock": _lk} if sb and time.time() - sb > 20 else None),
+                                          "lock": (_lk if _lk and _lk["s"] >= 15 else None)}))
         if self.path == "/api/status":
             # v112: build the big status JSON at most once per 3 s and share it across clients (lower peak RAM), gzip once.
             # v132: if another request is already building, serve the LAST status at once (was: wait in a queue → page stuck on "Loading…")
@@ -2734,8 +2752,12 @@ class H(BaseHTTPRequestHandler):
                     from krt.calls import STORE as _CS, CALLS_LOCK as _CL
                     if isinstance(full_, dict) and isinstance(full_.get("tracking"), dict):
                         day_ = str(now_ist().date())
-                        with _CL:
+                        if not _CL.acquire(timeout=3):          # v136: a slow loop holding the lock must not freeze the page
+                            raise TimeoutError("calls lock busy")
+                        try:
                             fresh = {c["id"]: dict(c) for c in (_CS.load().get("calls") or {}).values() if c.get("date") == day_ and not c.get("shadow")}
+                        finally:
+                            _CL.release()
                         tr_ = dict(full_["tracking"])
                         for key_ in ("today", "history"):
                             m_ = {c.get("id"): c for c in tr_.get(key_) or []}

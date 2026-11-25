@@ -1,11 +1,53 @@
 """எல்லா calls: Jackpot, Intraday, Swing 5D/10D — original levels freeze, தினமும் track, profit/loss history."""
+import os
+import sys
+import time
 import threading
 import pandas as pd
 from .config import load_settings
 from .store import STORE
 from .telegram import send as tg
 
-CALLS_LOCK = threading.Lock()
+class TracedLock:
+    """v136: a normal lock that remembers WHO holds it and since when — so 'server busy' can name the slow code."""
+
+    def __init__(self):
+        self._l = threading.Lock()
+        self.owner = self.since = self.where = None
+
+    def acquire(self, blocking=True, timeout=-1):
+        ok = self._l.acquire(blocking, timeout)
+        if ok:
+            try:
+                f = sys._getframe(1)
+                if f.f_code.co_name == "__enter__":
+                    f = f.f_back
+                self.where = f"{os.path.basename(f.f_code.co_filename)}:{f.f_lineno} {f.f_code.co_name}"
+            except Exception:
+                self.where = "?"
+            self.owner, self.since = threading.current_thread().name, time.time()
+        return ok
+
+    def release(self):
+        self.owner = self.since = None
+        self._l.release()
+
+    def locked(self):
+        return self._l.locked()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *a):
+        self.release()
+
+    def held(self):
+        s = self.since
+        return {"s": int(time.time() - s), "by": self.owner, "at": self.where} if s else None
+
+
+CALLS_LOCK = TracedLock()
 
 OPEN = ("OPEN", "T1 HIT", "T2 HIT", "T3 HIT", "T4 HIT")
 INTRA = ("JACKPOT", "INTRADAY", "GAMMA", "ELITE", "POWER-A", "POWER-B", "ALL ROUNDER", "MACHINE", "V4", "PICK", "GOKI", "MOVERS", "BREAKOUT", "ORB", "VOI", "AIPICK", "STRONG", "MONEYM", "INDEXJP", "CHART", "MANNAN-IDX", "MANNAN-STK", "NEWS", "PREBRK", "DSK", "FOOTPRINT", "COMBO", "MANNAN-GU")

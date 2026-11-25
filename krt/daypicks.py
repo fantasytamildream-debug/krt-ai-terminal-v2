@@ -107,10 +107,13 @@ def run(ag, now, calls, send=None):
             toks = {}
             for r in live:
                 toks.setdefault(r.get("exch", "NFO"), []).append(r["token"])
+            CALLS_LOCK.release()                       # v136: Angel quote (1–30 s) never holds the calls lock
             try:
                 qs = ag.quotes(toks) or {}
             except Exception:
                 qs = {}
+            finally:
+                CALLS_LOCK.acquire()
             for r in live:
                 if track(r, (qs.get(r["token"]) or {}).get("ltp"), hm):
                     STORE.dirty = True

@@ -74,8 +74,16 @@ class Store:
 
     def load(self):
         if self.data is not None:
-            if self.load_failed:
-                self.retry_remote()
+            if self.load_failed and not getattr(self, "_retrying", False) and time.time() - self._retry_t >= 60:
+                # v136: the GitHub re-fetch (up to 80 s) used to run HERE — inside CALLS_LOCK → whole app froze ("server busy").
+                self._retrying = True
+
+                def _bg():
+                    try:
+                        self.retry_remote()
+                    finally:
+                        self._retrying = False
+                threading.Thread(target=_bg, daemon=True, name="store-retry").start()
             return self.data
         data = None
         if self.remote:

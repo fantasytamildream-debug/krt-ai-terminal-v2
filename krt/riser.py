@@ -65,8 +65,9 @@ def scan(calls, now, send=None):
                "time": now.strftime("%H:%M:%S"), "source": c.get("source_label") or c.get("source"), "act": act,
                "hidden": bool(c.get("shadow")), "sl": sl}
         live.append(row)
-        if state == "BUILDING" or c.get("shadow"):
-            continue                              # building / hidden-module rows are shown, but not pushed as alerts
+        if state == "BUILDING":
+            continue                              # building rows are shown, not pushed
+        # v136: hidden-module calls ALSO alert now (most module calls are hidden by the quality gate → riser stayed silent)
         last = LAST.get(cid)
         if last is None or ltp >= last * (1 + CFG["again"] / 100):
             LAST[cid] = ltp
@@ -74,7 +75,7 @@ def scan(calls, now, send=None):
             new.append(row)
             if send:
                 try:
-                    send(f"🚀 {'STRONG MOVE' if state == 'STRONG' else 'RISING'} · {row['symbol']} {row['strike']:g} {row['side']}\n"
+                    send(f"🚀 {'STRONG MOVE' if state == 'STRONG' else 'RISING'} · {row['symbol']} {row['strike']:g} {row['side']}{' (hidden module call)' if row['hidden'] else ''}\n"
                          f"Premium ₹{ltp:g} · +{row['chg3m']}% in 3 min · {row['from_entry']:+}% from entry ₹{e:g}"
                          + (f" · T1 ₹{t1:g} ({row['to_t1']:+}%)" if t1 else "") + "\n👉 Watch it — in the trade? move SL up. Not in? only enter on a small pullback.",
                          f"rise|{cid}|{round(ltp)}", True)
