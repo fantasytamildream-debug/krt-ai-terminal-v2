@@ -17,6 +17,8 @@ import time
 import numpy as np
 import pandas as pd
 
+OTHER = {"NIFTY": "BANKNIFTY", "BANKNIFTY": "NIFTY", "FINNIFTY": "NIFTY", "SENSEX": "NIFTY"}
+TOKS = {"NIFTY": ("NSE", "99926000"), "BANKNIFTY": ("NSE", "99926009"), "FINNIFTY": ("NSE", "99926037"), "SENSEX": ("BSE", "99919000")}
 FEATS = ["r5", "r15", "r30", "dayp", "gap", "pos", "offhi", "offlo", "tod", "prevday", "bnf"]
 WSETS = {
     "balanced": dict.fromkeys(FEATS, 1.0),
@@ -165,9 +167,9 @@ def build(store_dir, ag, now, log=print):
         raw = pickle.loads(p.read_bytes()) if p.exists() else {}
     except Exception:
         raw = {}
-    toks = {"NIFTY": "99926000", "BANKNIFTY": "99926009"}
+    toks = {"NIFTY": ("NSE", "99926000"), "BANKNIFTY": ("NSE", "99926009"), "FINNIFTY": ("NSE", "99926037"), "SENSEX": ("BSE", "99919000")}
     end = now.normalize() - pd.Timedelta(minutes=1) if now.hour * 60 + now.minute < 15 * 60 + 35 else now
-    for n, t in toks.items():
+    for n, (ex, t) in toks.items():
         df = raw.get(n)
         start = (df.index.max() + pd.Timedelta(minutes=5)) if df is not None and len(df) else end - pd.Timedelta(days=180)
         start = max(start, end - pd.Timedelta(days=180))
@@ -180,7 +182,7 @@ def build(store_dir, ag, now, log=print):
             x = None
             for attempt in range(3):
                 try:
-                    x = ag.candles("NSE", t, "FIVE_MINUTE", s, e)
+                    x = ag.candles(ex, t, "FIVE_MINUTE", s, e)
                 except Exception as ex:
                     log(f"behaviour candles {n}: {ex}")
                     x = None
@@ -207,9 +209,9 @@ def build(store_dir, ag, now, log=print):
     M["fresh"] = bool(last.normalize() >= prev_wd - pd.Timedelta(days=3))        # holidays allowed
     M["last_day"] = str(last.date())
     hist = {}
-    for n in ("NIFTY", "BANKNIFTY"):
+    for n in toks:
         if n in raw:
-            hist[n] = prepare(features(raw[n], raw.get("BANKNIFTY") if n == "NIFTY" else raw.get("NIFTY")))
+            hist[n] = prepare(features(raw[n], raw.get(OTHER[n])))
     tuned = tune(*hist["NIFTY"])
     with LOCK:
         M["hist"] = hist
@@ -260,7 +262,7 @@ def live(name, today_df, other_df=None, now=None, prev_close=None):
     full = pd.concat([pre, td[["open", "high", "low", "close"]]]) if pre is not None else td
     oth = other_df
     if oth is not None and raw is not None:
-        oraw = (M.get("raw") or {}).get("BANKNIFTY" if name == "NIFTY" else "NIFTY")
+        oraw = (M.get("raw") or {}).get(OTHER.get(name, "NIFTY"))
         if oraw is not None:
             oth = pd.concat([oraw[oraw.index.date < td.index[0].date()].tail(150), other_df[["open", "high", "low", "close"]]])
     F = features(full, oth)

@@ -758,7 +758,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v136"
+APP_VERSION = "v137"
 EVC = {"t": 0, "d": None}
 
 
@@ -1120,6 +1120,15 @@ def opt_quotes(items, ttl=20):
 MANNAN_SRC = ["Index OI", "5-min ORB", "Gamma Unwind Classic", "🛢 🥈 Order Flow + Profile", "👑 Mannan Commodity",
               "Breakout CE", "V4 ⚡ ICT Silver Bullet", "👑 Money Machine"]
 MNC = {"t": 0, "d": None}
+# v137: match by NAME only — the medal (🥇🥈🥉) and the "V4"/"🛢" prefix change, so "V4 🥈 Order Flow + Profile" was missed
+MANNAN_KEYS = ["index oi", "5-min orb", "gamma unwind classic", "order flow + profile", "mannan commodity", "breakout ce", "ict silver bullet",
+               "money machine"]
+
+
+def _mn_key(src):
+    s = re.sub(r"[^a-z0-9+\- ]", " ", str(src or "").lower())
+    s = " ".join(w for w in s.split() if w != "v4")
+    return s if s in MANNAN_KEYS else None
 
 
 def mannan_state():
@@ -1139,7 +1148,7 @@ def mannan_state():
     npct = MARKET.get("nifty_pct")
     rows = []
     for c in (d.get("calls") or {}).values():
-        if c.get("date") != day or c.get("kind") == "PICK" or (c.get("source") not in MANNAN_SRC) or _is_dup_shadow(c):
+        if c.get("date") != day or c.get("kind") == "PICK" or not _mn_key(c.get("source")) or _is_dup_shadow(c):
             continue
         tr = T_.get(c.get("source")) or {}
         base = max(35, min(80, tr.get("win") or 50))
@@ -1227,16 +1236,16 @@ def behav_loop():
                 continue
             BHC["slot"] = slot
             today = {}
-            for n, tok in (("NIFTY", "99926000"), ("BANKNIFTY", "99926009")):
-                df = ANGEL.candles("NSE", tok, "FIVE_MINUTE", t.normalize() + pd.Timedelta(hours=9, minutes=15), t)
+            for n, (ex_, tok) in BH.TOKS.items():
+                df = ANGEL.candles(ex_, tok, "FIVE_MINUTE", t.normalize() + pd.Timedelta(hours=9, minutes=15), t)
                 if df is not None and len(df):
                     today[n] = df
             out = {}
-            for n in ("NIFTY", "BANKNIFTY"):
+            for n in BH.TOKS:
                 if n in today:
                     _ti = TICK["items"].get(n) or {}
                     _pc = (float(_ti["ltp"]) / (1 + float(_ti["pct"]) / 100)) if _ti.get("ltp") and _ti.get("pct") is not None else None
-                    out[n] = BH.live(n, today[n], today.get("BANKNIFTY" if n == "NIFTY" else "NIFTY"), t, _pc)
+                    out[n] = BH.live(n, today[n], today.get(BH.OTHER[n]), t, _pc)
             BHC.update(d=out, today=today, time=real_hms(), err=None)
             try:
                 from krt.calls import STORE as _S, CALLS_LOCK as _CL
@@ -1256,7 +1265,25 @@ def behaviour_state():
     if tu.get("skill") is not None:
         tu["skill"] = float(tu["skill"])
     days = {n: len(set(h[0]["date"])) for n, h in (BH.M.get("hist") or {}).items()}
-    return {"time": BHC["time"], "answers": BHC["d"], "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
+    picks = {}
+    for n, A in (BHC["d"] or {}).items():                       # v137: the option to look at, for the side the brain favours
+        if not A:
+            continue
+        try:
+            spot = float((TICK["items"].get(n) or {}).get("ltp") or A["spot"])
+            p = A.get("p") or {}
+            sides = [A["side"]] if A.get("side") else ["CE", "PE"]
+            L = []
+            for sd in sides:
+                st = _cc_strike(n, sd, spot)
+                if not st:
+                    continue
+                q = opt_quotes([(st.get("exch"), st.get("token"))]).get(str(st.get("token"))) or {}
+                L.append({**st, "ltp": q.get("ltp"), "mode": "BUY" if A.get("side") else ("IF IT BREAKS UP" if sd == "CE" else "IF IT BREAKS DOWN")})
+            picks[n] = L
+        except Exception:
+            traceback.print_exc()
+    return {"time": BHC["time"], "answers": BHC["d"], "picks": picks, "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
             "err": BHC["err"] or BH.M.get("err"), "market_open": market_open(now_ist())}
 
 

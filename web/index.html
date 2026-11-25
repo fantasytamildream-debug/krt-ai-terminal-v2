@@ -3908,7 +3908,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v136";
+const APPV="v137";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -3978,7 +3978,7 @@ setTimeout(rmPoll,1200);
 let BRD=null, BRIDX="NIFTY", BRV=null;
 function brSet(n){ BRIDX=n; brRender(); }
 function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.answers||{})[BRIDX], tu=BRD.tuned||{}, tr=BRD.track||{};
-  const tabs=["NIFTY","BANKNIFTY"].map(n=>`<button style="padding:2px 9px;font-size:12px;border-radius:7px;border:1px solid #a78bfa;cursor:pointer;background:${n===BRIDX?"#a78bfa":"transparent"};color:${n===BRIDX?"#0b1220":"#e2e8f0"}" onclick="brSet('${n}')">${n}</button>`).join(" ");
+  const tabs=["NIFTY","BANKNIFTY","SENSEX","FINNIFTY"].map(n=>`<button style="padding:2px 9px;font-size:12px;border-radius:7px;border:1px solid #a78bfa;cursor:pointer;background:${n===BRIDX?"#a78bfa":"transparent"};color:${n===BRIDX?"#0b1220":"#e2e8f0"}" onclick="brSet('${n}')">${n}</button>`).join(" ");
   const mem=`Memory: ${(BRD.days||{})[BRIDX]||"–"} days of 5-min market behaviour${BRD.built?` · last learned ${esc(BRD.built)}`:""}${tu.wset?` · judging "similar" by <b>${esc(tu.wset)}</b> (k ${tu.k})`:""}${tu.skill!=null?` · skill vs normal rate <b class="${tu.skill>0?"up":"dn"}">${tu.skill>0?"+":""}${tu.skill}%</b> (tested on last ${tu.days||15} days)`:""}`;
   const trk=tr.n?`Track record: right <b class="up">${tr.right}</b> · wrong <b class="dn">${tr.wrong}</b> of ${tr.n} checked (60 min later, move ≥0.2%)`:"Track record: builds from today — every 15 min the answer is saved and checked 60 min later";
   if(!A){ el.innerHTML=`<div class="predbox" style="border-color:#a78bfa"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#a78bfa">🧠 Market Behaviour Brain</b><span>${tabs}</span></div>
@@ -3995,6 +3995,13 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px">
      <div style="font-size:26px;font-weight:900;color:${big[1]}">${big[0]}</div>
      <div style="font-size:14px">${esc(big[2])}</div></div>
+   ${(()=>{ const PK=((BRD.picks||{})[BRIDX])||[]; if(!PK.length) return "";
+      const one=k=>{ const ce=k.side==="CE", buy=k.mode==="BUY", c=ce?"#22c55e":"#ef4444";
+        return `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 10px;border-radius:10px;border:2px solid ${c};background:rgba(0,0,0,.35);margin:3px 6px 0 0">
+          <b style="font-size:15px;color:${c}">🎯 ${esc(A.name)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b>
+          <span style="font-size:13px">${buy?"looking good":esc(k.mode.toLowerCase())}${k.ltp?` · ₹${n2(k.ltp)}`:""} · exp ${esc(String(k.expiry||"").slice(0,10))}</span>
+          ${buy&&k.token?paperOpt({symbol:A.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🧠 Market Brain",src_modules:["Market Brain"]}):""}</span>`; };
+      return `<div style="margin-top:6px">${PK.map(one).join("")}${PK[0].mode!=="BUY"?`<span class="hint" style="font-size:11px"> no side yet — take one only after a clean break</span>`:""}</div>`; })()}
    <div style="display:flex;height:22px;border-radius:8px;overflow:hidden;margin-top:6px;font-size:12px;font-weight:700;color:#0b1220">
      <div style="width:${up}%;background:#22c55e;display:flex;align-items:center;justify-content:center">${up>=8?`⬆ ${up}%`:""}</div>
      <div style="width:${fl}%;background:#64748b;display:flex;align-items:center;justify-content:center;color:#e2e8f0">${fl>=12?`flat ${fl}%`:""}</div>
