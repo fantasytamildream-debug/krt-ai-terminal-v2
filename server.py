@@ -3,6 +3,11 @@
 import base64, json, os, re, sys, threading, time, traceback, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+try:                                              # v140: glibc gives every thread its own memory arena → RSS creeps to the 512 MB
+    import ctypes as _ct                           # limit and the big-player loops pause. 2 arenas = same speed, far less RAM.
+    _ct.CDLL("libc.so.6").mallopt(-8, 2)           # M_ARENA_MAX = 2
+except Exception:
+    pass
 import pandas as pd
 
 from krt.config import ROOT
@@ -564,7 +569,12 @@ def early_loop():
             from krt.notify import both as _b
             ANGEL = ANGEL or Angel()
             t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
-            hit_ = BV.early(ANGEL, load_inst(ROOT / "data" / "cache"), t0, _b)
+            try:
+                from krt import crash as _CRm
+                _n10 = _CRm._chg("NIFTY", t, 10)
+            except Exception:
+                _n10 = None
+            hit_ = BV.early(ANGEL, load_inst(ROOT / "data" / "cache"), t0, _b, nifty10=_n10)
             loop_mark("early", BV.ES.get("err") is None, BV.ES.get("err"))
             if hit_:
                 jv_combo_push(_b)                         # an early spike on an open call's side → 🟡 yellow BUY at once
@@ -758,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v137"
+APP_VERSION = "v140"
 EVC = {"t": 0, "d": None}
 
 
@@ -1404,6 +1414,13 @@ def bp_rows(n=30, mkt=None):
     day = str(now_ist().date())
     lq = FSm.C.get("live_q") or {}
     rows = [dict(r) for r in BV.FEED.values() if r.get("date") == day]
+    # v140: ⚡ live early spikes join the table too — it kept moving even when the 5-min candle sweep was paused (memory) at 13:09
+    have = {(r["symbol"], r["side"]) for r in rows if (r.get("seen") or "") >= (now_ist() - pd.Timedelta(minutes=15)).strftime("%H:%M:%S")}
+    for e in BV.EARLY.values():
+        if e.get("date") == day and (e["symbol"], e["side"]) not in have:
+            p_, m_ = float(e.get("price") or 0), float(e.get("move") or 0)
+            p0 = p_ / (1 + m_ / 100) if p_ else 0          # price 2 minutes before the spike → the spike's range
+            rows.append({**e, "seen": str(e.get("full") or "")[11:19], "end": e["time"], "now": p_, "low": min(p_, p0), "high": max(p_, p0)})
     rows.sort(key=lambda r: (not r.get("backfill"), (r.get("seen") or r.get("end") or "")), reverse=True)
     rows = rows[:n]
     q = opt_quotes([((r.get("opt") or {}).get("exch"), (r.get("opt") or {}).get("token")) for r in rows])
@@ -2374,7 +2391,8 @@ def tick_loop():
                     _nf = next((x for x in (STATE.get("full") or {}).get("index") or [] if x.get("index") == "NIFTY"), {})
                     if str((STATE.get("full") or {}).get("session") or "")[:10] == str(t.date()):
                         CRH.seed_day(t, _nf.get("day_high"), _nf.get("day_low"))     # v131: day high survives a restart (slow-bleed signal)
-                    CRH.tick(TICK["items"], t, _AST3.get("risk") or {}, ((FPM.STATE.get("bars") or {}).get("NIFTY") or {}).get(1), _both3)
+                    CRH.tick(TICK["items"], t, _AST3.get("risk") or {}, ((FPM.STATE.get("bars") or {}).get("NIFTY") or {}).get(1), _both3,
+                             ((FPM.STATE.get("bars") or {}).get("BANKNIFTY") or {}).get(1))
                 except Exception:
                     pass
             for tok, q in qs.items():
@@ -2740,12 +2758,24 @@ class H(BaseHTTPRequestHandler):
             try:
                 from krt import crash as _CR, bigvol as _BV
                 _cr = {k: _CR.STATE.get(k) for k in ("level", "side", "signals", "time")}
+                _cr["turn"] = {k: _CR.TURN.get(k) for k in ("side", "since", "off", "day", "text", "strong")} if _CR.TURN.get("side") else None
                 _td = now_ist().strftime("%Y-%m-%d")
                 _bg = sorted([r for r in list(_BV.FEED.values()) if r.get("date") == _td and r.get("side") in ("BUY", "SELL") and not r.get("backfill")]
                              + [r for r in list(_BV.EARLY.values()) if r.get("date") == _td], key=lambda r: r.get("seen") or str(r.get("full") or "")[11:19], reverse=True)[:8]
                 _big = [{"k": f"{r['symbol']}|{r['time']}|{'E' if r.get('early') else 'C'}", "symbol": r["symbol"], "side": r["side"], "mult": r.get("mult"),
                          "early": bool(r.get("early")), "time": str(r["time"])[-5:], "strike": (r.get("opt") or {}).get("strike"),
                          "opt": (r.get("opt") or {}).get("side")} for r in _bg]
+                _big = [b for b in _big] + [{"k": f"SCR|{r['symbol']}|{r['time']}|{r['side']}", "symbol": r["symbol"], "side": r["side"], "crash": True,
+                         "m10": r["m10"], "vol": r["vol"], "time": r["time"], "strike": (r.get("opt") or {}).get("strike"), "opt": (r.get("opt") or {}).get("side"),
+                         "sl": r.get("ul_sl"), "price": r.get("price")} for r in sorted(_BV.SCR.values(), key=lambda r: r["full"], reverse=True)[:6] if r["date"] == _td]
+                try:
+                    from krt import footprint as _FPm
+                    _big += [{"k": f"IDX|{x['key']}", "symbol": x["symbol"], "side": "BUY" if x["side"] == "CE" else "SELL", "index": True,
+                              "mult": None, "delta": x.get("delta_pct"), "stack": x.get("stack"), "time": x["time"], "px": x.get("px")}
+                             for x in list(_FPm.STATE.get("signals") or [])[-30:]
+                             if x.get("date") == _td and x["symbol"] in ("NIFTY", "BANKNIFTY", "SENSEX") and abs(x.get("delta_pct") or 0) >= 60 and (x.get("stack") or 0) >= 3][-4:]
+                except Exception:
+                    pass
                 from krt import riser as _RS
                 _rise = [{"k": f"{a['id']}|{a['ltp']}", "symbol": a["symbol"], "strike": a.get("strike"), "side": a.get("side"), "chg3m": a.get("chg3m"),
                           "state": a.get("state"), "hidden": a.get("hidden"), "ltp": a.get("ltp"), "time": a.get("time"), "act": a.get("act")}
@@ -3101,6 +3131,11 @@ if __name__ == "__main__":
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=behav_loop, daemon=True).start()
+    try:
+        from krt import predict as _PRD
+        _PRD.LIVE["fn"] = lambda: (TICK["items"].get("NIFTY") or {}).get("ltp") if market_open(now_ist()) else None
+    except Exception:
+        traceback.print_exc()
     threading.Thread(target=paper_fast_loop, daemon=True).start()
     threading.Thread(target=bigvol_loop, daemon=True).start()
     threading.Thread(target=early_loop, daemon=True).start()

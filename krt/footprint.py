@@ -220,7 +220,7 @@ def universe(inst, now, extra=None):
     """NIFTY + BANKNIFTY futures (index options-க்கு) + live volume அதிகமான 6 F&O stocks — 5 நிமிடத்துக்கு ஒருமுறை மாறும்."""
     from . import fullscan as FS
     U = []
-    for ix in ("NIFTY", "BANKNIFTY"):
+    for ix in ("NIFTY", "BANKNIFTY", "SENSEX"):           # v140: SENSEX futures too (big buy / sell in SENSEX)
         f = (inst.get("fut") or {}).get(ix)
         if f:
             U.append({"symbol": ix, "token": f[0], "exch": f[3] if len(f) > 3 else "NFO", "kind": "FUT", "opt_name": ix})

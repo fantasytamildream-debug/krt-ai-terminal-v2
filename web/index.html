@@ -484,6 +484,8 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
       <div class="trendcall" id="trendCall"></div>
+      <div id="turnBox"></div>
+      <div id="scrBox"></div>
       <div id="mannanBox"></div>
       <div id="sbusy" class="hint" style="color:#f59e0b"></div>
     </div>
@@ -2874,7 +2876,7 @@ function aiTag(a){ if(!a) return "–"; return `<b style="color:#fff;background:
 /* 🐋 big players with AI action + strike + live premium + Paper — Command Center & JARVIS */
 function bpHTML(B,where){ const col=x=>x==="BUY"?"#22c55e":x==="SELL"?"#ef4444":"#f59e0b";
   return `<div class="labbox" style="border:2px solid #38bdf8;font-size:12.5px"><h2>🐋 Big players now — can I take it? <small class="hint">newest alert first · strike + live premium + AI answer · confirmed only when price breaks the spike candle</small></h2>
-   ${B.length?`<div style="max-height:520px;overflow:auto">${simpleTbl(B,[["Time",r=>`<b>${esc((r.seen||r.end||"").slice(0,5))}</b><div class="hint">candle ${esc(String(r.time).slice(11,16))}–${esc(r.end||"")}${r.backfill?" · old":""}</div>`],
+   ${B.length?`<div style="max-height:520px;overflow:auto">${simpleTbl(B,[["Time",r=>`<b>${esc((r.seen||r.end||"").slice(0,5))}</b><div class="hint">${r.early?"⚡ live — candle not closed yet":`candle ${esc(String(r.time).slice(11,16))}–${esc(r.end||"")}${r.backfill?" · old":""}`}</div>`],
      ["Stock",r=>`<b style="color:${col(r.side)};cursor:pointer" onclick="ccPick('${esc(r.symbol)}')">${r.side==="BUY"?"🟢 BUYING":r.side==="SELL"?"🔴 SELLING":"🟠 ABSORB"} ${esc(r.symbol)}</b><div class="hint">${r.mult}× vol · now ₹${n2(r.now)}</div>`],
      ["Strike",r=>r.opt?`<b style="color:${col(r.side)}" title="exp ${esc(r.opt.expiry)} · lot ${r.opt.lot??"–"}">${n2(r.opt.strike)} ${r.opt.side}</b><div class="hint">${r.opt_ltp?"₹"+n2(r.opt_ltp):"–"} · lot ${r.opt.lot??"–"}</div>`:"–"],
      ["🤖 Can I take it?",r=>`<div style="max-width:380px">${aiShort(r.ai,80)}${(r.ai||{}).plan?`<div class="hint">entry ₹${n2(r.ai.plan.entry)} · SL ₹${n2(r.ai.plan.sl)} · T1 ₹${n2(r.ai.plan.targets[0])}</div>`:""}</div>`],
@@ -3908,7 +3910,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v137";
+const APPV="v140";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4042,17 +4044,36 @@ async function mannanPoll(){ let wait=3000;
 setTimeout(mannanPoll,1500);
 async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok){ const T=await r.json(); applyTicks(T);
     try{ crashVoice(T.crash); }catch(e){}
+    try{ turnShow((T.crash||{}).turn); }catch(e){}
     try{ bigVoice(T.big||[]); }catch(e){}
     try{ riseVoice(T.rise||[]); }catch(e){}
     const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.lock?` · calls lock held ${T.sbusy.lock.s}s by ${esc(T.sbusy.lock.by)} at ${esc(T.sbusy.lock.at)}`:T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:T.lock?`⏳ calls lock held ${T.lock.s}s by ${esc(T.lock.by)} at ${esc(T.lock.at)}`:""; } }catch(e){} WT(tickPoll,2000); }
+let TURNK=null;
+function turnShow(U){ const el=$("turnBox"); const k=U?U.side+U.since:"";
+  if(el) el.innerHTML=U?`<div style="margin-top:8px;padding:9px 12px;border-radius:12px;border:3px solid ${U.side==="DOWN"?"#f97316":"#22c55e"};background:${U.side==="DOWN"?"rgba(249,115,22,.14)":"rgba(34,197,94,.12)"}">
+    <b style="font-size:17px;color:${U.side==="DOWN"?"#fb923c":"#4ade80"}">${U.side==="DOWN"?"📉 PROFIT BOOKING STARTED":"📈 SHORT COVERING STARTED"}${U.strong?" — STRONG":""}</b> <small class="hint">since ${esc(U.since||"")}</small>
+    <div style="font-size:13.5px;margin-top:3px">${esc(U.text||"")}</div></div>`:"";
+  if(U&&k!==TURNK&&TURNK!==null) speak(U.side==="DOWN"?`Profit booking started. Nifty is ${Math.abs(U.off).toFixed(1)} percent below the day high. Book or trail call profits. No fresh calls.`:`Short covering started. Nifty is ${Math.abs(U.off).toFixed(1)} percent above the day low. Book or trail put profits.`,true);
+  TURNK=k; }
 let RISEV=null;
 function riseVoice(R){ const ks=R.map(r=>r.k); if(RISEV===null){ RISEV=new Set(ks); return; } const nw=R.filter(r=>!RISEV.has(r.k)); ks.forEach(k=>RISEV.add(k));
   nw.slice(0,2).forEach(r=>{ const ce=r.side==="CE"; speak(`${r.state==="STRONG"?"Strong move":"Rising"}. Buyers in ${r.symbol} ${r.strike} ${ce?"call":"put"}. Up ${Math.round(r.chg3m)} percent in 3 minutes.`,true);
     try{ toast(`<b>🚀 ${r.state==="STRONG"?"STRONG MOVE":"RISING"} · ${esc(r.time||"")}</b><br>${esc(r.symbol)} ${esc(r.strike??"")} ${esc(r.side||"")} ₹${n2(r.ltp)} · +${r.chg3m}% in 3 min${r.hidden?" · hidden module call":""}<br>${esc(r.act||"")}`); }catch(e){} }); }
 let BIGV=null;
-function bigVoice(B){ const ks=B.map(b=>b.k); if(BIGV===null){ BIGV=new Set(ks); return; }
+function scrShow(B){ const el=$("scrBox"); if(!el) return; const C=B.filter(b=>b.crash), I=B.filter(b=>b.index);
+  if(!C.length&&!I.length){ el.innerHTML=""; return; }
+  el.innerHTML=`<div style="margin-top:8px;padding:8px 12px;border-radius:12px;border:2px solid #f43f5e;background:rgba(244,63,94,.08)">
+    <b style="color:#fb7185">🔻🚀 Big moves right now</b> <small class="hint">F&O stocks crashing / surging (−1.2% in 10 min, 3× volume, still at the low) · NIFTY / BANKNIFTY / SENSEX futures big buy / sell</small>
+    ${C.map(b=>{ const cr=b.side==="CRASH"; return `<div style="margin-top:4px;font-size:13.5px"><b class="${cr?"dn":"up"}">${cr?"🔻 CRASH":"🚀 SURGE"} ${esc(b.symbol)} ${b.m10>0?"+":""}${b.m10}% in 10 min</b> · ${b.vol}× volume · ${esc(b.time)} → <b>${cr?"PE":"CE"} fast: ${esc(b.symbol)} ${esc(b.strike??"ATM")} ${esc(b.opt||"")}</b> <span class="hint">· stop if it goes ${cr?"above":"below"} ${n2(b.sl)}</span></div>`; }).join("")}
+    ${I.map(b=>`<div style="margin-top:4px;font-size:13px"><b class="${b.side==="BUY"?"up":"dn"}">🐋 ${esc(b.symbol)} futures: big ${b.side==="BUY"?"BUYERS":"SELLERS"}</b> · ${b.stack} candles in a row · ${b.delta>0?"+":""}${b.delta}% net ${b.side==="BUY"?"buying":"selling"} · ${esc(b.time)}</div>`).join("")}</div>`; }
+function bigVoice(B){ try{ scrShow(B); }catch(e){} const ks=B.map(b=>b.k); if(BIGV===null){ BIGV=new Set(ks); return; }
   const nw=B.filter(b=>!BIGV.has(b.k)); ks.forEach(k=>BIGV.add(k)); let n=0;
-  nw.forEach(b=>{ if(n>=2||(b.mult||0)<(b.early?4:5)) return; n++;
+  nw.forEach(b=>{ if(n>=2) return;
+    if(b.crash){ n++; const cr=b.side==="CRASH"; speak(`${cr?"Stock crash":"Stock surge"}. ${b.symbol} ${cr?"down":"up"} ${Math.abs(b.m10).toFixed(1)} percent in 10 minutes. ${cr?"Put":"Call"} side. ${b.strike?`${b.strike} ${cr?"put":"call"}.`:""}`,true);
+      try{ toast(`<b>${cr?"🔻 STOCK CRASH":"🚀 STOCK SURGE"} · ${esc(b.time)}</b><br>${esc(b.symbol)} ${b.m10}% in 10 min · ${b.vol}× volume<br>👉 ${cr?"PE":"CE"} fast: ${esc(b.symbol)} ${esc(b.strike??"ATM")} ${esc(b.opt||"")} · stop if ${cr?"above":"below"} ${n2(b.sl)}`); }catch(e){} return; }
+    if(b.index){ n++; speak(`Big ${b.side==="BUY"?"buyers":"sellers"} in ${b.symbol} futures. ${Math.abs(b.delta)} percent net ${b.side==="BUY"?"buying":"selling"}.`,true);
+      try{ toast(`<b>🐋 ${esc(b.symbol)} futures · big ${b.side==="BUY"?"BUYERS":"SELLERS"}</b> · ${esc(b.time)}<br>${b.stack} candles in a row · ${b.delta}% net`); }catch(e){} return; }
+    if((b.mult||0)<(b.early?4:5)) return; n++;
     const buy=b.side==="BUY", txt=`${b.early?"Early ":""}big ${buy?"buyer":"seller"} in ${b.symbol}. ${Math.round(b.mult)} times volume.${b.strike?` Watch ${b.strike} ${buy?"call":"put"}.`:""}`;
     speak(txt,true); try{ toast(`<b>${buy?"🟢":"🔴"} ${esc(b.time)} ${b.early?"⚡ EARLY ":""}BIG ${buy?"BUY":"SELL"} · ${esc(b.symbol)}</b> · ${b.mult}× volume${b.strike?` · watch ${esc(b.strike)} ${esc(b.opt||"")}`:""}`); }catch(e){} }); }
 /* 🕐 AM/PM (railway time இல்லை) */

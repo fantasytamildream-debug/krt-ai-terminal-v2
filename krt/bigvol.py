@@ -243,7 +243,72 @@ EARLY = {}       # "SYM|HH:MM" → row
 ES = {"time": None, "n": 0, "err": None}
 
 
-def early(ag, inst, now, send=None, quotes=None):
+# 🔻 v140 STOCK CRASH / SURGE — a whole-market minute scan for an F&O stock breaking down (or up) hard, the moment it starts
+SCFG = {"m10": 1.2, "m5": 0.8, "rel": 0.8, "vol": 3.0, "near": 0.25, "day": 0.3, "cool": 30, "check": 15, "follow": 0.4}
+SCR = {}         # "SYM|HH:MM|side" → row
+SCT = {"n": 0, "right": 0, "wrong": 0}
+
+
+def _crash_check(sym, h, q, now, inst, nifty10, send, avg_day=0):
+    """h: [(ts, cum_vol, ltp)] per minute. CRASH = −1.2 % in 10 min (or −0.8 % in 5) · ≥0.8 % worse than NIFTY · last-5-min volume ≥3×
+    normal · still at the 10-min low AND near the day low (no bounce). SURGE = mirror. → row or None."""
+    if len(h) < 11:
+        return None
+    ltp = h[-1][2]
+    p10, p5 = h[-11][2], h[-6][2]
+    if not (ltp and p10 and p5):
+        return None
+    m10, m5 = (ltp / p10 - 1) * 100, (ltp / p5 - 1) * 100
+    v5 = h[-1][1] - h[-6][1]
+    past = [h[i][1] - h[i - 5][1] for i in range(5, len(h) - 10)]            # 5-min volumes BEFORE the move (not the move itself)
+    base = max(sorted(past)[len(past) // 2] if past else 0, (avg_day or 0) / 375 * 5 * 0.6, 1)
+    vx = v5 / base
+    lo10, hi10 = min(x[2] for x in h[-11:]), max(x[2] for x in h[-11:])
+    dlo, dhi = float(q.get("low") or 0) or lo10, float(q.get("high") or 0) or hi10
+    rel = m10 - (nifty10 or 0)
+    side = None
+    if (m10 <= -SCFG["m10"] or m5 <= -SCFG["m5"]) and rel <= -SCFG["rel"] and vx >= SCFG["vol"] \
+            and (ltp / lo10 - 1) * 100 <= SCFG["near"] and (ltp / dlo - 1) * 100 <= SCFG["day"]:
+        side = "CRASH"
+    elif (m10 >= SCFG["m10"] or m5 >= SCFG["m5"]) and rel >= SCFG["rel"] and vx >= SCFG["vol"] \
+            and (1 - ltp / hi10) * 100 <= SCFG["near"] and (1 - ltp / dhi) * 100 <= SCFG["day"]:
+        side = "SURGE"
+    if not side:
+        return None
+    today, hm = str(now.date()), now.strftime("%H:%M")
+    last = [r for r in SCR.values() if r["symbol"] == sym and r["side"] == side and r["date"] == today]
+    if last and (now - pd.Timestamp(max(r["full"] for r in last))) < pd.Timedelta(minutes=SCFG["cool"]):
+        return None
+    o = strike_for(inst, sym, "PE" if side == "CRASH" else "CE", ltp)
+    sl = round(hi10 if side == "CRASH" else lo10, 2)
+    row = {"symbol": sym, "date": today, "time": hm, "full": str(now), "side": side, "m10": round(m10, 2), "m5": round(m5, 2), "rel": round(rel, 2),
+           "vol": round(vx, 1), "price": ltp, "ul_sl": sl, "opt": o, "result": None}
+    SCR[f"{sym}|{hm}|{side}"] = row
+    if send:
+        try:
+            crash = side == "CRASH"
+            send(f"{'🔻 STOCK CRASH' if crash else '🚀 STOCK SURGE'} · {sym} {m10:+.2f}% in 10 min ({rel:+.2f}% vs NIFTY) · volume {vx:.1f}× · "
+                 f"{'at the day low — still falling' if crash else 'at the day high — still rising'} @ {ltp:g}"
+                 + (f"\n👉 {'PE' if crash else 'CE'} fast: {sym} {o['strike']:g} {o['side']} (exp {o['expiry']}) · stop if {sym} goes "
+                    f"{'above' if crash else 'below'} {sl:g}" if o else ""), f"scr|{sym}|{hm}|{side}", True)
+        except Exception:
+            pass
+    return row
+
+
+def crash_track(now, px_of):
+    """15 min after each crash / surge alert: did it keep going ≥0.4 %? → honest track record."""
+    for r in SCR.values():
+        if r["result"] is None and (now - pd.Timestamp(r["full"])) >= pd.Timedelta(minutes=SCFG["check"]):
+            p = px_of(r["symbol"])
+            if p:
+                mv = (p / r["price"] - 1) * 100 * (-1 if r["side"] == "CRASH" else 1)
+                r["result"], r["after"] = ("RIGHT" if mv >= SCFG["follow"] else "WRONG" if mv <= -SCFG["follow"] else "FLAT"), round(mv, 2)
+    done = [r for r in SCR.values() if r["result"]]
+    SCT.update(n=len(done), right=sum(1 for r in done if r["result"] == "RIGHT"), wrong=sum(1 for r in done if r["result"] == "WRONG"))
+
+
+def early(ag, inst, now, send=None, quotes=None, nifty10=None):
     """Every minute: one quote call per 50 F&O stocks → per-minute volume from the cumulative day volume.
     Last 2 minutes' volume ≥ 5× the stock's normal 2-minute volume AND price moved ≥0.15% → ⚡ EARLY big BUY / SELL —
     before the 5-min candle even closes. Confirmed later (or not) by the 5-min candle sweep."""
@@ -279,6 +344,10 @@ def early(ag, inst, now, send=None, quotes=None):
             h.clear()                                  # volume reset (new session / bad tick)
         h.append((now, vol, ltp))
         del h[:-ECFG["hist"]]
+        try:
+            _crash_check(sym, h, q, now, inst, nifty10, send, avgd.get(sym) or 0)
+        except Exception:
+            pass
         w = ECFG["win"]
         if len(h) < ECFG["min_hist"] + w:
             continue
@@ -309,6 +378,12 @@ def early(ag, inst, now, send=None, quotes=None):
                      f"early|{k}", True)
             except Exception:
                 pass
+    try:
+        crash_track(now, lambda s: (EH.get(s) or [[None, None, None]])[-1][2])
+    except Exception:
+        pass
+    for k in [k for k, r in SCR.items() if r["date"] != today]:
+        SCR.pop(k, None)
     for k in [k for k, r in EARLY.items() if r["date"] != today]:
         EARLY.pop(k, None)
     if len(EARLY) > ECFG["keep"]:

@@ -96,7 +96,7 @@ def _z(H):
 def neighbours(H, Z, q, wset="balanced", k=60, before=None):
     """H: history with outcomes, Z: its standardised feature matrix, q: one feature row. → index of the k nearest (other days only)."""
     w = np.array([WSETS[wset][f] for f in FEATS])
-    zq = ((q[FEATS].astype(float) - H.attrs["mu"]) / H.attrs["sd"]).values
+    zq = ((q[FEATS].astype(float) - H.attrs["mu"]) / H.attrs["sd"]).values.astype("float32")
     mask = np.ones(len(H), bool) if before is None else (H["date"].values < before)
     d = np.sqrt((((Z - zq) ** 2) * w).sum(axis=1))
     d[~mask] = np.inf
@@ -213,6 +213,11 @@ def build(store_dir, ag, now, log=print):
         if n in raw:
             hist[n] = prepare(features(raw[n], raw.get(OTHER[n])))
     tuned = tune(*hist["NIFTY"])
+    for n, (H, Z) in hist.items():                       # v140: keep RAM small — float32 matrix, no spare columns, raw = last 6 days only
+        H2 = H.drop(columns=[c for c in ("close",) if c in H.columns])
+        H2.attrs.update(H.attrs)
+        hist[n] = (H2, Z.astype("float32"))
+    raw = {n: d[d.index >= d.index.max().normalize() - pd.Timedelta(days=9)] for n, d in raw.items()}
     with LOCK:
         M["hist"] = hist
         M["raw"] = raw
