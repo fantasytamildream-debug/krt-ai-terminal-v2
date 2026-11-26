@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v149"
+APP_VERSION = "v150"
 EVC = {"t": 0, "d": None}
 
 
@@ -1219,6 +1219,7 @@ def mannan_state():
     return d_
 
 
+MNTOP = {}    # call id → first time it entered the AI top 3 today
 MNOI = {}     # option token → first look today {oi, vol, ltp} — how many buyers came into THIS option since the call
 
 
@@ -1334,7 +1335,16 @@ def _mn_rank(rows, cmap, npct, tiers, day):
                     "token": r.get("token"), "exch": r.get("exch"), "contract": r.get("contract"), "lot": r.get("lot"), "expiry": r.get("expiry"),
                     "label": "🏆 BEST" if sc >= 70 else "👍 GOOD" if sc >= 60 else "⚠ WEAK — only if you must"})
     out.sort(key=lambda x: -x["score"])
-    return out[:3]
+    top = out[:3]
+    if MNOI.get("_top_day") != day:
+        MNTOP.clear()
+        MNOI["_top_day"] = day
+    hm = t_now.strftime("%H:%M")
+    for x in top:                       # v150: when did it come + since when is it in the top 3
+        MNTOP.setdefault(x["id"], hm)
+        x["top_since"] = MNTOP[x["id"]]
+        x["came"] = next((r.get("time") for r in rows if r["id"] == x["id"]), None)
+    return top
 
 
 BHC = {"d": {}, "trk": None, "slot": None, "today": {}, "err": None, "time": None}
@@ -1517,6 +1527,517 @@ def _tri_index_option(ix, side, spot, inv, now):
         if best is None or (p["spread_pct"] or 9) < (best[1]["spread_pct"] or 9):
             best = (opt, p)
     return (best, None) if best else (None, why)
+
+
+# ───────────────────────── 🌍 v150 WORLD TOP STRATEGIES ─────────────────────────
+WT = {"frames": {}, "bt_day": None, "busy": False, "oi": {}, "state": {}, "lk": {}}
+WT_MCX = ("GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER")
+WT_IDX = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX")
+
+
+def worldtop_bt_run(force=False):
+    """Walk-forward backtest of every method (once a day, own thread): intraday methods on ~6 months of index 5-min candles,
+    daily methods (VCP · CAN SLIM proxy · Stage Analysis) on ~6 months of F&O daily bars. Saved to disk so a restart keeps it."""
+    from krt import worldtop as W, fullscan as FSm
+    from krt.ailab import _bars_df
+    import pickle
+    p = ROOT / "data" / "cache" / "worldtop_bt.json"
+    day = str(now_ist().date())
+    if not force and W.STATE.get("bt") is None and p.exists():
+        try:
+            j = json.loads(p.read_text())
+            if (pd.Timestamp(day) - pd.Timestamp(j.get("day"))).days <= 3:
+                W.STATE.update(bt=j["bt"], enabled=j["enabled"], bt_time=j.get("time"))
+                WT["bt_day"] = j.get("day")
+                if j.get("day") == day:
+                    return
+        except Exception:
+            pass
+    if WT["busy"] or (WT["bt_day"] == day and not force):
+        return
+    if W.STATE.get("bt") is not None and threading.current_thread().name != "wt-bt" and not force:
+        return
+    WT["busy"] = True
+    try:
+        try:
+            raw = pickle.loads((ROOT / "data" / "cache" / "behav.pkl").read_bytes())
+        except Exception:
+            raw = {}
+        intra, comb = W.backtest_intraday({k: v for k, v in raw.items() if k in WT_IDX}, step_min=15, pause=0.003)
+        bars = {s: _bars_df(b) for s, b in (FSm.C.get("bars") or {}).items()}
+        daily = W.backtest_daily(bars)
+        del bars
+        trades = {k: (daily.get(k) if k in W.DAILY else intra.get(k)) or [] for k in W.FN}
+        res, en = W.walk_forward(trades)
+        cres, cen = W.walk_forward({"consensus": comb})
+        bt = {"methods": res, "consensus": cres.get("consensus"), "consensus_on": cen.get("consensus"), "note": W.COST_NOTE,
+              "data": {"index_days": {k: len(set(v.index.date)) for k, v in raw.items() if k in WT_IDX}, "stocks": len(FSm.C.get("bars") or {})}}
+        W.STATE.update(bt=bt, enabled=en, bt_time=real_hms())
+        WT["bt_day"] = day
+        try:
+            p.write_text(json.dumps({"day": day, "time": real_hms(), "bt": bt, "enabled": en}, default=str))
+        except Exception:
+            pass
+    except Exception as e:
+        traceback.print_exc()
+        W.STATE["err"] = f"backtest: {str(e)[:100]}"
+    finally:
+        WT["busy"] = False
+
+
+def _wt_frame(sym, t0, inst, ttl=280):
+    """5-min frame (≈5 days, closed bars) — index from the behaviour memory, stocks from the SMC cache or Angel, MCX futures."""
+    hit = WT["frames"].get(sym)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    df = None
+    if sym in WT_IDX:
+        df = _tri_d5(sym, t0)
+        if df is not None:
+            df = df[df.index >= df.index.max().normalize() - pd.Timedelta(days=9)]
+    elif sym in WT_MCX:
+        f = (inst.get("mcx_fut") or {}).get(sym)
+        if f:
+            df = get_angel().candles("MCX", f[0], "FIVE_MINUTE", t0 - pd.Timedelta(days=6), t0)
+            if df is not None and len(df):
+                df = df[df.index <= t0.floor("5min") - pd.Timedelta(minutes=5)].tail(600)
+    else:
+        c = SMCC.get(sym)
+        if c and time.time() - c[0] < ttl:
+            df = c[1]
+        else:
+            df = _smc_frame(get_angel(), inst, sym, t0)
+            if df is not None:
+                SMCC[sym] = (time.time(), df)
+    if df is not None and len(df):
+        WT["frames"][sym] = (time.time(), df)
+        if len(WT["frames"]) > 60:
+            for k in sorted(WT["frames"], key=lambda k: WT["frames"][k][0])[:20]:
+                WT["frames"].pop(k, None)
+    return df
+
+
+def _wt_daily(sym):
+    from krt import fullscan as FSm
+    from krt.ailab import _bars_df
+    b = (FSm.C.get("bars") or {}).get(sym)
+    return _bars_df(b) if b else None
+
+
+def _wt_terminal(sym, day, t, ccache):
+    """Today's terminal confirmations for a symbol: every strategy call (36 modules) + big moves + big players + futures flow + screens."""
+    from krt.calls import STORE as _S
+    from krt import bigvol as BV
+    if "calls" not in ccache:
+        ccache["calls"] = [c for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("kind") != "PICK"]
+        ex = EXC.get("d") or {}
+        ccache["screens"] = [(b["title"], p["symbol"], p["side"]) for b in ex.get("boxes") or [] if b.get("key") in ("pa", "qr", "vcp") for p in b.get("picks") or []]
+    side_src = {"CE": [], "PE": []}
+    t120 = (t - pd.Timedelta(minutes=120)).strftime("%H:%M")
+    for c in ccache["calls"]:
+        if c.get("symbol") == sym and c.get("side") in side_src and str(c.get("time") or "") >= t120:
+            side_src[c["side"]].append(re.sub(r"^[^A-Za-z0-9]+", "", str(c.get("source") or c.get("kind") or "")).strip())
+    t30 = (t - pd.Timedelta(minutes=30)).strftime("%H:%M")
+    for r in BV.SCR.values():
+        if r.get("date") == day and r.get("symbol") == sym and str(r.get("time")) >= t30:
+            side_src["PE" if r["side"] == "CRASH" else "CE"].append(f"Big move: {r['side'].lower()}")
+    t60 = (t - pd.Timedelta(minutes=60)).strftime("%H:%M")
+    for r in list(BV.FEED.values()) + list(BV.EARLY.values()):
+        if r.get("date") == day and r.get("symbol") == sym and str(r.get("time") or r.get("end") or "") >= t60 and r.get("side") in side_src:
+            side_src[r["side"]].append("Big players")
+    if sym in ("NIFTY", "BANKNIFTY", "SENSEX"):
+        try:
+            from krt import footprint as _FPm
+            for x in list(_FPm.STATE.get("signals") or [])[-30:]:
+                if x.get("date") == day and x.get("symbol") == sym and abs(x.get("delta_pct") or 0) >= 60 and str(x.get("time")) >= t30:
+                    side_src["CE" if (x.get("delta_pct") or 0) > 0 else "PE"].append("Index futures flow")
+        except Exception:
+            pass
+    for title, s_, sd in ccache.get("screens") or []:
+        if s_ == sym and sd in side_src:
+            side_src[sd].append(re.sub(r"^[^A-Za-z0-9]+", "", title).split(" + ")[0] + " screen")
+    return {k: list(dict.fromkeys(v)) for k, v in side_src.items()}
+
+
+def _wt_one(sym, d5, t, ctx, ccache, inst):
+    """Evaluate one instrument both sides → best scored row (or None)."""
+    from krt import worldtop as W
+    is_idx, mcx = sym in WT_IDX, sym in WT_MCX
+    dd = None if (is_idx or mcx) else _wt_daily(sym)
+    ev = W.evaluate(d5, dd, is_index=is_idx or mcx, rs=ctx["rs"].get(sym))
+    if not ev or not ev["signals"]:
+        return None
+    X = ev["X"]
+    day = str(t.date())
+    term = _wt_terminal(sym, day, t, ccache)
+    best = None
+    for side in ("CE", "PE"):
+        sg_ = [k for k in ev["allowed"] if ev["signals"][k]["side"] == side]
+        if not sg_:
+            continue
+        on = [k for k in sg_ if W.STATE["enabled"].get(k) == "on"] or sg_
+        # tightest valid invalidation of the agreeing methods → smallest risk
+        inv = max(ev["signals"][k]["inv"] for k in on) if side == "CE" else min(ev["signals"][k]["inv"] for k in on)
+        spot = X["px"]
+        if (side == "CE" and inv >= spot) or (side == "PE" and inv <= spot):
+            continue
+        fo = None
+        try:
+            fo = fit_option(sym, side, spot, inv, mcx=mcx)
+        except Exception:
+            traceback.print_exc()
+        st, q, plan, bad, otm = fo if fo else ({}, {}, None, "no option", 0)
+        flow = None
+        if q.get("oi") and q.get("ltp"):
+            f0 = WT["oi"].setdefault(str(st.get("token")), {"oi": float(q["oi"]), "ltp": float(q["ltp"]), "t": t.strftime("%H:%M")})
+            och = (float(q["oi"]) / f0["oi"] - 1) * 100 if f0["oi"] else 0
+            pch = (float(q["ltp"]) / f0["ltp"] - 1) * 100 if f0["ltp"] else 0
+            flow = "buyers" if och >= 3 and pch > 0 else "sellers_exit" if och <= -3 and pch > 0 else "writers" if och >= 3 and pch < 0 else None
+        dte = None
+        try:
+            dte = (pd.Timestamp(st.get("expiry")).normalize() - t.normalize()).days if st.get("expiry") else None
+        except Exception:
+            pass
+        lpct = (ctx["lq"].get(sym) or {}).get("pct")
+        ext = {"nifty_pct": ctx["npct"], "is_index": is_idx or mcx, "oi_kind": None if mcx else ctx["fok"].get(sym),
+               "opt_flow": flow, "rs_pct": (lpct - (ctx["npct"] or 0)) if lpct is not None else None,
+               "terminal": term[side], "terminal_opp": term["PE" if side == "CE" else "CE"], "plan": plan, "plan_bad": bad,
+               "delta": max(0.2, 0.5 - 0.08 * otm), "dte": dte, "pcr": ctx["pcr"] if sym == "NIFTY" else None}
+        sc = W.score(ev, side, ext, W.STATE["enabled"])
+        lot = (plan or {}).get("lot") or st.get("lot")
+        row = {"symbol": sym, "side": side, "market": "INDEX" if is_idx else "COMMODITY" if mcx else "STOCK", "regime": ev["regime"],
+               "regime_info": ev["info"], "score": sc["total"], "band": sc["band"], "reject": sc["reject"], "parts": sc["parts"],
+               "why": sc["why"], "warn": sc["warn"], "global_matches": sc["global_matches"], "terminal_matches": sc["terminal_matches"],
+               "off": [f"{W.MKEY[k][1]}: {r}" for k, r in ev["off"].items()][:4], "spot": round(spot, 2),
+               "ul_trigger": max([ev["signals"][k].get("trigger") or spot for k in on]) if side == "CE" else min([ev["signals"][k].get("trigger") or spot for k in on]),
+               "ul_sl": round(inv, 2), "ul_target": round(spot + 2 * (spot - inv), 2), "otm": otm,
+               "strike": st.get("strike"), "expiry": st.get("expiry"), "token": st.get("token"), "exch": st.get("exch"), "contract": st.get("contract"),
+               "lot": lot, "ltp": q.get("ltp"), "plan": plan, "plan_bad": bad,
+               "invest": round((plan or {}).get("entry", 0) * (lot or 0)) if plan else None, "max_risk": (plan or {}).get("risk_lot"),
+               "rr": f"1:{(plan or {}).get('rr_t2', 2):g}" if plan else None, "time": t.strftime("%H:%M")}
+        if best is None or (row["reject"] is None, row["score"]) > (best["reject"] is None, best["score"]):
+            best = row
+    return best
+
+
+def worldtop_scan(t=None):
+    """One live pass over indices + commodities + the stocks that matter now → state (picks / watch)."""
+    from krt import worldtop as W, fullscan as FSm, experts as EX, bigvol as BV
+    from krt.calls import STORE as _S, CALLS_LOCK as _CL
+    t = t or now_ist()
+    t0 = t.tz_localize(None) if getattr(t, "tzinfo", None) else t
+    inst = load_inst(ROOT / "data" / "cache")
+    full, money, nifty, lq, lv, age, rg, AL = _v3_inputs()
+    try:
+        fok = {r["symbol"]: str(r.get("kind") or "") for r in AL.oi_flow(full.get("oi_buildup"), lq)}
+    except Exception:
+        fok = {}
+    rs, _sma = EX._rs_table(FSm.C.get("bars") or {})
+    ctx = {"lq": lq, "npct": nifty.get("pct"), "fok": fok, "rs": rs, "pcr": nifty.get("pcr")}
+    day = str(t0.date())
+    syms = list(WT_IDX)
+    nse_open = market_open(t)
+    if t0.strftime("%H:%M") <= "23:25":
+        syms += list(WT_MCX)
+    if nse_open:
+        syms += [s_ for s_ in SMCC if s_ not in WT_IDX]
+        syms += [c.get("symbol") for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("exch") not in ("MCX",)
+                 and c.get("kind") not in ("PICK", "MCX", "MANNAN-CMD")][-40:]
+        syms += [r.get("symbol") for r in BV.SCR.values() if r.get("date") == day]
+        for b in (EXC.get("d") or {}).get("boxes") or []:
+            syms += [p["symbol"] for p in b.get("picks") or []]
+    syms = [s_ for s_ in dict.fromkeys(syms) if s_][:45]
+    rows, ccache, fetched = [], {}, 0
+    for sym in syms:
+        if not nse_open and sym not in WT_MCX:
+            continue
+        try:
+            fresh = sym in WT["frames"] and time.time() - WT["frames"][sym][0] < 280
+            if not fresh and sym not in WT_IDX and sym not in SMCC:
+                if fetched >= 10:
+                    continue
+                fetched += 1
+                time.sleep(0.35)
+            d5 = _wt_frame(sym, t0, inst)
+            if d5 is None or len(d5) < 40:
+                continue
+            if (t0 - d5.index[-1]).total_seconds() > 20 * 60:
+                continue                       # stale candles → never actionable
+            r = _wt_one(sym, d5, t0, ctx, ccache, inst)
+            if r:
+                rows.append(r)
+        except Exception:
+            traceback.print_exc()
+    rows.sort(key=lambda r: (r["reject"] is None, r["score"]), reverse=True)
+    risk = ((cc_state() or {}).get("strip") or {}).get("risk") or {}
+    stale = bool(age is not None and age > 300)
+    gate = None if (nse_open or any(r["market"] == "COMMODITY" for r in rows)) else "market closed"
+    if stale and nse_open:
+        gate = "live data stale"
+    if risk.get("status") == "LOCKED":
+        gate = "daily risk lock is ON"
+    qual = [r for r in rows if r["reject"] is None and r["score"] >= W.CFG["a"]]
+    # register (max 3 a day, one per instrument, never forced)
+    with _CL:
+        d = _S.load()
+        L = d.setdefault("worldtop", [])
+        today = [c for c in L if c.get("date") == day]
+        for r in qual:
+            if gate and not (gate == "market closed" and r["market"] == "COMMODITY"):
+                continue
+            if len(today) >= W.CFG["max_day"] or any(c["symbol"] == r["symbol"] for c in today):
+                continue
+            c = {**{k: r[k] for k in ("symbol", "side", "market", "regime", "score", "band", "strike", "expiry", "token", "exch", "contract", "lot",
+                                         "ul_trigger", "ul_sl", "ul_target", "global_matches", "terminal_matches", "why", "plan", "invest", "max_risk",
+                                         "rr", "otm", "spot")},
+                 "id": f"WT|{day}|{r['symbol']}|{t0.strftime('%H%M')}", "date": day, "time": t0.strftime("%H:%M"), "status": "OPEN", "result": None}
+            L.append(c)
+            today.append(c)
+            _S.dirty = True
+            try:
+                from krt.notify import both as _nb
+                p = r["plan"]
+                _nb(f"🌍 WORLD TOP {r['band']} · {r['symbol']} {r['strike']:g} {r['side']} {r['expiry']}\nEntry ₹{p['entry_zone'][0]}–₹{p['entry_zone'][1]}"
+                    f" · SL ₹{p['sl']} · T ₹{p['targets'][0]} / ₹{p['targets'][1]} / ₹{p['targets'][2]}\nMethods: {', '.join(r['global_matches'])}"
+                    f"\nScore {r['score']}/100 — setup quality, not a win probability", c["id"], True)
+            except Exception:
+                pass
+        # track today's picks on the underlying (SL / 2R target / close)
+        for c in [c for c in L if c.get("date") == day and c.get("status") == "OPEN"]:
+            px = (lq.get(c["symbol"]) or {}).get("ltp") or float((TICK["items"].get(c["symbol"]) or {}).get("ltp") or 0) or None
+            if c["symbol"] in WT["frames"] and not px:
+                px = float(WT["frames"][c["symbol"]][1]["close"].iloc[-1])
+            if not px:
+                continue
+            up = c["side"] == "CE"
+            if (up and px <= c["ul_sl"]) or (not up and px >= c["ul_sl"]):
+                c.update(status="SL HIT", result=-1.0, closed_at=t0.strftime("%H:%M"))
+            elif (up and px >= c["ul_target"]) or (not up and px <= c["ul_target"]):
+                c.update(status="TARGET 2R", result=2.0, closed_at=t0.strftime("%H:%M"))
+            elif c["market"] != "COMMODITY" and t0.strftime("%H:%M") >= "15:20":
+                R = abs(c["spot"] - c["ul_sl"]) or 1
+                c.update(status="CLOSED 15:20", result=round(((px - c["spot"]) if up else (c["spot"] - px)) / R, 2), closed_at="15:20")
+            c["last_px"] = px
+            _S.dirty = True
+        picks = [dict(c) for c in L if c.get("date") == day]
+    q = opt_quotes([(c.get("exch"), c.get("token")) for c in picks])
+    for c in picks:
+        c["opt_ltp"] = (q.get(str(c.get("token"))) or {}).get("ltp")
+    reg = {}
+    for r in rows:
+        reg[r["regime"]] = reg.get(r["regime"], 0) + 1
+    W.STATE.update(time=t0.strftime("%d %b %H:%M:%S"), picks=picks, watch=[r for r in rows if r not in qual][:6], qual_now=qual[:3],
+                   scanned=len(rows), gate=gate, regimes=reg, err=None)
+    return W.STATE
+
+
+def worldtop_loop():
+    time.sleep(90)
+    while True:
+        try:
+            from krt import worldtop as _W
+            if _W.STATE.get("bt") is None and not WT["busy"]:
+                worldtop_bt_run()                          # loads the saved result (≤ 3 days old) instantly, else computes
+            hm_ = now_ist().strftime("%H:%M")
+            if (not WT["busy"] and WT["bt_day"] != str(now_ist().date()) and not mem_high()
+                    and (_W.STATE.get("bt") is None or hm_ >= "15:40" or hm_ < "09:00")):   # heavy re-test only outside market hours
+                threading.Thread(target=worldtop_bt_run, daemon=True, name="wt-bt").start()
+            t = now_ist()
+            if angel_configured() and not mem_high() and (market_open(t) or t.strftime("%H:%M") <= "23:25" and t.strftime("%H:%M") >= "09:00"):
+                worldtop_scan(t)
+        except Exception as e:
+            traceback.print_exc()
+            from krt import worldtop as W
+            W.STATE["err"] = str(e)[:120]
+        time.sleep(60)
+
+
+def worldtop_state():
+    from krt import worldtop as W
+    S = W.STATE
+    bt = S.get("bt") or {}
+    mt = []
+    for k, name, fam, who, grp in W.METHODS:
+        m = (bt.get("methods") or {}).get(k) or {}
+        mt.append({"key": k, "name": name, "style": who, "group": grp, "family": fam, "enabled": (S.get("enabled") or {}).get(k, "untested"),
+                   "all": m.get("all"), "oos": m.get("oos"), "regime": m.get("regime")})
+    try:
+        from krt.calls import PROVEN
+        term = [{"source": k, **{x: v.get(x) for x in ("win", "n", "net", "tier")}} for k, v in (PROVEN.get("tiers") or {}).items()][:40]
+    except Exception:
+        term = []
+    clean = lambda r: {k: v for k, v in r.items() if k != "X"}
+    return {"time": S.get("time"), "picks": S.get("picks") or [], "qual_now": [clean(r) for r in S.get("qual_now") or []],
+            "watch": [clean(r) for r in S.get("watch") or []], "gate": S.get("gate"), "regimes": S.get("regimes"), "scanned": S.get("scanned"),
+            "methods": mt, "consensus": bt.get("consensus"), "consensus_on": bt.get("consensus_on"), "bt_time": S.get("bt_time"),
+            "bt_note": bt.get("note"), "bt_data": bt.get("data"), "terminal": term, "err": S.get("err"), "busy": WT["busy"],
+            "regime_map": {k: sorted(v) for k, v in W.REGIME_OK.items()}}
+
+
+LKC = {}
+
+
+def lookup_state(sym):
+    """🔎 Chart Room search: any F&O stock / index / MCX → 5-min chart + all 12 methods + JACKPOT check + jackpot strike + success ratio."""
+    from krt import worldtop as W, fullscan as FSm, experts as EX
+    from krt.calls import STORE as _S, PROVEN
+    sym = re.sub(r"[^A-Z0-9&\-]", "", str(sym or "").upper())
+    alias = {"OIL INDIA": "OIL", "CRUDE": "CRUDEOIL", "NG": "NATURALGAS", "NAT GAS": "NATURALGAS", "BANK NIFTY": "BANKNIFTY", "NIFTYBANK": "BANKNIFTY"}
+    sym = alias.get(sym, sym)
+    if not sym:
+        return {"ok": False, "msg": "type a symbol"}
+    hit = LKC.get(sym)
+    if hit and time.time() - hit[0] < 30:
+        return hit[1]
+    inst = load_inst(ROOT / "data" / "cache")
+    t = now_ist()
+    t0 = t.tz_localize(None)
+    mcx = sym in ((inst.get("mcx_fut") or {}))
+    known = sym in WT_IDX or mcx or sym in (inst.get("eq") or {})
+    if not known:
+        names = sorted(set(list((inst.get("eq") or {}).keys()) + list(WT_IDX) + list((inst.get("mcx_fut") or {}).keys())))
+        sug = [n for n in names if n.startswith(sym[:3])][:8]
+        return {"ok": False, "msg": f"{sym} not found", "suggest": sug}
+    d5 = WT["frames"].get(sym, (0, None))[1] if sym in WT["frames"] and time.time() - WT["frames"][sym][0] < 120 else None
+    if d5 is None and angel_configured():
+        if sym in WT_IDX:
+            d5 = _tri_d5(sym, t0)
+            d5 = d5[d5.index >= d5.index.max().normalize() - pd.Timedelta(days=9)] if d5 is not None and len(d5) else None
+        if d5 is None or not len(d5):
+            ex, tok = ("MCX", inst["mcx_fut"][sym][0]) if mcx else (__import__("krt.instruments", fromlist=["INDEX_SPOT"]).INDEX_SPOT.get(sym) or ("NSE", (inst.get("eq") or {}).get(sym)))
+            d5 = get_angel().candles(ex, tok, "FIVE_MINUTE", t0 - pd.Timedelta(days=6), t0)
+            if d5 is not None and len(d5):
+                d5 = d5[d5.index <= t0.floor("5min") - pd.Timedelta(minutes=5)] if market_open(t) or mcx else d5
+    if d5 is None or len(d5) < 30:
+        return {"ok": False, "msg": f"no candles for {sym} right now"}
+    dd = None if (sym in WT_IDX or mcx) else _wt_daily(sym)
+    if dd is None and not (sym in WT_IDX or mcx) and angel_configured():
+        try:
+            dd = get_angel().candles("NSE", (inst.get("eq") or {}).get(sym), "ONE_DAY", t0 - pd.Timedelta(days=260), t0)
+        except Exception:
+            dd = None
+    full, money, nifty, lq, lv, age, rg, AL = _v3_inputs()
+    try:
+        fok = {r["symbol"]: str(r.get("kind") or "") for r in AL.oi_flow(full.get("oi_buildup"), lq)}
+    except Exception:
+        fok = {}
+    rs, _ = EX._rs_table(FSm.C.get("bars") or {})
+    ctx = {"lq": lq, "npct": nifty.get("pct"), "fok": fok, "rs": rs, "pcr": nifty.get("pcr")}
+    WT["frames"][sym] = (time.time(), d5)
+    row = _wt_one(sym, d5, pd.Timestamp(d5.index[-1]) if not market_open(t) and not mcx else t0, ctx, {}, inst)
+    ev = W.evaluate(d5, dd, is_index=sym in WT_IDX or mcx, rs=rs.get(sym))
+    en = W.STATE.get("enabled") or {}
+    bt = (W.STATE.get("bt") or {}).get("methods") or {}
+    meth = []
+    for k, name, fam, who, grp in W.METHODS:
+        s_ = (ev or {}).get("signals", {}).get(k)
+        o = (bt.get(k) or {}).get("oos") or {}
+        meth.append({"key": k, "name": name, "style": who, "fired": s_["side"] if s_ else None, "why": s_["why"] if s_ else None,
+                     "allowed": bool(ev and k in ev["allowed"]), "enabled": en.get(k, "untested"), "oos_win": o.get("win_pct"), "oos_trades": o.get("trades")})
+    # success ratio: out-of-sample win % of the methods that matched + this symbol's own past terminal calls
+    m_ok = [m for m in meth if row and m["name"] in (row.get("global_matches") or []) and m["oos_win"] is not None]
+    sr_methods = round(sum(m["oos_win"] * m["oos_trades"] for m in m_ok) / max(1, sum(m["oos_trades"] for m in m_ok)), 1) if m_ok else None
+    past = [c for c in (_S.load().get("calls") or {}).values() if c.get("symbol") == sym and c.get("pnl_lot") is not None
+            and c.get("status") not in ("OPEN", "T1 HIT", "T2 HIT") and c.get("kind") != "PICK"]
+    sr_sym = {"n": len(past), "win": round(sum(1 for c in past if c["pnl_lot"] > 0) / len(past) * 100) if past else None,
+              "net": round(sum(c["pnl_lot"] for c in past)) if past else None}
+    cons = (W.STATE.get("bt") or {}).get("consensus") or {}
+    jack = bool(row and row["reject"] is None and row["score"] >= W.CFG["a"])
+    jp = [c for c in (_S.load().get("calls") or {}).values() if c.get("symbol") == sym and c.get("date") == str(t0.date())
+          and re.search(r"jackpot|gamma unwind|money machine", str(c.get("source") or ""), re.I)]
+    K = d5.tail(150)
+    out = {"ok": True, "symbol": sym, "time": t0.strftime("%H:%M:%S"), "market_open": market_open(t) or mcx,
+           "candles": [[i.strftime("%H:%M"), round(float(r["open"]), 2), round(float(r["high"]), 2), round(float(r["low"]), 2), round(float(r["close"]), 2),
+                        int(r["volume"]) if "volume" in K.columns and pd.notna(r.get("volume")) else 0, i.strftime("%Y-%m-%d")] for i, r in K.iterrows()],
+           "regime": (ev or {}).get("regime"), "regime_info": (ev or {}).get("info"), "methods": meth, "best": {k: v for k, v in (row or {}).items() if k != "X"} or None,
+           "jackpot": jack, "success": {"methods_oos_win": sr_methods, "methods": [m["name"] for m in m_ok], "symbol_calls": sr_sym,
+                                        "consensus_oos": (cons.get("oos") or {}) if cons else None},
+           "terminal_jackpots": [{"time": c.get("time"), "source": c.get("source"), "side": c.get("side"), "strike": c.get("strike"),
+                                  "entry": c.get("entry"), "sl": c.get("sl"), "targets": c.get("targets"), "status": c.get("status")} for c in jp][-3:],
+           "pdh": (ev or {}).get("X", {}).get("pdh") if ev else None, "pdl": (ev or {}).get("X", {}).get("pdl") if ev else None,
+           "vwap": round((ev or {}).get("X", {}).get("vwap"), 2) if ev else None}
+    LKC[sym] = (time.time(), out)
+    if len(LKC) > 50:
+        LKC.clear()
+    return out
+
+
+def symbols_list():
+    inst = load_inst(ROOT / "data" / "cache")
+    from krt.money import SECTOR
+    fo = sorted(set(SECTOR.keys()) | set((inst.get("fo") or {}).keys() if isinstance(inst.get("fo"), dict) else []))
+    return {"symbols": list(WT_IDX) + sorted((inst.get("mcx_fut") or {}).keys()) + fo}
+
+
+def desk_state():
+    """🎓 v150 PRO trader's desk — market structure (1h/15m/5m), option-chain read, institutional flow, breadth & rotation,
+    volatility (expected range left), regime playbook (which global methods are ON), risk desk, today's scorecard."""
+    from krt import worldtop as W, crash as CR, bigvol as BV
+    from krt.calls import STORE as _S, OPEN as _OP, PROVEN
+    t = now_ist()
+    t0 = t.tz_localize(None)
+    full, money, nifty, lq, lv, age, rg, AL = _v3_inputs()
+    inst = load_inst(ROOT / "data" / "cache")
+    idx = []
+    for n in ("NIFTY", "BANKNIFTY", "SENSEX"):
+        d5 = WT["frames"].get(n, (0, None))[1]
+        if d5 is None:
+            try:
+                d5 = _tri_d5(n, t0)
+            except Exception:
+                d5 = None
+        if d5 is None or len(d5) < 60:
+            continue
+        ev = W.evaluate(d5.tail(1500), None, is_index=True)
+        if not ev:
+            continue
+        X = ev["X"]
+        tf = {}
+        for lab, d in (("1h", X["d60"]), ("15m", X["d15"]), ("5m", X["d5"])):
+            if d is not None and len(d) > 21:
+                e = float(d["close"].ewm(span=20, adjust=False).mean().iloc[-1])
+                tf[lab] = "UP" if float(d["close"].iloc[-1]) > e else "DOWN"
+        hm = X["hm"]
+        mins_left = max(0, (pd.Timestamp(f"{X['day']} 15:30") - pd.Timestamp(f"{X['day']} {hm}")).total_seconds() / 60)
+        exp_rng = round(X["atr15"] * (mins_left / 15) ** 0.5, 1) if mins_left else 0
+        idx.append({"name": n, "px": X["px"], "regime": ev["regime"], "info": ev["info"], "tf": tf, "vwap": round(X["vwap"], 2),
+                    "pdh": X.get("pdh"), "pdl": X.get("pdl"), "expected_range_left": exp_rng,
+                    "methods_now": [{"name": W.MKEY[k][1], "side": v["side"]} for k, v in ev["signals"].items() if k in ev["allowed"]]})
+    secs = sorted(money.get("sectors") or [], key=lambda x: -(x.get("pct") or 0))
+    from krt.calls import breadth_now
+    br = breadth_now() or {}
+    big_b = sum(1 for r in BV.FEED.values() if r.get("date") == str(t0.date()) and r.get("side") == "CE")
+    big_s = sum(1 for r in BV.FEED.values() if r.get("date") == str(t0.date()) and r.get("side") == "PE")
+    day = str(t0.date())
+    calls = [c for c in (_S.load().get("calls") or {}).values() if c.get("date") == day and c.get("kind") != "PICK" and not c.get("shadow")]
+    closed = [c for c in calls if c.get("status") not in _OP and c.get("pnl_lot") is not None]
+    by = {}
+    for c in closed:
+        a = by.setdefault(re.sub(r"^[^A-Za-z0-9]+", "", str(c.get("source") or "")), [0, 0, 0.0])
+        a[0] += 1
+        a[1] += c["pnl_lot"] > 0
+        a[2] += c["pnl_lot"]
+    score = sorted([{"module": k, "n": v[0], "win": round(v[1] / v[0] * 100), "net": round(v[2])} for k, v in by.items()], key=lambda r: -r["net"])
+    risk = ((cc_state() or {}).get("strip") or {}).get("risk") or {}
+    net = risk.get("net") or 0
+    left = max(0, 7500 + net)
+    rpt = int(min(2500, max(0, left / 2)))
+    lab = (rg or {}).get("label") or ""
+    mreg = "TRENDING" if "BULL" in lab or "BEAR" in lab else "SIDEWAYS"
+    if idx:
+        mreg = idx[0]["regime"]
+    en = W.STATE.get("enabled") or {}
+    play = [{"name": W.MKEY[k][1], "style": W.MKEY[k][3], "on": en.get(k, "untested")} for k in sorted(W.REGIME_OK.get(mreg, []))]
+    stars = [{"source": k, "win": v.get("win")} for k, v in (PROVEN.get("tiers") or {}).items() if v.get("tier") == "STAR"][:6]
+    return {"time": t0.strftime("%H:%M:%S"), "index": idx,
+            "chain": {"spot": nifty.get("spot"), "pcr": nifty.get("pcr"), "support": nifty.get("support"), "resistance": nifty.get("resistance")},
+            "flow": {"big_buy": big_b, "big_sell": big_s, "turn": {k: CR.TURN.get(k) for k in ("side", "text", "since")} if CR.TURN.get("side") else None,
+                     "crash": {k: CR.STATE.get(k) for k in ("level", "side")}},
+            "breadth": {"up": br.get("up"), "down": br.get("down")}, "lead": secs[:3], "lag": secs[-3:][::-1],
+            "regime": mreg, "playbook": play, "stars": stars,
+            "risk": {"net": net, "status": risk.get("status"), "left": left, "per_trade": rpt, "streak": risk.get("sl_streak")},
+            "scorecard": score[:8], "n_calls": len(calls), "n_closed": len(closed),
+            "wins": sum(1 for c in closed if c["pnl_lot"] > 0), "net_calls": round(sum(c["pnl_lot"] for c in closed))}
 
 
 def trident_loop():
@@ -1808,6 +2329,53 @@ def trident_state():
 APC = {"t": 0, "d": {}}
 
 
+def fit_option(sym, side, spot, inv, mcx=False, max_otm=4):
+    """v150 (shared): ATM option + premium plan; if 1-lot risk > ₹2,500, step 1–4 strikes OTM (cheaper, lower delta) until it fits.
+    → (strike dict, quote, plan, bad-reason or None, steps OTM) or None. Works for NSE/BSE stocks + indices and MCX options."""
+    from krt import trident as _TR, bigvol as _BV
+    st = _BV.strike_for(load_inst(ROOT / "data" / "cache"), sym, side, spot, mcx=mcx) if mcx else _cc_strike(sym, side, spot)
+    if not st:
+        return None
+
+    def _q(x):
+        return opt_quotes([(x.get("exch"), x.get("token"))]).get(str(x.get("token"))) or {}
+    q = _q(st)
+    if not q.get("ltp"):
+        return None
+    plan, bad = _TR.plan_option({"ltp": q["ltp"], "bid": q.get("bid"), "ask": q.get("ask")}, spot, inv, st.get("lot"), 0.5)
+    otm = 0
+    if bad and "risk" in bad:
+        try:
+            inst = load_inst(ROOT / "data" / "cache")
+            if mcx:
+                rows = [r for r in (inst.get("mcx_opt") or {}).get(sym) or [] if r[2] == st.get("expiry")]
+            else:
+                from krt.instruments import contracts as _ct
+                _, rows = _ct(inst, sym, 1)
+            rows = sorted([r for r in rows if r[4] == side and r[2] == st.get("expiry")], key=lambda r: float(r[3]))
+            ks = [float(r[3]) for r in rows]
+            k0 = ks.index(float(st["strike"])) if float(st["strike"]) in ks else None
+            if k0 is not None:
+                for n_ in range(1, max_otm + 1):
+                    k2 = k0 + n_ if side == "CE" else k0 - n_
+                    if not 0 <= k2 < len(rows):
+                        break
+                    r = rows[k2]
+                    st2 = {"strike": float(r[3]), "side": side, "expiry": r[2], "contract": r[1], "lot": r[5] if len(r) > 5 else st.get("lot"),
+                           "token": str(r[0]), "exch": "MCX" if mcx else (r[6] if len(r) > 6 else st.get("exch"))}
+                    q2 = _q(st2)
+                    if not q2.get("ltp"):
+                        continue
+                    p2, b2 = _TR.plan_option({"ltp": q2["ltp"], "bid": q2.get("bid"), "ask": q2.get("ask")}, spot, inv, st2.get("lot"),
+                                             max(0.2, 0.5 - 0.08 * n_))
+                    if not b2:
+                        st, q, plan, bad, otm = st2, q2, p2, None, n_
+                        break
+        except Exception:
+            traceback.print_exc()
+    return st, q, plan, bad, otm
+
+
 def alert_picks():
     """🎯 v145: every live alert gets an exact option to take — strike, premium, entry / SL / targets, TAKE or SKIP. Cached 10 s."""
     if time.time() - APC["t"] < 10:
@@ -1824,39 +2392,10 @@ def alert_picks():
         """state: TAKE NOW · WAIT · MISSED (old, don't chase) · SKIP (too risky even OTM). v147: if ATM risks > ₹2,500 for 1 lot,
         step 1–4 strikes OTM (cheaper premium, lower delta) until the 1-lot risk fits — instead of just saying SKIP."""
         try:
-            st = _cc_strike(sym, side, spot)
-            if not st:
+            fo = fit_option(sym, side, spot, inv)
+            if not fo:
                 return
-            q = _q(st)
-            if not q.get("ltp"):
-                return
-            plan, bad = _TR.plan_option({"ltp": q["ltp"], "bid": q.get("bid"), "ask": q.get("ask")}, spot, inv, st.get("lot"), 0.5)
-            otm = 0
-            if bad and "risk" in bad:
-                try:
-                    from krt.instruments import contracts as _ct
-                    _, rows = _ct(load_inst(ROOT / "data" / "cache"), sym, 1)
-                    rows = sorted([r for r in rows if r[4] == side and r[2] == st.get("expiry")], key=lambda r: float(r[3]))
-                    ks = [float(r[3]) for r in rows]
-                    k0 = ks.index(float(st["strike"])) if float(st["strike"]) in ks else None
-                    if k0 is not None:
-                        for n_ in range(1, 5):
-                            k2 = k0 + n_ if side == "CE" else k0 - n_
-                            if not 0 <= k2 < len(rows):
-                                break
-                            r = rows[k2]
-                            st2 = {"strike": float(r[3]), "side": side, "expiry": r[2], "contract": r[1], "lot": r[5] if len(r) > 5 else st.get("lot"),
-                                   "token": str(r[0]), "exch": r[6] if len(r) > 6 else st.get("exch")}
-                            q2 = _q(st2)
-                            if not q2.get("ltp"):
-                                continue
-                            p2, b2 = _TR.plan_option({"ltp": q2["ltp"], "bid": q2.get("bid"), "ask": q2.get("ask")}, spot, inv, st2.get("lot"),
-                                                     max(0.2, 0.5 - 0.08 * n_))
-                            if not b2:
-                                st, q, plan, bad, otm = st2, q2, p2, None, n_
-                                break
-                except Exception:
-                    traceback.print_exc()
+            st, q, plan, bad, otm = fo
             state = "SKIP" if bad else ("TAKE NOW" if take else ("WAIT" if wait else "MISSED"))
             out[key] = {"symbol": sym, "side": side, "strike": st.get("strike"), "expiry": st.get("expiry"), "token": st.get("token"), "exch": st.get("exch"),
                         "lot": st.get("lot"), "contract": st.get("contract"), "ltp": q["ltp"], "plan": plan, "ul_sl": round(inv, 2), "otm": otm,
@@ -2002,7 +2541,7 @@ def experts_state():
             {"key": "pa", "title": "📈 Price Action + OI + Market Direction", "style": "Gaurav Reddy's approach", "rule": "trade only with NIFTY · price past PDH/PDL and holding VWAP · fresh OI build-up on the same side", "picks": A},
             {"key": "qr", "title": "🏅 Quality stock selection + setup ranking", "style": "Asit Baran Pati's approach", "rule": "strongest / weakest sectors · relative strength vs NIFTY · clean daily trend · liquid · not extended", "picks": B},
             {"key": "vcp", "title": "🌀 VCP + volume breakout + relative strength", "style": "Mark Minervini's method (long-only)", "rule": "tightening ranges + drying volume near the 20-day high · RS rating ≥70 · buy only the breakout with ≥1.5× volume", "picks": C},
-            {"key": "con", "title": "🎓 Experienced-trader consensus", "style": "all terminal engines vote", "rule": "JARVIS · AI Lab · SMC · big players · Top Movers · ⭐ star calls · the 3 screens — more independent agreement ranks higher", "picks": D}]}
+            {"key": "con", "title": "🎓 Experienced-trader consensus", "style": "all terminal engines vote", "rule": "JARVIS · AI Lab · SMC · big players · Top Movers · ⭐ star calls · the 3 screens — more independent agreement ranks higher", "picks": D}], "world": worldtop_state()}
     except Exception as e:
         traceback.print_exc()
         d = {"err": str(e)[:150]}
@@ -3342,6 +3881,31 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
+        if self.path == "/api/worldtop":
+            try:
+                return self._send(200, _json(worldtop_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120]}))
+        if self.path == "/api/desk":
+            try:
+                return self._send(200, _json(desk_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120]}))
+        if self.path == "/api/symbols":
+            try:
+                return self._send(200, _json(symbols_list()))
+            except Exception as e:
+                return self._send(200, _json({"symbols": [], "err": str(e)[:80]}))
+        if self.path.startswith("/api/lookup"):
+            from urllib.parse import urlparse, parse_qs
+            qq = parse_qs(urlparse(self.path).query)
+            try:
+                return self._send(200, _json(lookup_state((qq.get("symbol") or [""])[0])))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"ok": False, "msg": str(e)[:120]}))
         if self.path == "/api/brake":
             try:
                 from krt.calls import brake_state, STORE as _ST
@@ -3750,6 +4314,7 @@ if __name__ == "__main__":
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=behav_loop, daemon=True).start()
     threading.Thread(target=trident_loop, daemon=True, name="trident").start()
+    threading.Thread(target=worldtop_loop, daemon=True, name="worldtop").start()
     try:
         from krt import predict as _PRD
         _PRD.LIVE["fn"] = lambda: (TICK["items"].get("NIFTY") or {}).get("ltp") if market_open(now_ist()) else None
