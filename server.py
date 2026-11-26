@@ -768,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v143"
+APP_VERSION = "v144"
 EVC = {"t": 0, "d": None}
 
 
@@ -1403,10 +1403,25 @@ def trident_loop():
             out = {"time": real_hms(), "regime": {}, "index": [], "stock": [], "comm": [], "watch": [], "err": None}
             # 1) INDEX ENGINE — after every closed 5-min candle
             if nse and 9 * 60 + 25 <= t.hour * 60 + t.minute <= 15 * 60 + 15:
+                from krt import behaviour as _BHm
                 for n in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
                     d5 = _tri_d5(n, t)
-                    if d5 is None or not len(d5) or (t - d5.index[-1]).total_seconds() > TR.CFG["stale_min"] * 60:
-                        out["index"].append({"market": n, "engine": "INDEX", "status": "NO TRADE", "why": "candles stale / missing"})
+                    age = (t - (d5.index[-1] + pd.Timedelta(minutes=5))).total_seconds() if d5 is not None and len(d5) else 1e9
+                    if age > 7 * 60 and time.time() - TRC.get(f"f_{n}", 0) > 60:       # v144: own fetch — don't wait for the brain's 5-min cycle
+                        TRC[f"f_{n}"] = time.time()
+                        try:
+                            ex_, tok_ = _BHm.TOKS[n]
+                            df_ = ANGEL.candles(ex_, tok_, "FIVE_MINUTE", t.normalize() + pd.Timedelta(hours=9, minutes=15), t)
+                            if df_ is not None and len(df_):
+                                BHC.setdefault("today", {})[n] = df_
+                                d5 = _tri_d5(n, t)
+                                age = (t - (d5.index[-1] + pd.Timedelta(minutes=5))).total_seconds()
+                        except Exception:
+                            pass
+                    if d5 is None or not len(d5) or age > TR.CFG["stale_min"] * 60:
+                        last_ = d5.index[-1].strftime("%H:%M") if d5 is not None and len(d5) else "none"
+                        out["index"].append({"market": n, "engine": "INDEX", "status": "NO TRADE", "why": f"candles stale / missing (last {last_})"})
+                        out["regime"][n] = {"label": "NO DATA", "why": [f"last candle {last_}"]}
                         continue
                     r = TR.index_eval(n, d5, I.get(n) if fresh_scan else None, t)
                     out["regime"][n] = {"label": r.get("regime"), "why": r.get("regime_why")}
@@ -1482,8 +1497,20 @@ def trident_loop():
                 for name in ("GOLD", "SILVER", "CRUDEOIL", "NATURALGAS"):
                     f = CM.FR.get(name)
                     fr = f[1] if f else None
-                    if not fr or (t - pd.Timestamp(fr.get("data_time") or "2000-01-01")).total_seconds() > TR.CFG["stale_min"] * 60:
+                    stale_ = not fr or (t - pd.Timestamp(fr.get("data_time") or "2000-01-01")).total_seconds() > TR.CFG["stale_min"] * 60
+                    if stale_ and time.time() - TRC.get(f"fc_{name}", 0) > 120:             # v144: build MCX frames ourselves if missing
+                        TRC[f"fc_{name}"] = time.time()
+                        try:
+                            fut_ = CM._fut(load_inst(ROOT / "data" / "cache"), name)
+                            fr2 = CM.frames(ANGEL, name, fut_, t) if fut_ else None
+                            if fr2:
+                                CM.FR[name] = (t, fr2)
+                                fr, stale_ = fr2, False
+                        except Exception:
+                            pass
+                    if stale_:
                         out["comm"].append({"market": name, "engine": "COMMODITY", "status": "NO TRADE", "why": "MCX candles stale / missing"})
+                        out["regime"][name] = {"label": "NO DATA", "why": []}
                         continue
                     r = TR.comm_eval(name, fr)
                     out["regime"][name] = {"label": r.get("regime"), "why": r.get("regime_why")}

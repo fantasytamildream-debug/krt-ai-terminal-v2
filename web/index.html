@@ -3981,7 +3981,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v143";
+const APPV="v144";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4073,7 +4073,7 @@ function triHTML(){ const T=TRD||{}, L=T.log||[], day=String(T.time||""), today=
   const D=T.daily||{}, dT=D.today||{};
   return `<div class="np" style="--c:#facc15"><div class="nph" style="justify-content:space-between"><span>🔱 KRT TRIDENT AI — Triple Market Alpha</span><small class="hint">${esc(T.time||"")} · Index · Stock · Commodity · quality over quantity</small></div>
     <div class="hint" style="font-size:12px">Strategies from Kakushadze &amp; Serur, <i>151 Trading Strategies</i> (2018), run on live Angel data. Calls only at <b>AI Quality Score 85+</b>, closed candles, 1-lot risk ≤ ₹2,500, reward:risk ≥ 2. The score ranks setups — it is <b>not</b> a win-rate. Stale or missing data → NO TRADE.${T.err?` · ⚠ ${esc(T.err)}`:""}</div></div>
-   ${sec("🌐 Market regime monitor","#38bdf8",`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${Object.entries(RG).map(([k,v])=>`<span class="nsub" style="--c:${/BULL/.test(v.label)?"#22c55e":/BEAR/.test(v.label)?"#ef4444":/BREAK|REVERS|HIGH/.test(v.label)?"#f59e0b":"#64748b"};padding:6px 10px">${symIcon(k,18)}<b>${esc(k)}</b> ${esc(v.label||"–")}</span>`).join("")||'<span class="hint">waiting for closed candles (market hours)…</span>'}</div>`)}
+   ${sec("🌐 Market regime monitor","#38bdf8",`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${Object.entries(RG).map(([k,v])=>`<span class="nsub" style="--c:${/BULL/.test(v.label)?"#22c55e":/BEAR/.test(v.label)?"#ef4444":/BREAK|REVERS|HIGH/.test(v.label)?"#f59e0b":"#64748b"};padding:6px 10px">${symIcon(k,18)}<b>${esc(k)}</b> ${esc(v.label||"–")}${v.label==="NO DATA"&&(v.why||[])[0]?` <small class="hint">${esc(v.why[0])}</small>`:""}</span>`).join("")||'<span class="hint">waiting for closed candles (market hours)…</span>'}</div>`)}
    ${elite.length?sec("👑 Elite setups (90+)","#facc15",`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px">${elite.map(triCall).join("")}</div>`):""}
    ${sec("📈 Index best calls <small class='hint'>NIFTY · BANKNIFTY · FINNIFTY · SENSEX</small>","#22c55e",best(T.index,"index")+`<details style="margin-top:6px"><summary class="hint">all 4 indices — score &amp; status</summary>${(T.index||[]).map(triRow).join("")}</details>`)}
    ${sec("🏢 Stock best calls <small class='hint'>all F&amp;O stocks · best 3</small>","#38bdf8",best(T.stock,"stock"))}

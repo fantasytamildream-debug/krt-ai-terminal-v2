@@ -65,7 +65,7 @@ def resample(d, rule):
     return r[r.index + pd.Timedelta(rule) <= last_close]
 
 
-def combine(comps, weights, regime=None):
+def combine(comps, weights, regime=None, na=()):
     """Adaptive weighted vote. Regime changes the weights (no forcing every strategy to agree). → (s in [-1,1], coverage, used weights)."""
     w = dict(weights)
     if regime in ("SIDEWAYS", "LOW VOLATILITY"):
@@ -85,8 +85,10 @@ def combine(comps, weights, regime=None):
         for k in ("sr", "channel", "momentum"):
             if k in w:
                 w[k] *= 1.4
-    tot = sum(w.values())
-    cov = sum(w[k] for k, v in comps.items() if v is not None and k in w)
+    # v144: `na` = strategies whose data does not exist for this market at all (stock IV, commodity calendar / roll yield, earnings
+    # when there was no result) — they are left out of the total instead of counting as "missing" and dragging every score down.
+    tot = sum(v for k, v in w.items() if k not in na)
+    cov = sum(w[k] for k, v in comps.items() if v is not None and k in w and k not in na)
     if not tot or not cov:
         return 0.0, 0.0, w
     s = sum(w[k] * v for k, v in comps.items() if v is not None and k in w) / cov
@@ -428,7 +430,7 @@ def stock_eval(sym, d, q, nifty_d, sector_rank, oi_kind=None, ev=None, prebreak=
             pass
     comps["iv"] = None
     comps["knn"] = _knn_daily(d)
-    s, cov, w = combine(comps, W_STOCK)
+    s, cov, w = combine(comps, W_STOCK, None, ("iv",) + (("earnings",) if comps["earnings"] is None else ()))
     side = "CE" if s > 0 else "PE"
     extra = []
     rel = (q.get("pct") or 0) - (nifty_d.pct_change().iloc[-1] * 100 if nifty_d is not None and len(nifty_d) > 1 else 0)
@@ -469,7 +471,7 @@ def comm_eval(name, fr, roll=None, events=None):
     reg, rwhy = regime_of(d5, d60)
     comps = {"trend": c_trend(d15), "momentum": c_momentum(d5), "channel": c_channel(d15), "meanrev": c_meanrev(d15), "sr": c_sr(d5),
              "events": None if events is None else events, "iv": None, "roll": roll}
-    s, cov, w = combine(comps, W_COMM, reg)
+    s, cov, w = combine(comps, W_COMM, reg, tuple(k for k in ("events", "iv", "roll") if comps.get(k) is None))
     side = "CE" if s > 0 else "PE"
     pts, conf = confirmations(d5, d15, d60 if d60 is not None else resample(d5, "60min"), side)
     if fr.get("has_vol") and len(d5) > 21:
@@ -696,7 +698,7 @@ def backtest_comm(frames_hist):
             comps = {"trend": c_trend(w), "momentum": c_momentum(w), "channel": c_channel(w), "meanrev": c_meanrev(w), "sr": c_sr(w),
                      "events": None, "iv": None, "roll": None}
             reg, _ = regime_of(w, d60)
-            s, cov, _w = combine(comps, W_COMM, reg)
+            s, cov, _w = combine(comps, W_COMM, reg, ("events", "iv", "roll"))
             side = "CE" if s > 0 else "PE"
             pts, _ = confirmations(w, w, d60 if d60 is not None else w, side)
             if quality(s, pts, cov) < CFG["call"]:

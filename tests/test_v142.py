@@ -114,3 +114,10 @@ def test_trident_endpoint():
     d = json.loads(f.out["body"])
     assert d["cfg"]["call"] == 85 and "INDEX" in d["weights"] and d["weights"]["INDEX"]["momentum"] == 20
     assert list(d["perf"].values())[0]["pnl"] == 3900
+
+
+def test_structurally_missing_data_not_counted_as_missing():
+    comps = {"momentum": 0.8, "multifactor": 0.7, "earnings": None, "sector": 0.6, "sr": 0.5, "residual": 0.6, "iv": None, "knn": 0.4}
+    _, cov_old, _ = T.combine(comps, T.W_STOCK)
+    _, cov_new, _ = T.combine(comps, T.W_STOCK, None, ("iv", "earnings"))
+    assert cov_old == 0.75 and cov_new == 1.0
