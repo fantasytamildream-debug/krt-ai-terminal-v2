@@ -4010,7 +4010,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v147";
+const APPV="v149";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4281,14 +4281,25 @@ function mannanHTML(M){ const R=(M||{}).rows||[], live=R.filter(r=>!["DONE"].inc
      <div><b style="font-size:15px">${esc(r.time)}</b><div class="hint" style="font-size:10.5px">${r.hidden?"hidden":""}</div></div>
      <div><b style="font-size:14.5px" class="${r.side==="CE"?"up":"dn"}">${symIcon(r.symbol,20)}BUY ${esc(r.symbol)} ${esc(r.strike??"")} ${esc(r.side)}</b> <small class="hint">${esc(r.source)}</small>
        <div style="font-size:12px">Entry ₹${n2(r.entry)} · SL ₹${n2(r.sl)} · T ${(r.targets||[]).map(n2).join(" / ")||"–"} · LTP <b>₹${n2(r.ltp)}</b>${r.pnl_lot!=null&&r.status!=="OPEN"?` · ${r.pnl_lot>=0?"+":"−"}₹${n2(Math.abs(r.pnl_lot))}/lot`:""}</div></div>
-     <div style="border-left:3px solid ${MNV[r.verdict]};padding-left:8px"><b style="color:#fff;background:${MNV[r.verdict]};border-radius:6px;padding:1px 8px">🤖 ${esc(r.verdict)}</b> <b style="font-size:15px">${r.conf}%</b> <small class="hint">confidence</small>
+     <div style="border-left:3px solid ${MNV[r.verdict]};padding-left:8px"><b style="color:#fff;background:${MNV[r.verdict]};border-radius:6px;padding:1px 8px">🤖 ${esc(r.verdict)}</b> <b style="font-size:15px">${r.conf}%</b> <small class="hint">confidence</small>${r.score!=null?` <small style="color:#4ade80">· AI score ${r.score}</small>`:""}
        <div style="font-size:11.5px;margin-top:2px">${esc(r.txt)}</div><details><summary class="hint" style="font-size:10.5px">why ${r.conf}%</summary>${(r.why||[]).map(w=>`<div class="hint" style="font-size:10.5px">• ${esc(w)}</div>`).join("")}</details>
        ${["TAKE","WAIT"].includes(r.verdict)&&r.token?paperOpt({symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,contract:r.contract,token:r.token,exch:r.exch,lot:r.lot,ltp:r.ltp,sl:r.sl,from_src:"👑 Mannan box · "+r.src,src_modules:[r.src]}):""}</div></div>`; };
   return `<div style="margin-top:8px;padding:10px 12px;border-radius:14px;border:3px solid #fde047;background:linear-gradient(135deg,rgba(253,224,71,.16),rgba(253,224,71,.04))">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:17px;color:#fde047">👑 Mannan Strategy Box</b><span class="hint">your 8 best strategies · checked every 3 s · ${esc((M||{}).time||"")}${live.length?` · ${live.length} live`:""}</span></div>
     <div class="hint" style="font-size:11px">Index OI · 5-min ORB · Gamma Unwind Classic · MCX Order Flow · Mannan Commodity · Breakout CE · V4 ICT Silver Bullet · Money Machine — any call from these shows here instantly with an AI answer. Confidence = that strategy's real win rate, adjusted for today (market direction, volume, entry still valid) — not a guarantee.</div>
+    ${mnBest(M)}
     ${live.length?live.map(row).join(""):`<div style="margin-top:6px;font-size:13px">⏳ No call from your 8 strategies right now — the box will flash and beep the moment one comes.</div>`}
     ${done.length?`<details style="margin-top:5px"><summary class="hint">Finished today (${done.length})</summary>${done.map(row).join("")}</details>`:""}</div>`; }
+function mnBest(M){ const B=(M||{}).best||[]; if(!B.length) return "";
+  const col=s=>s>=70?"#22c55e":s>=60?"#facc15":"#f97316";
+  return `<div style="margin-top:6px;padding:8px 10px;border-radius:11px;border:2px solid #22c55e;background:rgba(34,197,94,.10)">
+   <b style="font-size:15px;color:#4ade80">🏆 AI BEST PICK NOW</b> <small class="hint">all calls still come · ranked A→Z: strategy win %, volume, sector lead, futures OI, buyers in the option, big players, NIFTY, entry still valid</small>
+   ${B.map((b,i)=>`<div style="display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;margin-top:5px;padding:5px 7px;border-radius:9px;background:rgba(0,0,0,.28);${i===0?"outline:2px solid "+col(b.score)+";":""}">
+     <div style="text-align:center"><b style="font-size:19px;color:${col(b.score)}">${b.score}</b><div class="hint" style="font-size:9.5px">/100</div></div>
+     <div><b class="${b.side==="CE"?"up":"dn"}" style="font-size:14px">#${i+1} ${symIcon(b.symbol,18)}BUY ${esc(b.symbol)} ${esc(b.strike??"")} ${esc(b.side)}</b> <small style="color:${col(b.score)}">${esc(b.label)}</small> <small class="hint">${esc(b.src||"")}</small>
+       <div style="font-size:12px">Entry ₹${n2(b.entry)} · SL ₹${n2(b.sl)} · T ${(b.targets||[]).map(n2).join(" / ")||"–"} · LTP <b>₹${n2(b.ltp)}</b></div>
+       <div style="font-size:11px;margin-top:2px">${(b.good||[]).map(g=>`<span style="display:inline-block;margin:1px 3px 1px 0;padding:0 6px;border-radius:6px;background:rgba(34,197,94,.18)">✅ ${esc(g)}</span>`).join("")}${(b.bad||[]).map(g=>`<span style="display:inline-block;margin:1px 3px 1px 0;padding:0 6px;border-radius:6px;background:rgba(239,68,68,.18)">⚠ ${esc(g)}</span>`).join("")}</div></div>
+     <div>${b.token?paperOpt({symbol:b.symbol,side:b.side,strike:b.strike,expiry:b.expiry,contract:b.contract,token:b.token,exch:b.exch,lot:b.lot,ltp:b.ltp,sl:b.sl,from_src:"🏆 AI best pick · "+b.src,src_modules:[b.src]}):""}</div></div>`).join("")}</div>`; }
 async function mannanPoll(){ let wait=3000;
   try{ const r=await fetch("/api/mannan",{cache:"no-store"}); if(r.ok){ const M=await r.json(); MNDATA=M; if(!M.market_open) wait=20000;
       const ids=new Set((M.rows||[]).map(x=>x.id));

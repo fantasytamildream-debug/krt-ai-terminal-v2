@@ -160,7 +160,8 @@ QCODE_TXT = {"Q_REMOVED": "Module நீக்கப்பட்டது", "Q_M
              "RANGE_DAY": "Range நாள் — breakout off", "COUNTER_TREND": "Market direction எதிர்", "RVOL_LT_2": "Volume 2×-க்கு கீழ்",
              "SPREAD_GT_2": "Spread 2%-க்கு மேல்", "ONE_PER_STOCK": "இந்த stock-க்கு இன்று ஏற்கனவே call", "DAILY_MAX": "இன்று max calls முடிந்தது",
              "SL_STREAK": "தொடர்ந்து 2 SL — இன்று stop", "NIFTY_FLAT": "NIFTY flat (±0.15%) — direction இல்லை",
-             "RISK_CAP": "1 lot risk ₹2,500-க்கு மேல்", "T1_UNREALISTIC": "T1-க்கு stock அதிகம் போகணும்", "DAILY_LOSS_STOP": "இன்றைய loss limit தாண்டியது"}
+             "RISK_CAP": "1 lot risk ₹2,500-க்கு மேல்", "T1_UNREALISTIC": "T1-க்கு stock அதிகம் போகணும்", "DAILY_LOSS_STOP": "இன்றைய loss limit தாண்டியது",
+             "C_BIGRISK": "grade C + 1 lot risk ₹4,000-க்கு மேல்"}
 
 
 def _qcfg():
@@ -348,7 +349,7 @@ def proven_sources(d, now_ts=None):
 
 
 SHADOW_CODES = ("Q_RETIRED", "Q_MODULE_PAUSED", "Q_LEARNED", "Q_WEAK_MODULE", "Q_BREADTH", "Q_COUNTER_LIVE", "Q_DUP_ANY", "Q_SIDE_BRAKE",
-                "Q_STOCK_PE", "Q_LOW_VOL", "Q_MCX_LATE")
+                "Q_STOCK_PE", "Q_LOW_VOL", "Q_MCX_LATE", "Q_MOD_BRAKE", "Q_BAD_FLAG")
 BEST = {"on": True, "weak_n": 15, "breadth_min": 0.9, "counter": 0.4, "brake_n": 3, "brake_min": 45, "side_stop": -7500}
 
 
@@ -559,6 +560,106 @@ def free_lane(c):
         return (PROVEN.get("tiers") or {}).get(c.get("source"), {}).get("tier") == "STAR"
     except Exception:
         return False
+
+
+# 🧯 v148 SMART BRAKE — learned from every closed call (green lane cannot skip it).
+#  1) Module 2-SL stop: after a module's 2nd SL today, its later calls same day lost (390 calls · 43% win · −₹2.52 L).
+#     Applied only to modules whose own history says "after 2 SLs = loss" (5-min ORB / Top Movers stayed profitable → exempt).
+#  2) Bad flag for this module: a quality flag (lunch chop, low volume, range day…) that lost for THIS module (≥5 calls, win <35%, net <0).
+#  3) Too many warnings: 3+ flags lost overall (67 calls · 21% win) → blocked where that module lost with 3+ flags.
+BRAKE = {"t": 0, "day": None, "mods": {}, "combos": {}, "many": {}, "on": True}   # v149: warn-only (calls are never hidden by it)
+BRAKE_CFG = {"sl_n": 2, "min_n": 5, "max_win": 0.35, "many": 3}
+
+
+def _bk_rows(calls, before_day):
+    seen, out = set(), []
+    for x in calls.values():
+        if x.get("pnl_lot") is None or x.get("status") in OPEN or x.get("status") == "VOID" or x.get("kind") == "PICK":
+            continue
+        if str(x.get("source", "")).startswith("My pick") or x["date"] >= before_day:
+            continue
+        k = (x["date"], x["time"], x["symbol"], x.get("side"), x.get("source"))
+        if k not in seen:
+            seen.add(k)
+            out.append(x)
+    return out
+
+
+def _bk_flags(x, codes):
+    """Quality flags + 'C_BIGRISK' (grade C with 1-lot risk > ₹4,000: 51 calls · 18% win · −₹47k across modules)."""
+    out = list(codes)
+    if x.get("grade") == "C" and (x.get("risk") or 0) > 4000:
+        out.append("C_BIGRISK")
+    return out
+
+
+def learn_brake(calls, today):
+    """Re-learn the brake tables from history before `today` (no look-ahead). Cached 30 min."""
+    import time as _t
+    if BRAKE["day"] == today and _t.time() - BRAKE["t"] < 1800:
+        return BRAKE
+    rows = _bk_rows(calls, today)
+    by = {}
+    for x in rows:
+        by.setdefault((_src_key(x.get("source")), x["date"]), []).append(x)
+    mods, combos, many = {}, {}, {}
+    for (m, _d), rs in by.items():
+        ls = sorted(str(x.get("exit_time") or "")[11:16] for x in rs if x["pnl_lot"] < 0)
+        cut = ls[BRAKE_CFG["sl_n"] - 1] if len(ls) >= BRAKE_CFG["sl_n"] else "99"
+        for x in rs:
+            if x["time"] >= cut:
+                a = mods.setdefault(m, [0, 0, 0.0])
+                a[0] += 1; a[1] += x["pnl_lot"] > 0; a[2] += x["pnl_lot"]
+    for x in rows:
+        m, q = _src_key(x.get("source")), _bk_flags(x, x.get("qcodes") or [])
+        for f in q:
+            a = combos.setdefault((m, f), [0, 0, 0.0])
+            a[0] += 1; a[1] += x["pnl_lot"] > 0; a[2] += x["pnl_lot"]
+        if len(q) >= BRAKE_CFG["many"]:
+            a = many.setdefault(m, [0, 0, 0.0])
+            a[0] += 1; a[1] += x["pnl_lot"] > 0; a[2] += x["pnl_lot"]
+    BRAKE.update(t=_t.time(), day=today, mods=mods, combos=combos, many=many)
+    return BRAKE
+
+
+def _bad(a):
+    return a and a[0] >= BRAKE_CFG["min_n"] and a[1] / a[0] < BRAKE_CFG["max_win"] and a[2] < 0
+
+
+def brake_check(c, calls, codes, now):
+    """→ None or (code, plain reason). Shadow (hidden + tracked) — not deleted, so we can keep checking it was right."""
+    if not BRAKE["on"] or c.get("kind") == "PICK" or c.get("hold_until"):
+        return None
+    day, m = c["date"], _src_key(c.get("source"))
+    b = learn_brake(calls, day)
+    hm = b["mods"].get(m)
+    if hm is None or hm[0] < BRAKE_CFG["min_n"] or hm[2] < 0:     # unknown module → brake on (safe default)
+        t_ = now.strftime("%Y-%m-%d %H:%M:%S")
+        hit = {x["symbol"] + str(x.get("side")) for x in calls.values()
+               if x["date"] == day and not x.get("shadow") and _src_key(x.get("source")) == m and x.get("status") == "SL HIT"
+               and str(x.get("exit_time") or "") <= t_}
+        if len(hit) >= BRAKE_CFG["sl_n"]:
+            past = f" — before, its calls after 2 SLs won {hm[1] / hm[0] * 100:.0f}% (₹{hm[2]:,.0f}, {hm[0]} calls)" if hm and hm[0] else ""
+            return ("Q_MOD_BRAKE", f"{c.get('source')} already hit SL {len(hit)} times today — stopped for today{past}")
+    for f in _bk_flags(c, codes):
+        a = b["combos"].get((m, f))
+        if _bad(a):
+            return ("Q_BAD_FLAG", f"{QCODE_TXT.get(f, f)} — {c.get('source')} lost in this condition before "
+                                  f"({a[0]} calls · {a[1] / a[0] * 100:.0f}% win · ₹{a[2]:,.0f})")
+    if len(codes) >= BRAKE_CFG["many"] and _bad(b["many"].get(m)):
+        a = b["many"][m]
+        return ("Q_BAD_FLAG", f"{len(codes)} warnings at once ({', '.join(QCODE_TXT.get(f, f) for f in codes[:3])}) — "
+                              f"{c.get('source')} with 3+ warnings: {a[0]} calls · {a[1] / a[0] * 100:.0f}% win · ₹{a[2]:,.0f}")
+    return None
+
+
+def brake_state(calls, today):
+    b = learn_brake(calls, today)
+    stop = [{"module": m, "n": a[0], "win": round(a[1] / a[0] * 100), "net": round(a[2])}
+            for m, a in b["mods"].items() if a[0] >= BRAKE_CFG["min_n"] and a[2] < 0]
+    bad = [{"module": m, "flag": QCODE_TXT.get(f, f), "n": a[0], "win": round(a[1] / a[0] * 100), "net": round(a[2])}
+           for (m, f), a in b["combos"].items() if _bad(a)]
+    return {"stop_after_2sl": sorted(stop, key=lambda r: r["net"]), "bad_flags": sorted(bad, key=lambda r: r["net"])}
 
 
 def quality_v6(c, now):
@@ -874,7 +975,14 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
                 return None
         c["qcodes"] = codes
         c["qtext"] = [QCODE_TXT.get(x, x) for x in codes]
-        if (c["grade"] == "A" and c["source"] in PULLBACK_SRC and not c.get("hold_until") and _qcfg()["pullback"] and c.get("ul_price")
+        try:
+            bk_ = brake_check(c, calls, codes, now)
+        except Exception:
+            bk_ = None
+        if bk_:      # v149 (user): never stop calls — the brake is now a warning + ranking penalty, the call still comes
+            c["brake"] = bk_[1]
+            c.setdefault("risk_warn", []).append("⚠ " + bk_[1])
+        if (not c.get("shadow") and c["grade"] == "A" and c["source"] in PULLBACK_SRC and not c.get("hold_until") and _qcfg()["pullback"] and c.get("ul_price")
                 and d.get("edge", {}).get(c["source"]) != "NEGATIVE"):
             try:
                 from .instruments import _MEM

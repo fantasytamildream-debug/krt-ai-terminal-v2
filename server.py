@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v147"
+APP_VERSION = "v149"
 EVC = {"t": 0, "d": None}
 
 
@@ -1157,7 +1157,7 @@ def mannan_state():
     T_ = PROVEN.get("tiers") or {}
     day = str(now_ist().date())
     npct = MARKET.get("nifty_pct")
-    rows = []
+    rows, CMAP_ = [], {}
     for c in (d.get("calls") or {}).values():
         if c.get("date") != day or c.get("kind") == "PICK" or not _mn_key(c.get("source")) or _is_dup_shadow(c):
             continue
@@ -1199,6 +1199,7 @@ def mannan_state():
             v, t = "TAKE", f"Entry OK near ₹{e:g} (up to ₹{round(e * 1.05, 2):g}) · SL ₹{sl:g}" + (f" · T1 ₹{T[0]:g}" if T else "") + " · 1 lot, risk ≤ ₹2,500."
         else:
             v, t = "WAIT", f"Weaker today ({round(conf)}%) — skip or half size; entry near ₹{e:g}, SL ₹{sl:g}."
+        CMAP_[c["id"]] = c
         rows.append({"id": c["id"], "time": str(c.get("time") or "")[:5], "source": c.get("source_label") or c.get("source"), "src": c.get("source"),
                      "symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "expiry": c.get("expiry"), "entry": e or None, "sl": sl or None,
                      "targets": T[:3], "ltp": ltp or None, "status": st, "pnl_lot": c.get("pnl_lot"), "lot": c.get("lot"), "token": c.get("token"),
@@ -1207,9 +1208,133 @@ def mannan_state():
     order = {"TAKE": 0, "WAIT": 1, "HOLD": 2, "LATE": 3, "AVOID": 4, "DON'T TAKE": 5, "DONE": 6}
     rows.sort(key=lambda r: r["time"], reverse=True)              # newest first …
     rows.sort(key=lambda r: order.get(r["verdict"], 9))           # … inside each group (TAKE on top)
-    d_ = {"time": now_ist().strftime("%H:%M:%S"), "rows": rows, "sources": MANNAN_SRC, "nifty": npct, "market_open": market_open(now_ist())}
+    try:
+        best = _mn_rank(rows, CMAP_, npct, T_, day)
+    except Exception as e:
+        traceback.print_exc()
+        best = []
+    d_ = {"time": now_ist().strftime("%H:%M:%S"), "rows": rows, "sources": MANNAN_SRC, "nifty": npct, "market_open": market_open(now_ist()),
+          "best": best}
     MNC.update(t=time.time(), d=d_)
     return d_
+
+
+MNOI = {}     # option token → first look today {oi, vol, ltp} — how many buyers came into THIS option since the call
+
+
+def _mn_rank(rows, cmap, npct, tiers, day):
+    """🏆 v149 BEST PICK — nothing is stopped; every live call of the 8 strategies gets an A-to-Z score and the box shows the best first.
+    Score = strategy win % + stock volume + stock move + sector leadership + futures OI build-up + option buyers (OI/volume/premium since the
+    call) + big players on the same side + NIFTY direction + entry still valid − warnings (smart-brake history, late, risk)."""
+    from krt import fullscan as FSm, bigvol as BV, ailab as AL
+    from krt.money import SECTOR as _SEC
+    from krt.calls import OPEN as _OP
+    lq = FSm.C.get("live_q") or {}
+    full = STATE.get("full") or {}
+    secs = sorted((full.get("money") or {}).get("sectors") or [], key=lambda x: -(x.get("pct") or 0))
+    srank = {x["sector"]: (i, x.get("pct") or 0) for i, x in enumerate(secs)}
+    ns = len(secs)
+    try:
+        fok = {r["symbol"]: str(r.get("kind") or "") for r in AL.oi_flow(full.get("oi_buildup"), lq)}
+    except Exception:
+        fok = {}
+    t_now = now_ist()
+    t60 = (t_now - pd.Timedelta(minutes=60)).strftime("%H:%M")
+    big = {}
+    for r in list(BV.FEED.values()) + list(BV.EARLY.values()):
+        if r.get("date") == day and str(r.get("time") or r.get("end") or "") >= t60:
+            k = (r.get("symbol"), r.get("side"))
+            big[k] = max(big.get(k, ""), str(r.get("time") or r.get("end") or ""))
+    cand = [r for r in rows if r["status"] in _OP and r["verdict"] in ("TAKE", "WAIT", "LATE", "DON'T TAKE")]
+    q = opt_quotes([(r.get("exch"), r.get("token")) for r in cand])
+    if MNOI.get("_day") != day:
+        MNOI.clear()
+        MNOI["_day"] = day
+    out = []
+    for r in cand:
+        c = cmap.get(r["id"]) or {}
+        sym, side = r["symbol"], r["side"]
+        mcx = c.get("exch") == "MCX" or c.get("kind") in ("MCX", "MANNAN-CMD")
+        idx = sym in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY")
+        sg = 1 if side == "CE" else -1
+        sc, good, bad = 50.0, [], []
+        w = (tiers.get(c.get("source")) or {}).get("win")
+        if w:
+            sc += (w - 50) * 0.5
+            (good if w >= 55 else bad).append(f"🏅 strategy {w}% win")
+        lv = lq.get(sym) or {}
+        vr = lv.get("vol_ratio") or c.get("vol_ratio") or 0
+        if vr >= 3:
+            sc += 10; good.append(f"🔊 volume {vr:.1f}× normal")
+        elif vr >= 2:
+            sc += 7; good.append(f"🔊 volume {vr:.1f}×")
+        elif vr >= 1.5:
+            sc += 4; good.append(f"🔊 volume {vr:.1f}×")
+        elif vr and vr < 1 and not idx:
+            sc -= 5; bad.append(f"🔈 low volume {vr:.1f}×")
+        pc = lv.get("pct")
+        if pc is not None and not mcx and not idx:
+            if pc * sg >= 0.5:
+                sc += 4; good.append(f"stock {pc:+.1f}% today")
+            elif pc * sg <= -0.5:
+                sc -= 6; bad.append(f"stock {pc:+.1f}% — against the call")
+        sec = _SEC.get(sym)
+        if sec and sec in srank and not mcx and not idx and ns >= 6:
+            i, sp = srank[sec]
+            if (side == "CE" and i < 3 and sp > 0) or (side == "PE" and i >= ns - 3 and sp < 0):
+                sc += 8; good.append(f"🏭 {sec} sector {'leading' if side == 'CE' else 'weakest'} #{i + 1 if side == 'CE' else ns - i} ({sp:+.1f}%)")
+            elif (side == "CE" and i >= ns - 3 and sp < 0) or (side == "PE" and i < 3 and sp > 0):
+                sc -= 6; bad.append(f"🏭 {sec} sector going the other way ({sp:+.1f}%)")
+        k_ = fok.get(sym, "").lower()
+        if k_ and not mcx:
+            if (side == "CE" and ("long build" in k_ or "short cover" in k_)) or (side == "PE" and ("short build" in k_ or "long unwind" in k_)):
+                sc += 6; good.append(f"📊 futures {fok[sym]}")
+            elif (side == "CE" and ("short build" in k_ or "long unwind" in k_)) or (side == "PE" and ("long build" in k_ or "short cover" in k_)):
+                sc -= 4; bad.append(f"📊 futures {fok[sym]}")
+        oq = q.get(str(r.get("token"))) or {}
+        try:
+            oi, vol, ol = float(oq.get("oi") or 0), float(oq.get("vol") or 0), float(oq.get("ltp") or 0)
+        except Exception:
+            oi = vol = ol = 0
+        if oi and ol:
+            f0 = MNOI.setdefault(str(r.get("token")), {"oi": oi, "vol": vol, "ltp": ol, "t": t_now.strftime("%H:%M")})
+            och = (oi / f0["oi"] - 1) * 100 if f0["oi"] else 0
+            pch = (ol / f0["ltp"] - 1) * 100 if f0["ltp"] else 0
+            lots = (vol - f0["vol"]) / max(1, float(c.get("lot") or 1))
+            if och >= 3 and pch > 0:
+                sc += 8; good.append(f"📈 buyers entering this option — OI {och:+.0f}% & premium {pch:+.0f}% since {f0['t']}")
+            elif och <= -3 and pch > 0:
+                sc += 4; good.append(f"📈 option sellers exiting (OI {och:+.0f}%, premium up)")
+            elif och >= 3 and pch < 0:
+                sc -= 6; bad.append(f"✍ writers selling this option (OI {och:+.0f}%, premium {pch:+.0f}%)")
+            if lots >= 50:
+                good.append(f"🧾 {lots:,.0f} lots traded since {f0['t']}")
+        bt = big.get((sym, side))
+        if bt:
+            sc += 8; good.append(f"🐋 big {'buyers' if side == 'CE' else 'sellers'} on {sym} at {bt}")
+        elif big.get((sym, "PE" if side == "CE" else "CE")):
+            sc -= 6; bad.append(f"🐋 big players on the OTHER side at {big[(sym, 'PE' if side == 'CE' else 'CE')]}")
+        if npct is not None and not mcx:
+            if npct * sg >= 0.25:
+                sc += 5; good.append(f"🧭 with NIFTY {npct:+.2f}%")
+            elif npct * sg <= -0.25:
+                sc -= 8; bad.append(f"🧭 against NIFTY {npct:+.2f}%")
+        if c.get("brake"):
+            sc -= 8; bad.append("🧯 " + str(c["brake"])[:110])
+        if r["verdict"] == "LATE":
+            sc -= 10; bad.append("⌛ premium already ran — wait for pullback")
+        if r["verdict"] == "DON'T TAKE":
+            sc -= 10; bad.append("filter: " + str(c.get("shadow_why") or "")[:80])
+        if (c.get("risk") or 0) > 2500:
+            sc -= 4; bad.append(f"1 lot risk ₹{c['risk']:,.0f} > ₹2,500 — half size")
+        sc = int(max(0, min(99, round(sc))))
+        r["score"], r["good"], r["bad"] = sc, good[:8], bad[:6]
+        out.append({"id": r["id"], "score": sc, "symbol": sym, "side": side, "strike": r.get("strike"), "src": r.get("src"), "entry": r.get("entry"),
+                    "sl": r.get("sl"), "targets": r.get("targets"), "ltp": r.get("ltp"), "verdict": r["verdict"], "good": good[:8], "bad": bad[:6],
+                    "token": r.get("token"), "exch": r.get("exch"), "contract": r.get("contract"), "lot": r.get("lot"), "expiry": r.get("expiry"),
+                    "label": "🏆 BEST" if sc >= 70 else "👍 GOOD" if sc >= 60 else "⚠ WEAK — only if you must"})
+    out.sort(key=lambda x: -x["score"])
+    return out[:3]
 
 
 BHC = {"d": {}, "trk": None, "slot": None, "today": {}, "err": None, "time": None}
@@ -3217,6 +3342,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
+        if self.path == "/api/brake":
+            try:
+                from krt.calls import brake_state, STORE as _ST
+                return self._send(200, _json(brake_state(_ST.load()["calls"], str(now_ist().date()))))
+            except Exception as e:
+                return self._send(200, _json({"err": str(e)[:120]}))
         if self.path == "/api/trident":
             try:
                 return self._send(200, _json(trident_state()))
