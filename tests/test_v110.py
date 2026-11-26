@@ -227,9 +227,10 @@ def test_v115_whole_market_sweep_feed_and_strike():
         def candles(self, ex, tok, iv, a, b):
             AG.n += 1
             return mk(tok == "1")
+    xp = str((pd.Timestamp.now() + pd.Timedelta(days=20)).date())          # a future expiry (the fixed date went stale)
     inst = {"fno": ["ITC", "TCS"], "eq": {"ITC": "1", "TCS": "2"},
-            "opts": {"ITC": [["t1", "ITC25NOV300CE", "2026-11-25", 300.0, "CE", 1600, "NFO"], ["t2", "ITC25NOV300PE", "2026-11-25", 300.0, "PE", 1600, "NFO"]],
-                     "TCS": [["t3", "TCS25NOV100PE", "2026-11-25", 100.0, "PE", 175, "NFO"]]}}
+            "opts": {"ITC": [["t1", "ITC25NOV300CE", xp, 300.0, "CE", 1600, "NFO"], ["t2", "ITC25NOV300PE", xp, 300.0, "PE", 1600, "NFO"]],
+                     "TCS": [["t3", "TCS25NOV100PE", xp, 100.0, "PE", 175, "NFO"]]}}
     sent = []
     now = pd.Timestamp("2026-11-17 16:20")
     BV.sweep(AG(), inst, now, send=lambda *a: sent.append(a))

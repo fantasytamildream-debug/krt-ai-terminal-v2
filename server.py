@@ -768,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v141"
+APP_VERSION = "v142"
 EVC = {"t": 0, "d": None}
 
 
@@ -1301,6 +1301,328 @@ def behaviour_state():
         breadth = None
     return {"time": BHC["time"], "answers": BHC["d"], "picks": picks, "breadth": breadth, "track": BHC["trk"], "tuned": tu, "built": BH.M.get("built"), "days": days,
             "err": BHC["err"] or BH.M.get("err"), "market_open": market_open(now_ist())}
+
+
+# ─────────────── 🔱 KRT TRIDENT AI — Triple Market Alpha (Index · Stock · Commodity) ───────────────
+TRC = {"idx_bar": None, "stk_t": 0, "cm_t": 0, "bt_day": None, "bt_running": False}
+
+
+def _tri_d5(n, now):
+    """History (behaviour memory) + today's 5-min candles, CLOSED bars only."""
+    from krt import behaviour as BH
+    raw = (BH.M.get("raw") or {}).get(n)
+    td = (BHC.get("today") or {}).get(n)
+    parts = []
+    if raw is not None and len(raw):
+        parts.append(raw[raw.index.date < now.date()][["open", "high", "low", "close"]])
+    if td is not None and len(td):
+        parts.append(td[td.index + pd.Timedelta(minutes=5) <= now][["open", "high", "low", "close"]])
+    if not parts:
+        return None
+    d = pd.concat(parts)
+    return d[~d.index.duplicated(keep="last")].sort_index()
+
+
+def _tri_log(store, now):
+    d = store.load()
+    return d.setdefault("trident", [])
+
+
+def _tri_index_option(ix, side, spot, inv, now):
+    """Smart option selection: ATM or 1 ITM · delta 0.40–0.70 · spread ≤ 2 % · no expiry-day trap after 13:00 · risk ≤ ₹2,500."""
+    from krt import trident as TR
+    from krt.command import _greeks
+    ch = ix.get("chain") or []
+    exp = ix.get("expiry")
+    if not ch or not exp:
+        return None, "no option chain"
+    dte = (pd.Timestamp(exp).normalize() - now.normalize()).days
+    if dte <= 0 and now.hour >= 13:
+        return None, "expiry day after 1 PM — premium decay too fast"
+    ks = sorted({r["strike"] for r in ch})
+    atm = min(ks, key=lambda k: abs(k - spot))
+    i = ks.index(atm)
+    cand = [atm] + ([ks[i - 1]] if side == "CE" and i > 0 else []) + ([ks[i + 1]] if side == "PE" and i + 1 < len(ks) else [])
+    best, why = None, "no liquid strike"
+    for k in cand:
+        row = next((r for r in ch if r["strike"] == k), {})
+        o = row.get(side) or {}
+        if not o.get("ltp"):
+            continue
+        g = _greeks(o["ltp"], spot, k, exp, side, now)
+        dl = abs(g.get("delta") or 0.5)
+        if not 0.40 <= dl <= 0.70:
+            why = f"delta {dl} outside 0.40–0.70"
+            continue
+        opt = {"ltp": o["ltp"], "bid": o.get("bid"), "ask": o.get("ask"), "strike": k, "expiry": exp, "token": o.get("token"), "exch": o.get("exch"),
+               "contract": o.get("contract"), "lot": o.get("lot"), "iv": g.get("iv"), "delta": g.get("delta"), "oi": o.get("oi"),
+               "moneyness": "ATM" if k == atm else "ITM"}
+        p, bad = TR.plan_option(opt, spot, inv, o.get("lot"), dl)
+        if bad:
+            why = bad
+            continue
+        if best is None or (p["spread_pct"] or 9) < (best[1]["spread_pct"] or 9):
+            best = (opt, p)
+    return (best, None) if best else (None, why)
+
+
+def trident_loop():
+    import numpy as np
+    from krt import trident as TR
+    from krt import behaviour as BH
+    from krt import fullscan as FSm, commodity as CM
+    from krt.calls import STORE as _S, CALLS_LOCK as _CL
+    while True:
+        time.sleep(20)
+        try:
+            if not angel_configured():
+                continue
+            global ANGEL
+            if ANGEL is None:
+                from krt.angel_api import Angel
+                ANGEL = Angel()
+            t = now_ist()
+            nse = market_open(t)
+            full = STATE.get("full") or {}
+            I = {x.get("index"): x for x in full.get("index") or []}
+            fresh_scan = str(full.get("session") or "")[:10] == str(t.date())
+            out = {"time": real_hms(), "regime": {}, "index": [], "stock": [], "comm": [], "watch": [], "err": None}
+            # 1) INDEX ENGINE — after every closed 5-min candle
+            if nse and 9 * 60 + 25 <= t.hour * 60 + t.minute <= 15 * 60 + 15:
+                for n in ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"):
+                    d5 = _tri_d5(n, t)
+                    if d5 is None or not len(d5) or (t - d5.index[-1]).total_seconds() > TR.CFG["stale_min"] * 60:
+                        out["index"].append({"market": n, "engine": "INDEX", "status": "NO TRADE", "why": "candles stale / missing"})
+                        continue
+                    r = TR.index_eval(n, d5, I.get(n) if fresh_scan else None, t)
+                    out["regime"][n] = {"label": r.get("regime"), "why": r.get("regime_why")}
+                    if r.get("status") in ("ELITE", "HIGH QUALITY"):
+                        best, why = _tri_index_option(I.get(n) or {}, r["side"], r["spot"], r["inv"], t)
+                        if best:
+                            r["opt"], r["plan"] = best
+                        else:
+                            r["status"], r["why"] = "REJECT (risk / liquidity)", why
+                    out["index"].append(r)
+            # 2) STOCK ENGINE — every 5 min on the live quotes + daily bars
+            lq, lqt = FSm.C.get("live_q") or {}, FSm.C.get("live_q_t")
+            if nse and lq and lqt is not None and (t - lqt).total_seconds() <= TR.CFG["stale_min"] * 60 and time.time() - TRC["stk_t"] >= 240:
+                TRC["stk_t"] = time.time()
+                from krt.ailab import _bars_df, STATE as _AL
+                from krt.money import SECTOR
+                bars = dict(FSm.C.get("bars") or {})
+                nraw = (BH.M.get("raw") or {}).get("NIFTY")
+                nd = None
+                try:
+                    import pickle
+                    rr = pickle.loads((ROOT / "data" / "cache" / "behav.pkl").read_bytes()).get("NIFTY")
+                    nd = rr["close"].resample("1D").last().dropna() if rr is not None else None
+                except Exception:
+                    nd = nraw["close"].resample("1D").last().dropna() if nraw is not None else None
+                secr = {}
+                for sym, b in bars.items():
+                    d = _bars_df(b)
+                    if d is not None and len(d) > 21:
+                        secr.setdefault(SECTOR.get(sym, "Others"), []).append(float(d["close"].iloc[-1] / d["close"].iloc[-21] - 1))
+                order = [k for k, _ in sorted(((k, np.mean(v)) for k, v in secr.items()), key=lambda kv: -kv[1])]
+                rank = {k: i / max(1, len(order) - 1) for i, k in enumerate(order)}
+                oik = {}
+                for kind, xs in list((full.get("oi_buildup") or {}).items()):
+                    for x in list(xs):
+                        oik[x["symbol"]] = kind
+                try:
+                    evm = {e["symbol"]: e for e in (events_state() or {}).get("results") or [] if e.get("days") is not None and -3 <= e["days"] <= 0}
+                except Exception:
+                    evm = {}
+                pbm = {p["symbol"]: p for p in ((_AL.get("prebreak") or {}).get("rows") or [])}
+                res = []
+                for sym, q in list(lq.items()):
+                    d = _bars_df(bars.get(sym))
+                    if d is None:
+                        continue
+                    d = d[d.index.normalize() < t.normalize()]
+                    r = TR.stock_eval(sym, d, q, nd, rank.get(SECTOR.get(sym, "Others")), oik.get(sym), evm.get(sym), pbm.get(sym))
+                    if r.get("score"):
+                        res.append(r)
+                res.sort(key=lambda r: -r["score"])
+                calls = []
+                for r in res:
+                    if len(calls) >= 3 or r["score"] < TR.CFG["call"]:
+                        break
+                    st = _cc_strike(r["market"], r["side"], r["spot"])
+                    if not st:
+                        r["status"], r["why"] = "REJECT (risk / liquidity)", "no option contract"
+                        continue
+                    oq = opt_quotes([(st.get("exch"), st.get("token"))]).get(str(st.get("token"))) or {}
+                    opt = {**st, **{k: oq.get(k) for k in ("ltp", "bid", "ask", "oi", "vol")}}
+                    p, bad = TR.plan_option(opt, r["spot"], r["inv"], st.get("lot"), 0.5)
+                    if bad:
+                        r["status"], r["why"] = "REJECT (risk / liquidity)", bad
+                        continue
+                    r["opt"], r["plan"] = opt, p
+                    calls.append(r)
+                TRC["stock"] = calls
+                TRC["stock_watch"] = [r for r in res if TR.CFG["watch"] <= r["score"] < TR.CFG["call"]][:8]
+            out["stock"] = TRC.get("stock") or []
+            # 3) COMMODITY ENGINE — on the MCX module's closed candles
+            if CM.mcx_open(t):
+                for name in ("GOLD", "SILVER", "CRUDEOIL", "NATURALGAS"):
+                    f = CM.FR.get(name)
+                    fr = f[1] if f else None
+                    if not fr or (t - pd.Timestamp(fr.get("data_time") or "2000-01-01")).total_seconds() > TR.CFG["stale_min"] * 60:
+                        out["comm"].append({"market": name, "engine": "COMMODITY", "status": "NO TRADE", "why": "MCX candles stale / missing"})
+                        continue
+                    r = TR.comm_eval(name, fr)
+                    out["regime"][name] = {"label": r.get("regime"), "why": r.get("regime_why")}
+                    if r.get("status") in ("ELITE", "HIGH QUALITY") and time.time() - TRC.get(f"cm_{name}", 0) > 300:
+                        TRC[f"cm_{name}"] = time.time()
+                        try:
+                            o = CM.pick_option(ANGEL, load_inst(ROOT / "data" / "cache"), name, r["side"], r["spot"], t)
+                        except Exception:
+                            o = None
+                        if o:
+                            p, bad = TR.plan_option(o, r["spot"], r["inv"], o.get("mult"), 0.5)
+                            if bad:
+                                r["status"], r["why"] = "REJECT (risk / liquidity)", bad
+                            else:
+                                r["opt"], r["plan"] = o, p
+                        else:
+                            r["status"], r["why"] = "REJECT (risk / liquidity)", "no liquid option (spread / expiry)"
+                    out["comm"].append(r)
+            out["watch"] = [r for r in out["index"] + out["comm"] if TR.CFG["watch"] <= (r.get("score") or 0) < TR.CFG["call"] and r.get("status") != "NO TRADE"] \
+                + (TRC.get("stock_watch") or [])
+            # 4) calls: register new, track open (no duplicates, no revenge after a stop-out)
+            with _CL:
+                L = _tri_log(_S, t)
+                day = str(t.date())
+                for r in out["index"] + out["stock"] + out["comm"]:
+                    if not r.get("plan") or r.get("status") not in ("ELITE", "HIGH QUALITY"):
+                        continue
+                    same = [c for c in L if c["date"] == day and c["market"] == r["market"]]
+                    if any(c["status"] == "OPEN" for c in same):
+                        continue
+                    if any(c["status"] == "SL HIT" and (t - pd.Timestamp(c["closed_at"])).total_seconds() < 1800 for c in same if c.get("closed_at")):
+                        continue                                    # no revenge trade for 30 min
+                    if len(same) >= 2:
+                        continue
+                    o, p = r["opt"], r["plan"]
+                    c = {"id": f"TRI|{day}|{r['market']}|{t.strftime('%H%M')}", "date": day, "time": t.strftime("%H:%M"), "engine": r["engine"],
+                         "market": r["market"], "side": r["side"], "strike": o.get("strike"), "expiry": o.get("expiry"), "token": str(o.get("token")),
+                         "exch": o.get("exch"), "contract": o.get("contract"), "lot": p.get("lot"), "entry": p["entry"], "entry_zone": p["entry_zone"],
+                         "sl": p["sl"], "sl0": p["sl"], "targets": p["targets"], "score": r["score"], "band": r["status"], "lead": TR.NAMES.get(r.get("lead"), r.get("lead")),
+                         "regime": r.get("regime"), "status": "OPEN", "ltp": p["entry"], "pnl": 0, "hit": []}
+                    L.append(c)
+                    _S.dirty = True
+                    try:
+                        from krt.notify import both as _nb
+                        _nb(f"🔱 TRIDENT {r['engine']} · {c['market']} {c['strike']:g} {c['side']} {c['expiry']}\nEntry zone ₹{p['entry_zone'][0]} – ₹{p['entry_zone'][1]}"
+                            f"\nTarget ₹{p['targets'][0]} / ₹{p['targets'][1]} / ₹{p['targets'][2]}\nStoploss ₹{p['sl']}\nStrategy: {c['lead']}"
+                            f"\nAI Quality Score: {r['score']}/100 ({r['status']})", c["id"], True)
+                    except Exception:
+                        pass
+                opn = [c for c in L if c["status"] == "OPEN"]
+                if opn:
+                    qs = opt_quotes([(c["exch"], c["token"]) for c in opn])
+                    for c in opn:
+                        lp = (qs.get(str(c["token"])) or {}).get("ltp")
+                        if not lp:
+                            continue
+                        c["ltp"] = lp
+                        T_ = c["targets"]
+                        for k, tg in enumerate(T_):
+                            if lp >= tg and f"T{k + 1}" not in c["hit"]:
+                                c["hit"].append(f"T{k + 1}")
+                                if k == 0:
+                                    c["sl"] = c["entry"]             # trail to cost after T1
+                                elif k == 1:
+                                    c["sl"] = T_[0]
+                        mcx = c["exch"] == "MCX"
+                        late = (t.hour * 60 + t.minute) >= ((23 * 60 + 15) if mcx else (15 * 60 + 20))
+                        if lp <= c["sl"] or "T3" in c["hit"] or late or c["date"] != day:
+                            c["status"] = "T3 DONE" if "T3" in c["hit"] else ("SL HIT" if lp <= c["sl"] and not c["hit"] else ("TRAIL EXIT" if lp <= c["sl"] else "TIME EXIT"))
+                            c["exit"], c["closed_at"] = lp, str(t)
+                        c["pnl"] = round(((c.get("exit") or lp) - c["entry"]) * (c.get("lot") or 1))
+                        _S.dirty = True
+                del L[:-1500]
+                log = [dict(c) for c in L[-400:]]
+            out["log"] = log
+            TR.STATE.update(out)
+            loop_mark("trident")
+            # 5) BACKTEST — once a day (evening) or at the first start, in this thread
+            if TRC["bt_day"] != str(t.date()) and (not nse or TR.STATE.get("bt") is None) and not TRC["bt_running"]:
+                TRC["bt_day"] = str(t.date())
+                TRC["bt_running"] = True
+
+                def _bt():
+                    try:
+                        trident_backtest()
+                    finally:
+                        TRC["bt_running"] = False
+                threading.Thread(target=_bt, daemon=True, name="trident-bt").start()     # never blocks the live engine
+        except Exception as e:
+            traceback.print_exc()
+            TR.STATE["err"] = str(e)[:160]
+            loop_mark("trident", False, str(e)[:80])
+
+
+def trident_backtest():
+    from krt import trident as TR
+    from krt import fullscan as FSm
+    import pickle
+    try:
+        raw = pickle.loads((ROOT / "data" / "cache" / "behav.pkl").read_bytes())
+    except Exception:
+        raw = {}
+    bt = {"time": real_hms(), "index": None, "stock": None, "comm": None}
+    try:
+        bt["index"] = TR.backtest_index(raw)
+        TR.STATE["learned"] = bt["index"].get("learned") or {}
+    except Exception as e:
+        bt["index"] = {"err": str(e)[:120]}
+    try:
+        from krt.money import SECTOR
+        nd = raw["NIFTY"]["close"].resample("1D").last().dropna() if raw.get("NIFTY") is not None else None
+        bt["stock"] = TR.backtest_stocks(dict(FSm.C.get("bars") or {}), nd, SECTOR)
+    except Exception as e:
+        bt["stock"] = {"err": str(e)[:120]}
+    try:
+        inst = load_inst(ROOT / "data" / "cache")
+        hist = {}
+        t = now_ist()
+        for name in ("GOLD", "SILVER", "CRUDEOIL", "NATURALGAS"):
+            f = (inst.get("mcx_fut") or {}).get(name)
+            if f:
+                d = ANGEL.candles("MCX", f[0], "FIFTEEN_MINUTE", t - pd.Timedelta(days=60), t)
+                if d is not None and len(d):
+                    hist[name] = d
+                time.sleep(1.5)
+        bt["comm"] = TR.backtest_comm(hist)
+    except Exception as e:
+        bt["comm"] = {"err": str(e)[:120]}
+    TR.STATE.update(bt=bt, bt_time=real_hms())
+
+
+def trident_state():
+    from krt import trident as TR
+    S_ = dict(TR.STATE)
+    L = S_.get("log") or []
+    day = str(now_ist().date())
+    T = [c for c in L if c["date"] == day]
+    done = [c for c in L if c["status"] != "OPEN"]
+
+    def agg(rows):
+        w = [c for c in rows if c.get("pnl", 0) > 0]
+        return {"n": len(rows), "wins": len(w), "pnl": round(sum(c.get("pnl", 0) for c in rows)),
+                "win_pct": round(len(w) / len(rows) * 100) if rows else None}
+    perf = {}
+    for c in done:
+        perf.setdefault(f"{c['engine']} · {c.get('lead')}", []).append(c)
+    S_["daily"] = {"today": agg(T), "by_engine": {e: agg([c for c in T if c["engine"] == e]) for e in ("INDEX", "STOCK", "COMMODITY")}}
+    S_["perf"] = {k: agg(v) for k, v in sorted(perf.items(), key=lambda kv: -len(kv[1]))}
+    S_["cfg"] = TR.CFG
+    S_["weights"] = {"INDEX": TR.W_INDEX, "STOCK": TR.W_STOCK, "COMMODITY": TR.W_COMM}
+    S_["names"] = TR.NAMES
+    S_["market_open"] = market_open(now_ist())
+    return S_
 
 
 RMC = {"t": 0, "d": None, "trk": 0, "cal": None}
@@ -2746,6 +3068,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self._send(200, _json({"err": str(e)[:120], "rows": []}))
+        if self.path == "/api/trident":
+            try:
+                return self._send(200, _json(trident_state()))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"err": str(e)[:120]}))
         if self.path == "/api/behaviour":
             try:
                 return self._send(200, _json(behaviour_state()))
@@ -3137,6 +3465,7 @@ if __name__ == "__main__":
     threading.Thread(target=mannan_loop, daemon=True).start()
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=behav_loop, daemon=True).start()
+    threading.Thread(target=trident_loop, daemon=True, name="trident").start()
     try:
         from krt import predict as _PRD
         _PRD.LIVE["fn"] = lambda: (TICK["items"].get("NIFTY") or {}).get("ltp") if market_open(now_ist()) else None

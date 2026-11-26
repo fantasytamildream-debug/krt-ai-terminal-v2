@@ -517,6 +517,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-p="cc" aria-selected="true">🏛 Command Center</button>
+    <button role="tab" data-p="tri">🔱 AI Triple Market Alpha</button>
     <button role="tab" data-p="cl" aria-selected="false">📢 Calls <span id="clCount"></span></button>
     <button role="tab" data-p="jv">🤖 JARVIS</button>
     <button role="tab" data-p="cr">📈 Chart Room</button>
@@ -554,6 +555,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
   <section class="pane" id="p-mm" hidden></section>
   <section class="pane" id="p-cx" hidden></section>
   <section class="pane" id="p-jv" hidden></section>
+  <section class="pane" id="p-tri" hidden></section>
   <section class="pane" id="p-cr" hidden></section>
   <section class="pane" id="p-dh" hidden></section>
   <section class="pane" id="p-gk" hidden></section>
@@ -3979,7 +3981,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v141";
+const APPV="v142";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4040,6 +4042,54 @@ function symIcon(sym,sz=18){ sym=String(sym||"").toUpperCase().replace(/\s.*$/,"
   let h=0; for(const c of sym) h=(h*31+c.charCodeAt(0))%360; const mono=`<span class="sym-ic" style="${st};background:hsl(${h} 60% 38%)">${esc(sym.slice(0,2))}</span>`;
   const d=SYM_DOM[sym]; if(!d) return mono;
   return `<span class="sym-ic" style="${st};background:hsl(${h} 60% 38%)"><img loading="lazy" alt="" src="https://www.google.com/s2/favicons?domain=${d}&sz=64" onerror="this.parentNode.textContent='${esc(sym.slice(0,2))}'"></span>`; }
+
+/* 🔱 v142 KRT TRIDENT AI — Triple Market Alpha (Index · Stock · Commodity) */
+let TRD=null;
+function triCall(r){ const o=r.opt||{}, p=r.plan||{}, ce=r.side==="CE", c=r.score>=90?"#facc15":ce?"#22c55e":"#ef4444";
+  return `<div class="nscard" style="--c:${c}"><div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+    <b style="font-size:16px;color:${ce?"#4ade80":"#f87171"}">${symIcon(r.market,22)}${esc(r.market)} ${o.strike!=null?Number(o.strike).toLocaleString("en-IN"):""} ${r.side} <small class="hint">${esc(String(o.expiry||"").slice(0,10))}</small></b>
+    <span class="nbadge" style="--c:${c};font-size:11px">${r.score>=90?"ELITE":"HIGH QUALITY"} · ${r.score}/100</span></div>
+    <div class="nkv"><span>Entry zone <b>₹${n2((p.entry_zone||[])[0])} – ₹${n2((p.entry_zone||[])[1])}</b></span><span style="border-color:#ef4444">SL <b class="dn">₹${n2(p.sl)}</b></span></div>
+    <div class="nkv">${(p.targets||[]).map((t,j)=>`<span style="border-color:#22c55e">T${j+1} ₹${n2(t)}</span>`).join("")}</div>
+    <div class="hint" style="font-size:12px;margin-top:4px">Strategy: <b style="color:#e2e8f0">${esc((TRD.names||{})[r.lead]||r.lead||"–")}</b> · regime ${esc(r.regime||"–")} · 1-lot risk ₹${(p.risk_lot||0).toLocaleString("en-IN")} · lot ${p.lot||"–"}${o.delta!=null?` · Δ ${o.delta}`:""}${o.iv!=null?` · IV ${o.iv}%`:""}${p.spread_pct!=null?` · spread ${p.spread_pct}%`:""} · ${o.moneyness||""}</div>
+    <details><summary class="hint" style="font-size:11px">why · strategy votes</summary>${triVotes(r)}</details>
+    ${o.token?paperOpt({symbol:r.market,side:r.side,strike:o.strike,expiry:o.expiry,contract:o.contract,token:o.token,exch:o.exch,lot:p.lot,ltp:p.entry,sl:p.sl,from_src:"🔱 Trident "+r.engine,src_modules:["🔱 Trident"]}):""}</div>`; }
+function triVotes(r){ const C=r.comps||{}, N=TRD.names||{};
+  return `<div style="font-size:12px;margin-top:4px">${Object.entries(C).map(([k,v])=>`<div>${v==null?"⚪":v>0.15?"🟢":v<-0.15?"🔴":"⚪"} ${esc(N[k]||k)}: <b>${v==null?"no data":(v>0?"+":"")+v}</b></div>`).join("")}
+    ${(r.conf||[]).map(c=>`<div>${c[1]===true?"✅":c[1]===false?"❌":"•"} ${esc(c[0])}</div>`).join("")}
+    <div class="hint">data coverage ${r.coverage??"–"}% of strategy weight · vote ${r.s??"–"}</div></div>`; }
+function triRow(r){ const st=r.status||"", c=st.startsWith("ELITE")?"#facc15":st.startsWith("HIGH")?"#22c55e":st.startsWith("WATCH")?"#a78bfa":st.startsWith("REJECT")?"#ef4444":"#64748b";
+  return `<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #1e293b;font-size:13.5px">
+    <span>${symIcon(r.market,18)}<b>${esc(r.market)}</b> ${r.side?`<b class="${r.side==="CE"?"up":"dn"}">${r.side}</b>`:""} ${r.score!=null?`<b>${r.score}</b>/100`:""} <small class="hint">${esc(r.regime||"")}${r.bar?" · candle "+esc(r.bar):""}</small></span>
+    <span><b style="color:${c}">${esc(st)}</b>${r.why?` <small class="hint">${esc(r.why)}</small>`:""}</span></div>`; }
+function triHTML(){ const T=TRD||{}, L=T.log||[], day=String(T.time||""), today=L.filter(c=>c.date===(L.length?L[L.length-1].date:"")),
+    calls=[...(T.index||[]),...(T.stock||[]),...(T.comm||[])].filter(r=>r.plan&&/ELITE|HIGH/.test(r.status||"")), elite=calls.filter(r=>r.score>=90);
+  const sec=(t,c,body)=>`<div class="np" style="--c:${c}"><div class="nph">${t}</div>${body}</div>`;
+  const best=(arr,eng)=>{ const A=(arr||[]).filter(r=>r.plan&&/ELITE|HIGH/.test(r.status||"")); return A.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px">${A.map(triCall).join("")}</div>`:`<div style="margin-top:6px;font-size:15px"><b>NO TRADE</b> <span class="hint">— no ${eng} setup scores 85+ with the risk filters passing. No setup, no trade.</span></div>`; };
+  const RG=T.regime||{};
+  const bt=T.bt||{}, btRow=(nm,x)=>!x||!x.trades?`<tr><td>${esc(nm)}</td><td colspan="7" class="hint">no trades</td></tr>`:`<tr><td>${esc(nm)}</td><td>${x.trades}</td><td>${x.wins}/${x.losses}</td><td><b>${x.win_pct}%</b></td><td class="${x.net_r>=0?"up":"dn"}">${x.net_r>0?"+":""}${x.net_r}R</td><td>${x.pf??"–"}</td><td>${x.max_dd_r}R</td><td>${x.avg_win_r??"–"} / ${x.avg_loss_r??"–"}</td></tr>`;
+  const btT=rows=>`<table class="tbl" style="width:100%;font-size:12.5px"><tr><th>Market</th><th>Trades</th><th>W/L</th><th>Success</th><th>Net</th><th>PF</th><th>Max DD</th><th>Avg win / loss</th></tr>${rows}</table>`;
+  const bi=(bt.index||{}).markets||{}, bs=bt.stock||{}, bc=bt.comm||{};
+  const D=T.daily||{}, dT=D.today||{};
+  return `<div class="np" style="--c:#facc15"><div class="nph" style="justify-content:space-between"><span>🔱 KRT TRIDENT AI — Triple Market Alpha</span><small class="hint">${esc(T.time||"")} · Index · Stock · Commodity · quality over quantity</small></div>
+    <div class="hint" style="font-size:12px">Strategies from Kakushadze &amp; Serur, <i>151 Trading Strategies</i> (2018), run on live Angel data. Calls only at <b>AI Quality Score 85+</b>, closed candles, 1-lot risk ≤ ₹2,500, reward:risk ≥ 2. The score ranks setups — it is <b>not</b> a win-rate. Stale or missing data → NO TRADE.${T.err?` · ⚠ ${esc(T.err)}`:""}</div></div>
+   ${sec("🌐 Market regime monitor","#38bdf8",`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${Object.entries(RG).map(([k,v])=>`<span class="nsub" style="--c:${/BULL/.test(v.label)?"#22c55e":/BEAR/.test(v.label)?"#ef4444":/BREAK|REVERS|HIGH/.test(v.label)?"#f59e0b":"#64748b"};padding:6px 10px">${symIcon(k,18)}<b>${esc(k)}</b> ${esc(v.label||"–")}</span>`).join("")||'<span class="hint">waiting for closed candles (market hours)…</span>'}</div>`)}
+   ${elite.length?sec("👑 Elite setups (90+)","#facc15",`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px">${elite.map(triCall).join("")}</div>`):""}
+   ${sec("📈 Index best calls <small class='hint'>NIFTY · BANKNIFTY · FINNIFTY · SENSEX</small>","#22c55e",best(T.index,"index")+`<details style="margin-top:6px"><summary class="hint">all 4 indices — score &amp; status</summary>${(T.index||[]).map(triRow).join("")}</details>`)}
+   ${sec("🏢 Stock best calls <small class='hint'>all F&amp;O stocks · best 3</small>","#38bdf8",best(T.stock,"stock"))}
+   ${sec("🥇 Commodity best calls <small class='hint'>GOLD · SILVER · CRUDE OIL · NATURAL GAS</small>","#f59e0b",best(T.comm,"commodity")+`<details style="margin-top:6px"><summary class="hint">all commodities — score &amp; status</summary>${(T.comm||[]).map(triRow).join("")}</details><div class="hint" style="font-size:11px">Not connected (shown honestly, not guessed): global commodity direction, dollar index, USD/INR, inventory data, economic calendar, roll yield.</div>`)}
+   ${sec("👀 Early entry watchlist (75–84)","#a78bfa",(T.watch||[]).length?(T.watch||[]).map(triRow).join(""):'<div class="hint">nothing near the line right now.</div>')}
+   ${sec("📡 Live trade tracker","#22c55e",today.length?simpleTbl(today.slice().reverse(),[["Time",c=>esc(c.time)],["Call",c=>`${symIcon(c.market,16)}<b class="${c.side==="CE"?"up":"dn"}">${esc(c.market)} ${n2(c.strike)} ${c.side}</b><div class="hint">${esc(c.engine)} · ${esc(c.lead||"")}</div>`],["Score",c=>c.score],["Entry",c=>"₹"+n2(c.entry)],["SL",c=>"₹"+n2(c.sl)],["Targets",c=>(c.targets||[]).map(n2).join(" / ")],["LTP",c=>"₹"+n2(c.ltp)],["P/L lot",c=>`<b class="${c.pnl>=0?"up":"dn"}">${c.pnl>=0?"+":"−"}₹${Math.abs(c.pnl||0).toLocaleString("en-IN")}</b>`],["Status",c=>esc(c.status)+(c.hit&&c.hit.length?` · ${c.hit.join(",")}`:"")]]):'<div class="hint">no Trident calls today yet.</div>')}
+   ${sec("💰 Daily P&amp;L report","#facc15",`<div class="nkv" style="font-size:14px"><span>Today calls <b>${dT.n||0}</b></span><span>Wins <b class="up">${dT.wins||0}</b></span><span>P/L (1 lot each) <b class="${(dT.pnl||0)>=0?"up":"dn"}">${(dT.pnl||0)>=0?"+":"−"}₹${Math.abs(dT.pnl||0).toLocaleString("en-IN")}</b></span>${Object.entries(D.by_engine||{}).map(([e,x])=>`<span>${esc(e)} ${x.n} · ${(x.pnl||0)>=0?"+":"−"}₹${Math.abs(x.pnl||0).toLocaleString("en-IN")}</span>`).join("")}</div>`)}
+   ${sec("📊 Strategy performance (live calls)","#38bdf8",Object.keys(T.perf||{}).length?simpleTbl(Object.entries(T.perf).map(([k,v])=>({k,...v})),[["Engine · lead strategy",x=>esc(x.k)],["Calls",x=>x.n],["Wins",x=>x.wins],["Win %",x=>x.win_pct==null?"–":x.win_pct+"%"],["P/L",x=>`<b class="${x.pnl>=0?"up":"dn"}">${x.pnl>=0?"+":"−"}₹${Math.abs(x.pnl).toLocaleString("en-IN")}</b>`]]):'<div class="hint">builds as Trident calls close — real results only.</div>')}
+   ${sec("🧪 Backtest results","#a78bfa",!bt.time?'<div class="hint">runs once a day (evening, or at the first start) — takes a few minutes.</div>':`<div class="hint" style="font-size:12px">Run ${esc(bt.time)}. Walk-forward: first 60 % of days in-sample (weights learned), last 40 % out-of-sample. Underlying candles only — expired option prices are not available, so results are in R (1R = distance to the stop) after 0.05R slippage. Research targets (70 % win, PF 2) are targets, not results.</div>
+     <b style="display:block;margin-top:8px">Index engine (5-min, ~6 months)</b>${btT(Object.entries(bi).map(([k,v])=>btRow(k+" in-sample",v.in_sample)+btRow(k+" OUT-OF-SAMPLE",v.out_of_sample)).join(""))}
+     ${Object.keys((bt.index||{}).by_strategy||{}).length?`<div class="hint" style="margin-top:4px">By lead strategy: ${Object.entries(bt.index.by_strategy).map(([k,v])=>`${esc(k)} ${v.trades} trades · ${v.win_pct}% · ${v.net_r>0?"+":""}${v.net_r}R`).join(" · ")}</div>`:""}
+     <b style="display:block;margin-top:8px">Stock engine (daily bars)</b>${bs.err?`<div class="hint">${esc(bs.err)}</div>`:btT(btRow("in-sample",bs.in_sample)+btRow("OUT-OF-SAMPLE",bs.out_of_sample))}
+     <b style="display:block;margin-top:8px">Commodity engine (15-min, current futures, ~60 days)</b>${bc.err?`<div class="hint">${esc(bc.err)}</div>`:btT(Object.entries(bc).map(([k,v])=>btRow(k,v)).join(""))}
+     ${Object.keys(T.learned||{}).length?`<div class="hint" style="margin-top:6px">Learned index weights (from in-sample results): ${Object.entries(T.learned).map(([k,w])=>`${esc(k)} → ${Object.entries(w).map(([a,b])=>`${a} ${b}`).join(", ")}`).join(" · ")}</div>`:""}`)}`; }
+async function triPoll(){ let w=15000; try{ const r=await fetch("/api/trident",{cache:"no-store"}); if(r.ok){ TRD=await r.json(); if(!TRD.market_open) w=60000; const el=$("p-tri"); if(el) el.innerHTML=triHTML(); } }catch(e){} WT(triPoll,w); }
+setTimeout(triPoll,2500);
 /* 🗺 v133 LEVEL ROADMAP — chance each nearby level breaks in 30 / 60 min, live every 5 s */
 let RMIDX="NIFTY", RMD=null;
 try{ RMIDX=localStorage.getItem("rmidx")||"NIFTY"; }catch(e){}
