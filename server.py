@@ -14,6 +14,7 @@ from krt.config import ROOT
 from krt.runner import run_scan, now_ist, market_open, angel_configured
 from krt.chartink import CLAUSE_FILE, saved_clauses
 from krt.config import load_settings
+from krt.instruments import load as load_inst   # v147: module-level (Trident / alert picks used it unimported → silent failures)
 
 # ───────────── v106 SELF-HEAL: new krt modules missing / uploaded to the wrong place ─────────────
 # GitHub does not unzip, Windows renames duplicates to "brain (1).py", files land in the repo root …
@@ -768,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v146"
+APP_VERSION = "v147"
 EVC = {"t": 0, "d": None}
 
 
@@ -1691,18 +1692,51 @@ def alert_picks():
     t = now_ist()
     td = str(t.date())
 
-    def mk(key, sym, side, spot, inv, take, why):
+    def _q(st):
+        return opt_quotes([(st.get("exch"), st.get("token"))]).get(str(st.get("token"))) or {}
+
+    def mk(key, sym, side, spot, inv, take, why, wait=False):
+        """state: TAKE NOW · WAIT · MISSED (old, don't chase) · SKIP (too risky even OTM). v147: if ATM risks > ₹2,500 for 1 lot,
+        step 1–4 strikes OTM (cheaper premium, lower delta) until the 1-lot risk fits — instead of just saying SKIP."""
         try:
             st = _cc_strike(sym, side, spot)
             if not st:
                 return
-            q = opt_quotes([(st.get("exch"), st.get("token"))]).get(str(st.get("token"))) or {}
+            q = _q(st)
             if not q.get("ltp"):
                 return
             plan, bad = _TR.plan_option({"ltp": q["ltp"], "bid": q.get("bid"), "ask": q.get("ask")}, spot, inv, st.get("lot"), 0.5)
+            otm = 0
+            if bad and "risk" in bad:
+                try:
+                    from krt.instruments import contracts as _ct
+                    _, rows = _ct(load_inst(ROOT / "data" / "cache"), sym, 1)
+                    rows = sorted([r for r in rows if r[4] == side and r[2] == st.get("expiry")], key=lambda r: float(r[3]))
+                    ks = [float(r[3]) for r in rows]
+                    k0 = ks.index(float(st["strike"])) if float(st["strike"]) in ks else None
+                    if k0 is not None:
+                        for n_ in range(1, 5):
+                            k2 = k0 + n_ if side == "CE" else k0 - n_
+                            if not 0 <= k2 < len(rows):
+                                break
+                            r = rows[k2]
+                            st2 = {"strike": float(r[3]), "side": side, "expiry": r[2], "contract": r[1], "lot": r[5] if len(r) > 5 else st.get("lot"),
+                                   "token": str(r[0]), "exch": r[6] if len(r) > 6 else st.get("exch")}
+                            q2 = _q(st2)
+                            if not q2.get("ltp"):
+                                continue
+                            p2, b2 = _TR.plan_option({"ltp": q2["ltp"], "bid": q2.get("bid"), "ask": q2.get("ask")}, spot, inv, st2.get("lot"),
+                                                     max(0.2, 0.5 - 0.08 * n_))
+                            if not b2:
+                                st, q, plan, bad, otm = st2, q2, p2, None, n_
+                                break
+                except Exception:
+                    traceback.print_exc()
+            state = "SKIP" if bad else ("TAKE NOW" if take else ("WAIT" if wait else "MISSED"))
             out[key] = {"symbol": sym, "side": side, "strike": st.get("strike"), "expiry": st.get("expiry"), "token": st.get("token"), "exch": st.get("exch"),
-                        "lot": st.get("lot"), "contract": st.get("contract"), "ltp": q["ltp"], "plan": plan, "ul_sl": round(inv, 2),
-                        "take": bool(take and plan and not bad), "why": bad or why}
+                        "lot": st.get("lot"), "contract": st.get("contract"), "ltp": q["ltp"], "plan": plan, "ul_sl": round(inv, 2), "otm": otm,
+                        "take": state == "TAKE NOW", "state": state,
+                        "why": (f"too risky: {bad} even {otm or 4} strikes OTM" if bad else why) + (f" · {otm} strike(s) OTM so 1 lot fits ₹2,500" if otm and not bad else "")}
         except Exception:
             traceback.print_exc()
     try:
@@ -1720,7 +1754,7 @@ def alert_picks():
                 continue
             fresh = (t - pd.Timestamp(r["full"])).total_seconds() <= 20 * 60 and r.get("result") is None
             mk(f"SCR|{r['symbol']}|{r['time']}|{r['side']}", r["symbol"], "PE" if r["side"] == "CRASH" else "CE", float(r["price"]),
-               float(r["ul_sl"]), fresh, "fresh crash — small size" if fresh else "older than 20 min — don't chase")
+               float(r["ul_sl"]), fresh, f"fresh {'crash' if r['side'] == 'CRASH' else 'surge'} — small size" if fresh else "older than 20 min — move already happened, don't chase")
         from krt import footprint as _FPm
         for x in [x for x in list(_FPm.STATE.get("signals") or [])[-30:] if x.get("date") == td and x["symbol"] in ("NIFTY", "BANKNIFTY", "SENSEX")
                   and abs(x.get("delta_pct") or 0) >= 60 and (x.get("stack") or 0) >= 3][-3:]:
@@ -1731,7 +1765,9 @@ def alert_picks():
             age = (t - pd.Timestamp(f"{x['date']} {x['time']}")).total_seconds()
             against = _CR.TURN.get("side") == ("DOWN" if ce else "UP")
             mk(f"IDX|{x['key']}", x["symbol"], "CE" if ce else "PE", spot, spot * (0.9975 if ce else 1.0025), age <= 15 * 60 and not against,
-               "big futures flow, fresh" if age <= 15 * 60 and not against else ("older than 15 min" if age > 15 * 60 else "market turning the other way"))
+               "big futures flow, fresh" if age <= 15 * 60 and not against else ("older than 15 min — don't chase" if age > 15 * 60 else
+                                                                                  "market is turning the other way — wait until the turn alert ends"),
+               wait=age <= 15 * 60 and against)
     except Exception:
         traceback.print_exc()
     APC.update(t=time.time(), d=out)
