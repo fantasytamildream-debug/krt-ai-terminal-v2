@@ -528,10 +528,33 @@ def _src_key(src):
     return " ".join(w for w in s_.split() if w != "v4")
 
 
+def green_list():
+    """🟢 v146 GREEN LANE AI — every module whose closed calls made money overall (net > 0, the green rows of Module ratings,
+    e.g. Index Jackpot, Gamma Unwind Classic, Order Flow, Index OI, Mannan Commodity, 5-min ORB, Silver Bullet …).
+    These can never be gate-blocked; their gate reasons become warnings. Re-checked every 30 min from the real results."""
+    try:
+        if not PROVEN.get("rows") or __import__("time").time() - PROVEN.get("t", 0) > 1800:
+            proven_sources(STORE.load())
+    except Exception:
+        pass
+    out = []
+    for k, v in (PROVEN.get("rows") or {}).items():
+        if v.get("n", 0) >= 1 and v.get("w", 0) > v.get("l", 0):
+            out.append({"source": k, "n": v["n"], "net": round(v["w"] - v["l"])})
+    out.sort(key=lambda x: -x["net"])
+    return out
+
+
 def free_lane(c):
     k = _src_key(c.get("source") or c.get("kind"))
     if k in FREE_KEYS or k.replace(" ", "") in {x.replace(" ", "") for x in FREE_KEYS}:
         return True
+    try:
+        v = (PROVEN.get("rows") or {}).get(c.get("source"))
+        if v and v.get("w", 0) > v.get("l", 0):            # 🟢 green list (net-profitable module)
+            return True
+    except Exception:
+        pass
     try:
         return (PROVEN.get("tiers") or {}).get(c.get("source"), {}).get("tier") == "STAR"
     except Exception:

@@ -768,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v145"
+APP_VERSION = "v146"
 EVC = {"t": 0, "d": None}
 
 
@@ -3292,7 +3292,7 @@ class H(BaseHTTPRequestHandler):
                     **{k: STATE[k] for k in ("scanning", "result", "error", "last_run", "full_error",
                                              "full_running", "full_last", "progress")}, "full": full_,
                     "news": NEWS, "gu": GU, "goki_run": GOKI_RUN, "mannan": _safe(mannan_report), "version": APP_VERSION, "keepalive": KEEP,
-                    "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(_swr(bigvol_state)), "jbrain": _safe(_swr(jbrain_state)), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state),
+                    "journal": _safe(journal), "lab": _safe(lab_report), "dsk": _safe(dsk_state), "store": _safe(store_state), "events": _safe(events_state), "footprint": _safe(fp_state), "strategies": _safe(strat_state), "sniper": _safe(sniper_state), "bestpicks": _safe(bp_state), "fable": _safe(fable_state), "brain": _safe(brain_state), "mood": _safe(mood_state), "sys": _safe(sys_state), "index_diag": _safe(idx_diag_state), "highprofit": _safe(hp_state), "jarvis": _safe(jarvis_state), "dhasvanth": _safe(dhas_state), "bigvol": _safe(_swr(bigvol_state)), "jbrain": _safe(_swr(jbrain_state)), "advance": _safe(adv_state), "jv_alerts": _safe(jv_alerts), "filtered": _safe(filtered_state), "green_lane": _safe(lambda: __import__("krt.calls", fromlist=["green_list"]).green_list()),
                     "cc": _safe(_swr(cc_state)), "experts": _safe(_swr(experts_state)), "gu_runs": _safe(gu_runs_state), "loops": dict(LOOPS, mem=MEM.get("rss")), "guide": _safe(_swr(guide_state)), "jsniper": _safe(_swr(jsniper_state)), "smc": _safe(_swr(smc_state)),
                     "riser": _safe(_swr(riser_state)),
                     "pink_hist": _safe(pink_hist), "radar": _safe(radar_state), "mcx": dict(__import__("krt.commodity", fromlist=["STATE"]).STATE, err=MCXE["err"] or __import__("krt.commodity", fromlist=["STATE"]).STATE.get("err"), loop_beat=MCXE["beat"]), "telegram": __import__("krt.telegram", fromlist=["enabled"]).enabled(), "alerts": __import__("krt.telegram", fromlist=["status"]).status(), "chart": __import__("krt.chartroom", fromlist=["STATE"]).STATE,

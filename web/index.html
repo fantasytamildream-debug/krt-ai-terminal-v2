@@ -3703,7 +3703,12 @@ function stratHTML(s){
   const callTbl=L=>simpleTbl(L.slice(0,25),[["Date / Time",c=>`${sDate(c.date,"")} ${esc(ampm(c.time))}`],["Call",c=>`<b class="${c.side==='CE'?'up':'dn'}">${esc(c.symbol)} ${n2(c.strike)} ${c.side}</b>`],["Entry",c=>n2(c.entry)],["SL",c=>n2(c.sl0||c.sl)],["T1 / T2 / T3",c=>(c.targets||[]).map(n2).join(" / ")],["LTP / Exit",c=>n2(c.exit??c.ltp)],["P/L lot",plCell],["Result",statusCell]],callCls);
   const st=L=>{ const d=L.filter(c=>!OPEN_ST.includes(c.status)), w=d.filter(c=>(c.pnl_lot||0)>0).length; return `${d.length} முடிந்த · win ${d.length?Math.round(w/d.length*100)+"%":"–"} · ${rs(d.reduce((a,c)=>a+(c.pnl_lot||0),0))}`; };
   const legs=sp=>sp.legs.map(l=>`<span class="${l.act==="SELL"?"dn":"up"}">${l.act} ${n2(l.strike)} ${l.type} @₹${n2(l.entry)}</span>`).join(" · ");
-  return `<div class="labbox" style="border:2px solid #22d3ee"><h2>🩺 Module health — எல்லாம் வேலை செய்யுதா?</h2>
+  const GL=s.green_lane||[];
+  return `${GL.length?`<div class="labbox" style="border:2px solid #22c55e"><h2>🟢 Green lane AI — ${GL.length} profitable modules can't be blocked</h2>
+     <div class="hint">Every module whose closed calls made money overall (green rows of Module ratings). Their gate reasons (day max, grade C, weak recent form, filters…) now show as ⚠ warnings on the call — the call still comes. Only a duplicate (same module + stock + side today) is stopped. Re-checked every 30 min from real results.</div>
+     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${GL.map(g=>`<span class="nsub" style="--c:#22c55e;padding:3px 9px;font-size:12.5px">🟢 <b>${esc(g.source)}</b> <small class="hint">${g.n} calls · +₹${Number(g.net).toLocaleString("en-IN")}</small></span>`).join("")}</div>
+     <div class="hint" style="margin-top:4px">A module that shows "3+ days no call" found no setup at all — the green lane can't create a setup, it only stops blocking real ones.</div></div>`:""}
+   <div class="labbox" style="border:2px solid #22d3ee"><h2>🩺 Module health — எல்லாம் வேலை செய்யுதா?</h2>
      <div class="hint">✅ proven = 15+ முடிந்த calls · லாபம் · PF ≥1.5 → weak modules-ஓட day-max / duplicate gate-ல் block ஆகாது (தனி lane). இப்போ: <b>${(S.proven||[]).map(esc).join(", ")||"–"}</b></div>
      ${H.length?simpleTbl(H,[["நிலை",r=>`<b>${esc(r.status)}</b>`],["Module",r=>`${r.proven?"✅ ":""}<b>${esc(r.source)}</b>`],["கடைசி call",r=>r.last?`${esc(r.last)}${r.days?` <small class="hint">(${r.days} நாள் முன்)</small>`:""}`:"–"],["Today shown",r=>r.today],["Today hidden",r=>r.hidden?`${r.hidden} <div class="hint">₹${r.hidden_pl>=0?"+":""}${n2(r.hidden_pl)}</div>`:"–"],["Recent form",r=>`<span class="hint">${esc(r.recent||"–")}</span>`],["Today block",r=>r.rejects?`${r.rejects} <div class="hint">${r.top.map(esc).join(" · ")}</div>`:"–"]],r=>r.status.startsWith("🔴")?"slrow":r.status.startsWith("🟢")?"uprow":""):'<div class="hint">Data வந்ததும் வரும்.</div>'}
      <div class="hint">🟢 <b>working — hidden</b> = the strategy IS giving signals today, but its recent calls lost money, so they are tracked in Paper (hidden list in Calls) instead of shown. As soon as its last 30 calls make money again it comes back to the main list automatically. ⚫ = retired module.</div>
@@ -3982,7 +3987,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v145";
+const APPV="v146";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4135,8 +4140,9 @@ function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RM
        ${V.next?`<div style="font-size:13.5px;margin-top:3px">➜ ${esc(V.next)}</div>`:""}
        <div style="font-size:13.5px;margin-top:3px">🛑 ${esc(V.cancel||"")}</div></div>`; })()}
    ${(()=>{ const PK=((BRD||{}).picks||{})[RMIDX]||[]; if(!PK.length) return "";
-      return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${PK.map(k=>{ const ce=k.side==="CE", c=ce?"#22c55e":"#ef4444", buy=k.mode==="BUY";
-        return `<div class="nsub" style="--c:${c};flex:1 1 320px"><b style="color:${c};font-size:15px">${symIcon(M.name,20)}🎯 ${esc(M.name)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b> <span style="font-size:13px">${buy?"<b>TAKE NOW</b>":`only on a 5-min close ${ce?"above":"below"} <b>${Number(k.trigger||0).toLocaleString("en-IN")}</b>`}</span>${triPlan(k)}
+      const G=aiGuide(M.name,(((BRD||{}).answers||{})[RMIDX]||{}).verdict,M,PK);
+      return `<div class="nsub" style="--c:#22d3ee;margin-top:6px;font-size:13.5px">🤖 <b>AI guide:</b> ${G.html}</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${PK.map(k=>{ const ce=k.side==="CE", c=ce?"#22c55e":"#ef4444", buy=k.mode==="BUY", star=G.prefer===k.side;
+        return `<div class="nsub" style="--c:${c};flex:1 1 320px;${star?"box-shadow:0 0 16px "+c:"opacity:.75"}">${star?'<span class="nbadge" style="--c:#facc15;font-size:10.5px">⭐ AI prefers this one</span> ':""}<b style="color:${c};font-size:15px">${symIcon(M.name,20)}🎯 ${esc(M.name)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b> <span style="font-size:13px">${buy?"<b>TAKE NOW</b>":`only on a 5-min close ${ce?"above":"below"} <b>${Number(k.trigger||0).toLocaleString("en-IN")}</b>`}</span>${triPlan(k)}
           ${buy&&k.token?paperOpt({symbol:M.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🗺 Level Roadmap",src_modules:["Level Roadmap"]}):""}</div>`; }).join("")}</div>`; })()}
    <details style="margin-top:5px"><summary class="hint" style="font-size:11.5px">all levels (break chance 30 / 60 min)</summary>
    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.down.map(rmPill).join("")}</div>
@@ -4150,6 +4156,18 @@ setTimeout(rmPoll,1200);
 /* 🧠 v135 MARKET BEHAVIOUR BRAIN */
 let BRD=null, BRIDX="NIFTY", BRV=null;
 function brSet(n){ BRIDX=n; brRender(); }
+/* 🤖 v146 AI GUIDE — one plain instruction: take now / wait for which break, with the exact option */
+function aiGuide(name,V,M,PK){ const f0=x=>Number(x).toLocaleString("en-IN");
+  const ce=(PK||[]).find(k=>k.side==="CE"), pe=(PK||[]).find(k=>k.side==="PE"), buy=(PK||[]).find(k=>k.mode==="BUY");
+  const opt=k=>k&&k.plan?`<b>${esc(name)} ${f0(k.strike)} ${k.side}</b> near ₹${n2(k.plan.entry)} · SL ₹${n2(k.plan.sl)} (or ${esc(name)} ${k.side==="CE"?"below":"above"} ${f0(k.ul_sl)}) · T1 ₹${n2(k.plan.targets[0])} → book half, trail the rest`:"";
+  if(buy&&/UP|RALLY|DOWN|CRASH/.test(V||"")) return {prefer:buy.side,html:`✅ <b>TAKE ${buy.side} now</b> — ${opt(buy)}. Small size; skip if the premium already ran 10%+.`};
+  let hiP=null, loP=null, hi=null, lo=null;
+  if(M&&M.up&&M.down){ const h=M.up.find(r=>r.p60<50)||M.up[M.up.length-1], l=M.down.find(r=>r.p60<50)||M.down[M.down.length-1]; hi=h.level; lo=l.level; hiP=h.p60; loP=l.p60; }
+  const pref=hiP!=null&&loP!=null?(hiP>=loP?"CE":"PE"):null, pk=pref==="CE"?ce:pe, other=pref==="CE"?pe:ce;
+  if(hi==null) return {prefer:null,html:`⏸ <b>WAIT</b> — no clear side yet.`};
+  return {prefer:pref,html:`⏸ <b>WAIT — no trade between ${f0(lo)} and ${f0(hi)}.</b> More likely break: <b class="${pref==="CE"?"up":"dn"}">${pref==="CE"?"UP above "+f0(hi):"DOWN below "+f0(lo)}</b> (${pref==="CE"?hiP:loP}% vs ${pref==="CE"?loP:hiP}% in the next hour).
+    <div style="margin-top:3px">1️⃣ Wait for a <b>5-min candle close ${pref==="CE"?"above "+f0(hi):"below "+f0(lo)}</b> · 2️⃣ then buy ${opt(pk)||"the "+pref+" card below"}.</div>
+    ${other?`<div class="hint" style="margin-top:2px">If instead it closes ${pref==="CE"?"below "+f0(lo):"above "+f0(hi)} → take the ${other.side} card. Don't take both.</div>`:""}`}; }
 function triPlan(k){ const p=k.plan; if(!p) return k.ltp?`<span class="hint">LTP ₹${n2(k.ltp)}</span>`:"";
   return `<div class="nkv" style="width:100%;margin-top:2px"><span>Entry <b>₹${n2(p.entry)}</b></span><span style="border-color:#ef4444">SL <b class="dn">₹${n2(p.sl)}</b> <small class="hint">(or ${esc(String(k.side==="CE"?"below":"above"))} ${Number(k.ul_sl).toLocaleString("en-IN")})</small></span>${(p.targets||[]).map((t,j)=>`<span style="border-color:#22c55e">T${j+1} ₹${n2(t)}</span>`).join("")}<span class="hint">1 lot risk ₹${(p.risk_lot||0).toLocaleString("en-IN")}${p.ok===false?` · ⚠ ${esc(p.why||"")}`:""}</span></div>`; }
 function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.answers||{})[BRIDX], tu=BRD.tuned||{}, tr=BRD.track||{};
@@ -4174,8 +4192,16 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
       ${triPlan(k)}
       ${buy&&k.token?paperOpt({symbol:A.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🧠 Market Brain",src_modules:["Market Brain"]}):""}</div>`; };
   const bb=Math.round(up/Math.max(1,up+dn)*100);
-  el.innerHTML=`<div class="np" style="--c:#a78bfa">
-   <div class="nph" style="justify-content:space-between"><span>🧠 Market Brain — ${esc(A.name)} next 1 hour <small class="hint" style="font-weight:400">candle ${esc(A.bar)} · ${f0(A.spot)}</small></span><span>${tabs}</span></div>
+  const G=aiGuide(A.name,V,M,PK), PP=PK.find(k=>k.side===G.prefer)||PK[0];
+  el.innerHTML=`<div class="np" style="--c:#a78bfa;padding:9px 12px">
+   <div class="nph" style="justify-content:space-between;font-size:15px"><span>🧠 Market Brain — ${esc(A.name)} next 1 hour <small class="hint" style="font-weight:400">candle ${esc(A.bar)}</small></span><span>${tabs}</span></div>
+   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px"><span class="nbadge" style="--c:${bias[1]};font-size:14px">${bias[2]} ${bu?"GOING UP":be?"GOING DOWN":"NO CLEAR SIDE — WAIT"}</span>
+     <div style="flex:1 1 260px;display:flex;height:18px;border-radius:7px;overflow:hidden;font-size:11px;font-weight:800;color:#0b1220">
+       <div style="width:${up}%;background:#22c55e;text-align:center">${up>=10?"⬆"+up+"%":""}</div><div style="width:${fl}%;background:#475569;color:#e2e8f0;text-align:center">${fl>=15?"flat "+fl+"%":""}</div><div style="width:${dn}%;background:#ef4444;text-align:center">${dn>=10?"⬇"+dn+"%":""}</div></div></div>
+   <div style="margin-top:6px;font-size:13.5px">🤖 <b>AI guide:</b> ${G.html}</div>
+   ${F.dayp!=null&&Math.abs(F.dayp)>=0.3&&V==="MIXED"?`<div class="hint" style="font-size:11.5px;margin-top:3px">Today is ${F.dayp>0?"up":"down"} ${F.dayp>0?"+":""}${F.dayp.toFixed(2)}% — the % bar is only the next hour (similar moments mostly paused).</div>`:""}
+   ${PP?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">${pick(PP)}</div>`:""}
+   <details style="margin-top:6px"><summary class="hint" style="font-size:11.5px">full analysis — levels · conditions · both options</summary>
    <div class="npg" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-top:8px">
      <div class="nsub" style="--c:#22c55e">
        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:18px">📈 NEXT 1 HOUR MOVE</b><span class="nbadge" style="--c:${bias[1]}">${bias[2]} ${bias[0]}</span></div>
@@ -4198,11 +4224,12 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
        ${ck(B.dn==null?null:(bu?B.dn<50:be?B.dn>50:null),"Breadth",B.dn==null?"–":`${100-B.dn}% of stocks up`)}
        ${ck(V==="MIXED"?null:true,"History",V==="MIXED"?"similar past moments split — no edge":`${bu?up:dn}% of ${P.n} similar moments went ${bu?"up":"down"}`)}</div></div>
    </div>
-   ${PK.length?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">${PK.map(pick).join("")}</div>`:""}
+   ${PK.length>1?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">${PK.map(pick).join("")}</div>`:""}
    <div style="display:flex;height:30px;border-radius:12px;overflow:hidden;margin-top:10px;font-weight:800;font-size:13.5px;color:#0b1220">
      <div style="width:${bb}%;background:#4ade80;display:flex;align-items:center;justify-content:center">${bb>=18?`~${bb}% bullish${hi?` (if ${f0(hi)} holds)`:""}`:""}</div>
      <div style="width:${100-bb}%;background:#f87171;display:flex;align-items:center;justify-content:center">${100-bb>=18?`~${100-bb}% bearish${lo?` (below ${f0(lo)})`:""}`:""}</div></div>
-   ${F.dayp!=null&&Math.abs(F.dayp)>=0.3&&V==="MIXED"?`<div style="margin-top:6px;font-size:13px">ℹ Today is ${F.dayp>0?"bullish":"bearish"} (day ${F.dayp>0?"+":""}${F.dayp.toFixed(2)}%${B.dn!=null?`, ${100-B.dn}% of stocks ${F.dayp>0?"up":"down"}`:""}) — these % are only for the <b>next hour</b>: in similar past moments the market mostly paused. The day's trend is still ${F.dayp>0?"up":"down"}.</div>`:""}
+   </details>
+   ${false?`<div style="margin-top:6px;font-size:13px">ℹ Today is ${F.dayp>0?"bullish":"bearish"} (day ${F.dayp>0?"+":""}${F.dayp.toFixed(2)}%${B.dn!=null?`, ${100-B.dn}% of stocks ${F.dayp>0?"up":"down"}`:""}) — these % are only for the <b>next hour</b>: in similar past moments the market mostly paused. The day's trend is still ${F.dayp>0?"up":"down"}.</div>`:""}
    <div style="margin-top:6px;font-size:13.5px">▶ <b>Bias:</b> ${bu?`Bullish for the next hour${hi?` — strongest if ${esc(A.name)} closes above ${f0(hi)} with volume`:""}.`:be?`Bearish for the next hour${lo?` — strongest if ${esc(A.name)} closes below ${f0(lo)}`:""}.`:`No edge — wait for a clean break${hi&&lo?` (above ${f0(hi)} → CE · below ${f0(lo)} → PE)`:""}.`}</div>
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how it works · learning · track record</summary>
     <div class="hint" style="font-size:11px">Now: ${esc(A.pattern)}. Bullish / bearish = share of the ${P.n} most similar past moments where NIFTY moved ±0.2 % in the next hour (sideways = the rest). Crash 0.8 %+: ${P.crash}% (normal ${(P.base||{}).crash}%) · rally 0.8 %+: ${P.rally}% (normal ${(P.base||{}).rally}%). Key levels come from the Level Roadmap.</div>
