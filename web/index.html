@@ -3981,7 +3981,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v142";
+const APPV="v143";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4113,6 +4113,10 @@ function rmRender(){ const el=$("roadmapBox"); if(!el||!RMD) return; const M=(RM
        <div style="font-size:19px;font-weight:800;color:${c}">${esc(V.head||"")}</div>
        ${V.next?`<div style="font-size:13.5px;margin-top:3px">➜ ${esc(V.next)}</div>`:""}
        <div style="font-size:13.5px;margin-top:3px">🛑 ${esc(V.cancel||"")}</div></div>`; })()}
+   ${(()=>{ const PK=((BRD||{}).picks||{})[RMIDX]||[]; if(!PK.length) return "";
+      return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${PK.map(k=>{ const ce=k.side==="CE", c=ce?"#22c55e":"#ef4444", buy=k.mode==="BUY";
+        return `<div class="nsub" style="--c:${c};flex:1 1 320px"><b style="color:${c};font-size:15px">${symIcon(M.name,20)}🎯 ${esc(M.name)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b> <span style="font-size:13px">${buy?"<b>TAKE NOW</b>":`only on a 5-min close ${ce?"above":"below"} <b>${Number(k.trigger||0).toLocaleString("en-IN")}</b>`}</span>${triPlan(k)}
+          ${buy&&k.token?paperOpt({symbol:M.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🗺 Level Roadmap",src_modules:["Level Roadmap"]}):""}</div>`; }).join("")}</div>`; })()}
    <details style="margin-top:5px"><summary class="hint" style="font-size:11.5px">all levels (break chance 30 / 60 min)</summary>
    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.down.map(rmPill).join("")}</div>
    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${M.up.map(rmPill).join("")}</div>
@@ -4125,6 +4129,8 @@ setTimeout(rmPoll,1200);
 /* 🧠 v135 MARKET BEHAVIOUR BRAIN */
 let BRD=null, BRIDX="NIFTY", BRV=null;
 function brSet(n){ BRIDX=n; brRender(); }
+function triPlan(k){ const p=k.plan; if(!p) return k.ltp?`<span class="hint">LTP ₹${n2(k.ltp)}</span>`:"";
+  return `<div class="nkv" style="width:100%;margin-top:2px"><span>Entry <b>₹${n2(p.entry)}</b></span><span style="border-color:#ef4444">SL <b class="dn">₹${n2(p.sl)}</b> <small class="hint">(or ${esc(String(k.side==="CE"?"below":"above"))} ${Number(k.ul_sl).toLocaleString("en-IN")})</small></span>${(p.targets||[]).map((t,j)=>`<span style="border-color:#22c55e">T${j+1} ₹${n2(t)}</span>`).join("")}<span class="hint">1 lot risk ₹${(p.risk_lot||0).toLocaleString("en-IN")}${p.ok===false?` · ⚠ ${esc(p.why||"")}`:""}</span></div>`; }
 function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.answers||{})[BRIDX], tu=BRD.tuned||{}, tr=BRD.track||{};
   const tabs=["NIFTY","BANKNIFTY","SENSEX","FINNIFTY"].map(n=>`<button class="ntab${n===BRIDX?" on":""}" style="border-color:#a78bfa;${n===BRIDX?"background:#a78bfa":""}" onclick="brSet('${n}')">${n}</button>`).join(" ");
   const mem=`Memory: ${(BRD.days||{})[BRIDX]||"–"} days of 5-min market behaviour${BRD.built?` · last learned ${esc(BRD.built)}`:""}${tu.wset?` · matching by <b>${esc(tu.wset)}</b> (k ${tu.k})`:""}${tu.skill!=null?` · skill vs normal rate <b class="${tu.skill>0?"up":"dn"}">${tu.skill>0?"+":""}${tu.skill}%</b>`:""}`;
@@ -4143,7 +4149,8 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
   const PK=((BRD.picks||{})[BRIDX])||[];
   const pick=k=>{ const ce=k.side==="CE", c=ce?"#22c55e":"#ef4444", buy=k.mode==="BUY";
     return `<div class="nsub" style="--c:${c};display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 320px">${symIcon(A.name,22)}<b style="font-size:17px;color:${c}">${esc(A.name)} ${f0(k.strike)} ${k.side}</b>
-      <span style="font-size:13px">${buy?"looking good now":ce?`if it sustains above ${hi?f0(hi):"the range"}`:`if it breaks below ${lo?f0(lo):"the range"}`}${k.ltp?` · ₹${n2(k.ltp)}`:""} · exp ${esc(String(k.expiry||"").slice(0,10))}</span>
+      <span style="font-size:13px">${buy?"<b>TAKE NOW</b>":ce?`only if ${esc(A.name)} sustains above <b>${f0(k.trigger||hi)}</b>`:`only if ${esc(A.name)} breaks below <b>${f0(k.trigger||lo)}</b>`} · exp ${esc(String(k.expiry||"").slice(0,10))}</span>
+      ${triPlan(k)}
       ${buy&&k.token?paperOpt({symbol:A.name,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot,ltp:k.ltp,from_src:"🧠 Market Brain",src_modules:["Market Brain"]}):""}</div>`; };
   const bb=Math.round(up/Math.max(1,up+dn)*100);
   el.innerHTML=`<div class="np" style="--c:#a78bfa">
@@ -4178,7 +4185,7 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how it works · learning · track record</summary>
     <div class="hint" style="font-size:11px">Now: ${esc(A.pattern)}. Bullish / bearish = share of the ${P.n} most similar past moments where NIFTY moved ±0.2 % in the next hour (sideways = the rest). Crash 0.8 %+: ${P.crash}% (normal ${(P.base||{}).crash}%) · rally 0.8 %+: ${P.rally}% (normal ${(P.base||{}).rally}%). Key levels come from the Level Roadmap.</div>
     <div class="hint" style="font-size:11px">${mem}</div><div class="hint" style="font-size:11px">${trk}. History, not a promise.</div></details></div>`; }
-async function brPoll(){ let w=30000; try{ const r=await fetch("/api/behaviour",{cache:"no-store"}); if(r.ok){ BRD=await r.json(); if(!BRD.market_open) w=120000; brRender();
+async function brPoll(){ let w=30000; try{ const r=await fetch("/api/behaviour",{cache:"no-store"}); if(r.ok){ BRD=await r.json(); if(!BRD.market_open) w=120000; brRender(); try{ rmRender(); }catch(e){}
    const A=(BRD.answers||{}).NIFTY; if(A){ const k=A.verdict+A.bar.slice(0,2); if(BRV!==null&&A.verdict!==BRV&&A.verdict!=="MIXED") speak(A.verdict==="CRASH RISK"?"Market brain. Big fall risk is high now. Avoid call options.":A.verdict==="RALLY CHANCE"?"Market brain. Big rise chance is high now. Avoid put options.":`Market brain. Nifty more likely ${A.verdict==="DOWN"?"lower":"higher"} in the next hour.`,A.verdict.includes(" ")); BRV=A.verdict; } } }catch(e){} WT(brPoll,w); }
 setTimeout(brPoll,2000);
 /* 👑 v129 MANNAN STRATEGY BOX — your 8 chosen strategies, checked every 3 s, new call → popup + sound */

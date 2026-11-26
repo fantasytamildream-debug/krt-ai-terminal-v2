@@ -768,7 +768,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v142"
+APP_VERSION = "v143"
 EVC = {"t": 0, "d": None}
 
 
@@ -1289,7 +1289,21 @@ def behaviour_state():
                 if not st:
                     continue
                 q = opt_quotes([(st.get("exch"), st.get("token"))]).get(str(st.get("token"))) or {}
-                L.append({**st, "ltp": q.get("ltp"), "mode": "BUY" if A.get("side") else ("IF IT BREAKS UP" if sd == "CE" else "IF IT BREAKS DOWN")})
+                # v143: a full call — trigger level (Level Roadmap range edge), entry / SL / targets for 1 lot
+                rv = (((RMC.get("d") or {}).get("maps") or {}).get(n) or {})
+                up_l = next((r["level"] for r in rv.get("up") or [] if r["p60"] < 50), None)
+                dn_l = next((r["level"] for r in rv.get("down") or [] if r["p60"] < 50), None)
+                trig = None if A.get("side") else (up_l if sd == "CE" else dn_l)
+                base = trig or spot
+                inv = base * (1 - 0.0025) if sd == "CE" else base * (1 + 0.0025)
+                plan = None
+                if q.get("ltp"):
+                    from krt import trident as _TR
+                    plan, bad = _TR.plan_option({"ltp": q.get("ltp"), "bid": q.get("bid"), "ask": q.get("ask")}, base, inv, st.get("lot"), 0.5)
+                    if plan:
+                        plan["ok"], plan["why"] = bad is None, bad
+                L.append({**st, "ltp": q.get("ltp"), "plan": plan, "trigger": trig, "ul_sl": round(inv, 1),
+                          "mode": "BUY" if A.get("side") else ("IF IT BREAKS UP" if sd == "CE" else "IF IT BREAKS DOWN")})
             picks[n] = L
         except Exception:
             traceback.print_exc()

@@ -1,4 +1,5 @@
 """எல்லா calls: Jackpot, Intraday, Swing 5D/10D — original levels freeze, தினமும் track, profit/loss history."""
+import re
 import os
 import sys
 import time
@@ -438,7 +439,7 @@ def best_gate(c, d, now):
             clear_down = np_ <= -0.3 and b0 and b0[1] >= 1.5 * b0[0]
             if not clear_down:
                 return ("Q_STOCK_PE", f"stock PE lost ₹-1,003/call over 212 calls — only on a clear down day (NIFTY ≤ −0.3% and 1.5× more stocks falling)")
-        if (c.get("side") == "CE" and np_ <= -BEST["counter"]) or (c.get("side") == "PE" and np_ >= BEST["counter"]):
+        if ((c.get("side") == "CE" and np_ <= -BEST["counter"]) or (c.get("side") == "PE" and np_ >= BEST["counter"])) and not _turn_ok(c.get("side")):
             return ("Q_COUNTER_LIVE", f"NIFTY {np_:+.2f}% (live) — against the market")
         b = breadth_now()
         if b:
@@ -475,6 +476,15 @@ def best_gate(c, d, now):
     return None
 
 
+def _turn_ok(side):
+    """v138: on a green day that is being sold from its high (profit booking), PE is no longer 'against the market' (mirror for CE)."""
+    try:
+        from .crash import TURN
+        return (side == "PE" and TURN.get("side") == "DOWN") or (side == "CE" and TURN.get("side") == "UP")
+    except Exception:
+        return False
+
+
 def market_ok(c):
     """🛡 v113: the LIVE market check, re-run at the moment a pick / Call of the Day / Brain paper / DSK / Machine takes a call
     (a call made when breadth was fine may be picked later when it has turned). → None (ok) or a reason."""
@@ -494,7 +504,7 @@ def market_ok(c):
         return f"volume only {vr}×"
     np_ = MARKET.get("nifty_pct") or 0
     side = c.get("side")
-    if (side == "CE" and np_ <= -BEST["counter"]) or (side == "PE" and np_ >= BEST["counter"]):
+    if ((side == "CE" and np_ <= -BEST["counter"]) or (side == "PE" and np_ >= BEST["counter"])) and not _turn_ok(side):
         return f"NIFTY {np_:+.2f}% against the trade"
     b = breadth_now()
     if b:
@@ -508,8 +518,37 @@ def market_ok(c):
     return None
 
 
+# v143 FREE LANE — the user's proven index / order-flow modules must never be silently "gate blocked".
+# Only duplicates (same module + symbol + side today) and the ₹ risk cap stop them; every other rule becomes a ⚠ warning on the call.
+FREE_KEYS = {"index oi", "oi footprint", "sweep+choch+candle", "sweep choch candle"}
+
+
+def _src_key(src):
+    s_ = re.sub(r"[^a-z0-9+\- ]", " ", str(src or "").lower())
+    return " ".join(w for w in s_.split() if w != "v4")
+
+
+def free_lane(c):
+    k = _src_key(c.get("source") or c.get("kind"))
+    if k in FREE_KEYS or k.replace(" ", "") in {x.replace(" ", "") for x in FREE_KEYS}:
+        return True
+    try:
+        return (PROVEN.get("tiers") or {}).get(c.get("source"), {}).get("tier") == "STAR"
+    except Exception:
+        return False
+
+
 def quality_v6(c, now):
-    """→ None (pass) அல்லது (code, காரணம்)."""
+    """→ None (pass) அல்லது (code, காரணம்). FREE LANE modules: only duplicates block; the rest become warnings."""
+    why = _quality_v6(c, now)
+    if why and free_lane(c) and why[0] not in ("Q_DUP", "Q_DUP_ANY", "Q_REMOVED", "Q_MCX_LATE"):
+        c.setdefault("risk_warn", []).append(f"⚠ {why[1]} (free lane — call still comes)")
+        c["free_lane"] = True
+        return None
+    return why
+
+
+def _quality_v6(c, now):
     if BEST["on"] and c.get("kind") in ("MCX", "MANNAN-CMD") and now.hour * 60 + now.minute >= 13 * 60 + 30:
         return ("Q_MCX_LATE", "MCX calls after 1:30 PM lost ₹-1,276/call (56 calls) — watch-only; MCX 9:00–1:30 made +₹58,593")
     if not QV6["on"] or c.get("kind") in ("PICK", "MCX", "MANNAN-CMD") or c.get("hold_until"):
@@ -798,7 +837,9 @@ def _update_calls(ag, session, now, live, best, orb, voi, idx, swing, add, patte
         c["grade"] = "A" if not codes else ("C" if any(x in hard_ for x in codes) else "B")
         qs_ = load_settings().get("quality") or {}
         if not c.get("hold_until") and qs_.get("block_grade_c", True):
-            if c["grade"] == "C":       # V5: Grade C intraday call வராது — rejected log-ல் மட்டும்
+            if c["grade"] == "C" and free_lane(c):      # v143: free-lane module → warning, not a block
+                c.setdefault("risk_warn", []).append("⚠ grade C: " + ", ".join(QCODE_TXT.get(x, x) for x in codes) + " — smaller size")
+            elif c["grade"] == "C":       # V5: Grade C intraday call வராது — rejected log-ல் மட்டும்
                 _reject(c["date"], c["kind"], c["source"], c, {"contract": c["contract"]}, codes[0] if codes else "GRADE_C", now,
                         ", ".join(QCODE_TXT.get(x, x) for x in codes))
                 return None
