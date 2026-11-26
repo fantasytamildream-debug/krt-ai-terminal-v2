@@ -42,7 +42,7 @@ def test_trend_day_gives_ce_and_coverage_rules():
 
 
 def test_quality_is_not_a_win_rate_and_bands():
-    assert T.band(92) == "ELITE" and T.band(86) == "HIGH QUALITY" and T.band(80) == "WATCHLIST" and T.band(60) == "REJECT"
+    assert T.band(92) == "ELITE" and T.band(86) == "HIGH QUALITY" and T.band(80) == "ACTIVE" and T.band(77) == "WATCHLIST" and T.band(60) == "REJECT"
     assert T.quality(0.0, 0, 1.0) == 50 and T.quality(1.0, 10, 1.0) == 100
 
 

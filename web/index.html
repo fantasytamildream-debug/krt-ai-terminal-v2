@@ -505,6 +505,7 @@ tr.pinkrow td{background:rgba(249,168,212,.12)}tr.pink2row td{background:rgba(21
       <div class="moodtag" id="moodTag"></div>
       <div class="risktag" id="riskTag"></div>
       <div class="trendcall" id="trendCall"></div>
+      <div id="aiPick"></div>
       <div id="turnBox"></div>
       <div id="scrBox"></div>
       <div id="mannanBox"></div>
@@ -3981,7 +3982,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v144";
+const APPV="v145";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4048,7 +4049,7 @@ let TRD=null;
 function triCall(r){ const o=r.opt||{}, p=r.plan||{}, ce=r.side==="CE", c=r.score>=90?"#facc15":ce?"#22c55e":"#ef4444";
   return `<div class="nscard" style="--c:${c}"><div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
     <b style="font-size:16px;color:${ce?"#4ade80":"#f87171"}">${symIcon(r.market,22)}${esc(r.market)} ${o.strike!=null?Number(o.strike).toLocaleString("en-IN"):""} ${r.side} <small class="hint">${esc(String(o.expiry||"").slice(0,10))}</small></b>
-    <span class="nbadge" style="--c:${c};font-size:11px">${r.score>=90?"ELITE":"HIGH QUALITY"} · ${r.score}/100</span></div>
+    <span class="nbadge" style="--c:${c};font-size:11px">${r.score>=90?"ELITE":r.score>=85?"HIGH QUALITY":"ACTIVE · HALF SIZE"} · ${r.score}/100</span></div>
     <div class="nkv"><span>Entry zone <b>₹${n2((p.entry_zone||[])[0])} – ₹${n2((p.entry_zone||[])[1])}</b></span><span style="border-color:#ef4444">SL <b class="dn">₹${n2(p.sl)}</b></span></div>
     <div class="nkv">${(p.targets||[]).map((t,j)=>`<span style="border-color:#22c55e">T${j+1} ₹${n2(t)}</span>`).join("")}</div>
     <div class="hint" style="font-size:12px;margin-top:4px">Strategy: <b style="color:#e2e8f0">${esc((TRD.names||{})[r.lead]||r.lead||"–")}</b> · regime ${esc(r.regime||"–")} · 1-lot risk ₹${(p.risk_lot||0).toLocaleString("en-IN")} · lot ${p.lot||"–"}${o.delta!=null?` · Δ ${o.delta}`:""}${o.iv!=null?` · IV ${o.iv}%`:""}${p.spread_pct!=null?` · spread ${p.spread_pct}%`:""} · ${o.moneyness||""}</div>
@@ -4063,9 +4064,9 @@ function triRow(r){ const st=r.status||"", c=st.startsWith("ELITE")?"#facc15":st
     <span>${symIcon(r.market,18)}<b>${esc(r.market)}</b> ${r.side?`<b class="${r.side==="CE"?"up":"dn"}">${r.side}</b>`:""} ${r.score!=null?`<b>${r.score}</b>/100`:""} <small class="hint">${esc(r.regime||"")}${r.bar?" · candle "+esc(r.bar):""}</small></span>
     <span><b style="color:${c}">${esc(st)}</b>${r.why?` <small class="hint">${esc(r.why)}</small>`:""}</span></div>`; }
 function triHTML(){ const T=TRD||{}, L=T.log||[], day=String(T.time||""), today=L.filter(c=>c.date===(L.length?L[L.length-1].date:"")),
-    calls=[...(T.index||[]),...(T.stock||[]),...(T.comm||[])].filter(r=>r.plan&&/ELITE|HIGH/.test(r.status||"")), elite=calls.filter(r=>r.score>=90);
+    calls=[...(T.index||[]),...(T.stock||[]),...(T.comm||[])].filter(r=>r.plan&&/ELITE|HIGH|ACTIVE/.test(r.status||"")), elite=calls.filter(r=>r.score>=90);
   const sec=(t,c,body)=>`<div class="np" style="--c:${c}"><div class="nph">${t}</div>${body}</div>`;
-  const best=(arr,eng)=>{ const A=(arr||[]).filter(r=>r.plan&&/ELITE|HIGH/.test(r.status||"")); return A.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px">${A.map(triCall).join("")}</div>`:`<div style="margin-top:6px;font-size:15px"><b>NO TRADE</b> <span class="hint">— no ${eng} setup scores 85+ with the risk filters passing. No setup, no trade.</span></div>`; };
+  const best=(arr,eng)=>{ const A=(arr||[]).filter(r=>r.plan&&/ELITE|HIGH|ACTIVE/.test(r.status||"")); return A.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px">${A.map(triCall).join("")}</div>`:`<div style="margin-top:6px;font-size:15px"><b>NO TRADE</b> <span class="hint">— no ${eng} setup scores 80+ with the risk filters passing (80–84 = half size, 85+ = full size). No setup, no trade.</span></div>`; };
   const RG=T.regime||{};
   const bt=T.bt||{}, btRow=(nm,x)=>!x||!x.trades?`<tr><td>${esc(nm)}</td><td colspan="7" class="hint">no trades</td></tr>`:`<tr><td>${esc(nm)}</td><td>${x.trades}</td><td>${x.wins}/${x.losses}</td><td><b>${x.win_pct}%</b></td><td class="${x.net_r>=0?"up":"dn"}">${x.net_r>0?"+":""}${x.net_r}R</td><td>${x.pf??"–"}</td><td>${x.max_dd_r}R</td><td>${x.avg_win_r??"–"} / ${x.avg_loss_r??"–"}</td></tr>`;
   const btT=rows=>`<table class="tbl" style="width:100%;font-size:12.5px"><tr><th>Market</th><th>Trades</th><th>W/L</th><th>Success</th><th>Net</th><th>PF</th><th>Max DD</th><th>Avg win / loss</th></tr>${rows}</table>`;
@@ -4078,7 +4079,7 @@ function triHTML(){ const T=TRD||{}, L=T.log||[], day=String(T.time||""), today=
    ${sec("📈 Index best calls <small class='hint'>NIFTY · BANKNIFTY · FINNIFTY · SENSEX</small>","#22c55e",best(T.index,"index")+`<details style="margin-top:6px"><summary class="hint">all 4 indices — score &amp; status</summary>${(T.index||[]).map(triRow).join("")}</details>`)}
    ${sec("🏢 Stock best calls <small class='hint'>all F&amp;O stocks · best 3</small>","#38bdf8",best(T.stock,"stock"))}
    ${sec("🥇 Commodity best calls <small class='hint'>GOLD · SILVER · CRUDE OIL · NATURAL GAS</small>","#f59e0b",best(T.comm,"commodity")+`<details style="margin-top:6px"><summary class="hint">all commodities — score &amp; status</summary>${(T.comm||[]).map(triRow).join("")}</details><div class="hint" style="font-size:11px">Not connected (shown honestly, not guessed): global commodity direction, dollar index, USD/INR, inventory data, economic calendar, roll yield.</div>`)}
-   ${sec("👀 Early entry watchlist (75–84)","#a78bfa",(T.watch||[]).length?(T.watch||[]).map(triRow).join(""):'<div class="hint">nothing near the line right now.</div>')}
+   ${sec("👀 Early entry watchlist (75–79)","#a78bfa",(T.watch||[]).length?(T.watch||[]).map(triRow).join(""):'<div class="hint">nothing near the line right now.</div>')}
    ${sec("📡 Live trade tracker","#22c55e",today.length?simpleTbl(today.slice().reverse(),[["Time",c=>esc(c.time)],["Call",c=>`${symIcon(c.market,16)}<b class="${c.side==="CE"?"up":"dn"}">${esc(c.market)} ${n2(c.strike)} ${c.side}</b><div class="hint">${esc(c.engine)} · ${esc(c.lead||"")}</div>`],["Score",c=>c.score],["Entry",c=>"₹"+n2(c.entry)],["SL",c=>"₹"+n2(c.sl)],["Targets",c=>(c.targets||[]).map(n2).join(" / ")],["LTP",c=>"₹"+n2(c.ltp)],["P/L lot",c=>`<b class="${c.pnl>=0?"up":"dn"}">${c.pnl>=0?"+":"−"}₹${Math.abs(c.pnl||0).toLocaleString("en-IN")}</b>`],["Status",c=>esc(c.status)+(c.hit&&c.hit.length?` · ${c.hit.join(",")}`:"")]]):'<div class="hint">no Trident calls today yet.</div>')}
    ${sec("💰 Daily P&amp;L report","#facc15",`<div class="nkv" style="font-size:14px"><span>Today calls <b>${dT.n||0}</b></span><span>Wins <b class="up">${dT.wins||0}</b></span><span>P/L (1 lot each) <b class="${(dT.pnl||0)>=0?"up":"dn"}">${(dT.pnl||0)>=0?"+":"−"}₹${Math.abs(dT.pnl||0).toLocaleString("en-IN")}</b></span>${Object.entries(D.by_engine||{}).map(([e,x])=>`<span>${esc(e)} ${x.n} · ${(x.pnl||0)>=0?"+":"−"}₹${Math.abs(x.pnl||0).toLocaleString("en-IN")}</span>`).join("")}</div>`)}
    ${sec("📊 Strategy performance (live calls)","#38bdf8",Object.keys(T.perf||{}).length?simpleTbl(Object.entries(T.perf).map(([k,v])=>({k,...v})),[["Engine · lead strategy",x=>esc(x.k)],["Calls",x=>x.n],["Wins",x=>x.wins],["Win %",x=>x.win_pct==null?"–":x.win_pct+"%"],["P/L",x=>`<b class="${x.pnl>=0?"up":"dn"}">${x.pnl>=0?"+":"−"}₹${Math.abs(x.pnl).toLocaleString("en-IN")}</b>`]]):'<div class="hint">builds as Trident calls close — real results only.</div>')}
@@ -4088,8 +4089,28 @@ function triHTML(){ const T=TRD||{}, L=T.log||[], day=String(T.time||""), today=
      <b style="display:block;margin-top:8px">Stock engine (daily bars)</b>${bs.err?`<div class="hint">${esc(bs.err)}</div>`:btT(btRow("in-sample",bs.in_sample)+btRow("OUT-OF-SAMPLE",bs.out_of_sample))}
      <b style="display:block;margin-top:8px">Commodity engine (15-min, current futures, ~60 days)</b>${bc.err?`<div class="hint">${esc(bc.err)}</div>`:btT(Object.entries(bc).map(([k,v])=>btRow(k,v)).join(""))}
      ${Object.keys(T.learned||{}).length?`<div class="hint" style="margin-top:6px">Learned index weights (from in-sample results): ${Object.entries(T.learned).map(([k,w])=>`${esc(k)} → ${Object.entries(w).map(([a,b])=>`${a} ${b}`).join(", ")}`).join(" · ")}</div>`:""}`)}`; }
-async function triPoll(){ let w=15000; try{ const r=await fetch("/api/trident",{cache:"no-store"}); if(r.ok){ TRD=await r.json(); if(!TRD.market_open) w=60000; const el=$("p-tri"); if(el) el.innerHTML=triHTML(); } }catch(e){} WT(triPoll,w); }
+async function triPoll(){ let w=15000; try{ const r=await fetch("/api/trident",{cache:"no-store"}); if(r.ok){ TRD=await r.json(); if(!TRD.market_open) w=60000; const el=$("p-tri"); if(el) el.innerHTML=triHTML(); try{ aiPickRender(); }catch(e){} } }catch(e){} WT(triPoll,w); }
 setTimeout(triPoll,2500);
+
+/* 🎯 v145 AI PICK NOW — ONE call to take, chosen from every engine, small and clear */
+let TKP={};
+function pickLine(k,label,extra){ const p=k.plan||{}, ce=k.side==="CE", c=ce?"#22c55e":"#ef4444";
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px">${symIcon(k.symbol||k.market,20)}<b style="font-size:16px;color:${c}">BUY ${esc(k.symbol||k.market)} ${Number(k.strike).toLocaleString("en-IN")} ${k.side}</b>
+    <span>Entry <b>₹${n2(p.entry??k.ltp)}</b></span><span class="dn">SL ₹${n2(p.sl)}</span><span class="up">T1 ₹${n2((p.targets||[])[0])} · T2 ₹${n2((p.targets||[])[1])}</span>
+    <small class="hint">${esc(label)}${extra?" · "+esc(extra):""} · exp ${esc(String(k.expiry||"").slice(0,10))}</small>
+    ${k.token?paperOpt({symbol:k.symbol||k.market,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot||p.lot,ltp:p.entry??k.ltp,sl:p.sl,from_src:"🎯 AI pick · "+label,src_modules:["AI pick"]}):""}</div>`; }
+function aiPickRender(){ const el=$("aiPick"); if(!el) return; const C=[];
+  ((TRD||{}).index||[]).concat((TRD||{}).stock||[],(TRD||{}).comm||[]).filter(r=>r.plan&&/ELITE|HIGH|ACTIVE/.test(r.status||"")).forEach(r=>C.push({rank:r.score>=85?100+r.score:60+r.score,
+     k:{market:r.market,side:r.side,strike:(r.opt||{}).strike,expiry:(r.opt||{}).expiry,token:(r.opt||{}).token,exch:(r.opt||{}).exch,contract:(r.opt||{}).contract,lot:(r.plan||{}).lot,plan:r.plan},
+     label:`🔱 Trident ${r.score}/100`,extra:r.score>=85?"full size":"half size"}));
+  ((MNDATA||{}).rows||[]).filter(r=>r.verdict==="TAKE").forEach(r=>C.push({rank:80+(r.conf||0)/5,k:{symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,token:r.token,exch:r.exch,contract:r.contract,lot:r.lot,ltp:r.ltp,plan:{entry:r.entry,sl:r.sl,targets:r.targets}},label:`👑 ${r.src} ${r.conf}%`,extra:"Mannan box"}));
+  Object.entries(TKP||{}).forEach(([key,k])=>{ if(k.take) C.push({rank:key==="turn"?92:key.startsWith("IDX")?88:84,k,label:key==="turn"?(k.side==="CE"?"📈 short covering":"📉 profit booking"):key.startsWith("IDX")?"🐋 futures big "+(k.side==="CE"?"buyers":"sellers"):"🔻 stock crash",extra:"small size"}); });
+  C.sort((a,b)=>b.rank-a.rank);
+  if(!C.length){ el.innerHTML=`<div style="margin-top:8px;padding:7px 12px;border-radius:12px;border:2px solid #64748b;font-size:14px">🎯 <b>AI pick now:</b> nothing clean to take — <b>wait</b>. (No engine has a TAKE call right now.)</div>`; return; }
+  const top=C[0];
+  el.innerHTML=`<div style="margin-top:8px;padding:8px 12px;border-radius:12px;border:3px solid #22d3ee;background:rgba(34,211,238,.08);box-shadow:0 0 14px rgba(34,211,238,.35)">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="color:#22d3ee;font-size:15px">🎯 AI PICK NOW — take only this one${top.extra==="small size"||top.extra==="half size"?" (small size)":""}</b><small class="hint">${C.length>1?`${C.length-1} more below in their boxes`:""}</small></div>
+    ${pickLine(top.k,top.label,top.extra)}</div>`; }
 /* 🗺 v133 LEVEL ROADMAP — chance each nearby level breaks in 30 / 60 min, live every 5 s */
 let RMIDX="NIFTY", RMD=null;
 try{ RMIDX=localStorage.getItem("rmidx")||"NIFTY"; }catch(e){}
@@ -4157,11 +4178,11 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
    <div class="nph" style="justify-content:space-between"><span>🧠 Market Brain — ${esc(A.name)} next 1 hour <small class="hint" style="font-weight:400">candle ${esc(A.bar)} · ${f0(A.spot)}</small></span><span>${tabs}</span></div>
    <div class="npg" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-top:8px">
      <div class="nsub" style="--c:#22c55e">
-       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:18px">📈 NEXT 1 HOUR OUTLOOK</b><span class="nbadge" style="--c:${bias[1]}">${bias[2]} ${bias[0]}</span></div>
+       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:18px">📈 NEXT 1 HOUR MOVE</b><span class="nbadge" style="--c:${bias[1]}">${bias[2]} ${bias[0]}</span></div>
        <div class="ncards3" style="margin-top:8px">
-         <div class="nbig" style="--c:#22c55e">🐂 BULLISH<b>${up}%</b><div class="nbar"><i style="width:${up}%"></i></div></div>
-         <div class="nbig" style="--c:#eab308">↔ SIDEWAYS<b>${fl}%</b><div class="nbar"><i style="width:${fl}%"></i></div></div>
-         <div class="nbig" style="--c:#ef4444">🐻 BEARISH<b>${dn}%</b><div class="nbar"><i style="width:${dn}%"></i></div></div></div></div>
+         <div class="nbig" style="--c:#22c55e">⬆ RISES 0.2%+<b>${up}%</b><div class="nbar"><i style="width:${up}%"></i></div></div>
+         <div class="nbig" style="--c:#eab308">↔ STAYS FLAT<b>${fl}%</b><div class="nbar"><i style="width:${fl}%"></i></div></div>
+         <div class="nbig" style="--c:#ef4444">⬇ FALLS 0.2%+<b>${dn}%</b><div class="nbar"><i style="width:${dn}%"></i></div></div></div></div>
      <div class="nsub" style="--c:#38bdf8"><b style="font-size:16px">🎯 Key levels (next 1 hour)</b>
        ${hi?`<div class="nlv" style="margin-top:8px"><span class="tg" style="--c:#22c55e">Breakout above</span><b>${f0(hi)}</b><span class="tg" style="--c:#22c55e">Targets (UP) ›</span><span>${tU.map(f0).join(" / ")}</span>
          <span class="tg" style="--c:#ef4444">Breakdown below</span><b>${f0(lo)}</b><span class="tg" style="--c:#ef4444">Targets (DOWN) ›</span><span>${tD.map(f0).join(" / ")}</span></div>`:'<div class="hint">levels load with the Level Roadmap…</div>'}</div>
@@ -4181,6 +4202,7 @@ function brRender(){ const el=$("brainBox"); if(!el||!BRD) return; const A=(BRD.
    <div style="display:flex;height:30px;border-radius:12px;overflow:hidden;margin-top:10px;font-weight:800;font-size:13.5px;color:#0b1220">
      <div style="width:${bb}%;background:#4ade80;display:flex;align-items:center;justify-content:center">${bb>=18?`~${bb}% bullish${hi?` (if ${f0(hi)} holds)`:""}`:""}</div>
      <div style="width:${100-bb}%;background:#f87171;display:flex;align-items:center;justify-content:center">${100-bb>=18?`~${100-bb}% bearish${lo?` (below ${f0(lo)})`:""}`:""}</div></div>
+   ${F.dayp!=null&&Math.abs(F.dayp)>=0.3&&V==="MIXED"?`<div style="margin-top:6px;font-size:13px">ℹ Today is ${F.dayp>0?"bullish":"bearish"} (day ${F.dayp>0?"+":""}${F.dayp.toFixed(2)}%${B.dn!=null?`, ${100-B.dn}% of stocks ${F.dayp>0?"up":"down"}`:""}) — these % are only for the <b>next hour</b>: in similar past moments the market mostly paused. The day's trend is still ${F.dayp>0?"up":"down"}.</div>`:""}
    <div style="margin-top:6px;font-size:13.5px">▶ <b>Bias:</b> ${bu?`Bullish for the next hour${hi?` — strongest if ${esc(A.name)} closes above ${f0(hi)} with volume`:""}.`:be?`Bearish for the next hour${lo?` — strongest if ${esc(A.name)} closes below ${f0(lo)}`:""}.`:`No edge — wait for a clean break${hi&&lo?` (above ${f0(hi)} → CE · below ${f0(lo)} → PE)`:""}.`}</div>
    <details style="margin-top:4px"><summary class="hint" style="font-size:11px">how it works · learning · track record</summary>
     <div class="hint" style="font-size:11px">Now: ${esc(A.pattern)}. Bullish / bearish = share of the ${P.n} most similar past moments where NIFTY moved ±0.2 % in the next hour (sideways = the rest). Crash 0.8 %+: ${P.crash}% (normal ${(P.base||{}).crash}%) · rally 0.8 %+: ${P.rally}% (normal ${(P.base||{}).rally}%). Key levels come from the Level Roadmap.</div>
@@ -4212,12 +4234,14 @@ async function mannanPoll(){ let wait=3000;
         nw.forEach(x=>{ try{ beep(); toast(`<b>👑 MANNAN BOX · ${esc(x.time)}</b><br>BUY ${esc(x.symbol)} ${esc(x.strike??"")} ${esc(x.side)} · ${esc(x.source)}<br>🤖 ${esc(x.verdict)} ${x.conf}% — ${esc(x.txt)}`); }catch(e){}
           try{ if(window.Notification&&Notification.permission==="granted") new Notification(`👑 Mannan box: ${x.symbol} ${x.strike??""} ${x.side}`,{body:`${x.verdict} ${x.conf}% · entry ₹${x.entry} · SL ₹${x.sl}`}); }catch(e){} });
         setTimeout(()=>{ if(MNSEEN) MNSEEN.fresh=new Set(); },60000); }
-      const el=$("mannanBox"); if(el) el.innerHTML=mannanHTML(M); } }catch(e){}
+      const el=$("mannanBox"); if(el) el.innerHTML=mannanHTML(M); try{ aiPickRender(); }catch(e){} } }catch(e){}
   WT(mannanPoll,wait); }
 setTimeout(mannanPoll,1500);
 async function tickPoll(){ try{ const r=await fetch("/api/ticks",{cache:"no-store"}); if(r.ok){ const T=await r.json(); applyTicks(T);
     try{ crashVoice(T.crash); }catch(e){}
+    TKP=T.picks||{};
     try{ turnShow((T.crash||{}).turn); }catch(e){}
+    try{ aiPickRender(); }catch(e){}
     try{ bigVoice(T.big||[]); }catch(e){}
     try{ riseVoice(T.rise||[]); }catch(e){}
     const sb=$("sbusy"); if(sb) sb.innerHTML=T.sbusy?`⚠ server busy preparing the page for ${T.sbusy.s}s — showing the last copy${T.sbusy.lock?` · calls lock held ${T.sbusy.lock.s}s by ${esc(T.sbusy.lock.by)} at ${esc(T.sbusy.lock.at)}`:T.sbusy.where?` · stuck in ${esc(T.sbusy.where)}`:""} (send a screenshot)`:T.lock?`⏳ calls lock held ${T.lock.s}s by ${esc(T.lock.by)} at ${esc(T.lock.at)}`:""; } }catch(e){} WT(tickPoll,2000); }
@@ -4225,7 +4249,9 @@ let TURNK=null;
 function turnShow(U){ const el=$("turnBox"); const k=U?U.side+U.since:"";
   if(el) el.innerHTML=U?`<div style="margin-top:8px;padding:9px 12px;border-radius:12px;border:3px solid ${U.side==="DOWN"?"#f97316":"#22c55e"};background:${U.side==="DOWN"?"rgba(249,115,22,.14)":"rgba(34,197,94,.12)"}">
     <b style="font-size:17px;color:${U.side==="DOWN"?"#fb923c":"#4ade80"}">${U.side==="DOWN"?"📉 PROFIT BOOKING STARTED":"📈 SHORT COVERING STARTED"}${U.strong?" — STRONG":""}</b> <small class="hint">since ${esc(U.since||"")}</small>
-    <div style="font-size:13.5px;margin-top:3px">${esc(U.text||"")}</div></div>`:"";
+    <div style="font-size:13.5px;margin-top:3px">${esc(U.text||"")}</div>
+    <div style="font-size:13.5px;margin-top:3px">${U.side==="DOWN"?"🗣 Profit booking = காலையில் வாங்கியவர்கள் லாபம் எடுக்க விற்கிறார்கள் → மார்க்கெட் கீழே வரும். CE லாபம் புக் பண்ணுங்க / SL இறுக்குங்க, புது CE வேண்டாம்.":"🗣 Short covering = விற்றவர்கள் (shorts) பயந்து திரும்ப வாங்குகிறார்கள் → மார்க்கெட் வேகமா மேலே போகும். PE-ஐ விட்டு வெளியே வாங்க, CE எடுக்கலாம் (small size)."}</div>
+    ${TKP.turn?`<div style="margin-top:5px"><b>${TKP.turn.take?"✅ எடுக்கலாம்":"⏸ வேண்டாம்"}:</b> ${pickLine(TKP.turn,TKP.turn.take?"AI: TAKE":"AI: SKIP",TKP.turn.why)}</div>`:""}</div>`:"";
   if(U&&k!==TURNK&&TURNK!==null) speak(U.side==="DOWN"?`Profit booking started. Nifty is ${Math.abs(U.off).toFixed(1)} percent below the day high. Book or trail call profits. No fresh calls.`:`Short covering started. Nifty is ${Math.abs(U.off).toFixed(1)} percent above the day low. Book or trail put profits.`,true);
   TURNK=k; }
 let RISEV=null;
@@ -4237,8 +4263,10 @@ function scrShow(B){ const el=$("scrBox"); if(!el) return; const C=B.filter(b=>b
   if(!C.length&&!I.length){ el.innerHTML=""; return; }
   el.innerHTML=`<div style="margin-top:8px;padding:8px 12px;border-radius:12px;border:2px solid #f43f5e;background:rgba(244,63,94,.08)">
     <b style="color:#fb7185">🔻🚀 Big moves right now</b> <small class="hint">F&O stocks crashing / surging (−1.2% in 10 min, 3× volume, still at the low) · NIFTY / BANKNIFTY / SENSEX futures big buy / sell</small>
-    ${C.map(b=>{ const cr=b.side==="CRASH"; return `<div style="margin-top:4px;font-size:13.5px"><b class="${cr?"dn":"up"}">${cr?"🔻 CRASH":"🚀 SURGE"} ${esc(b.symbol)} ${b.m10>0?"+":""}${b.m10}% in 10 min</b> · ${b.vol}× volume · ${esc(b.time)} → <b>${cr?"PE":"CE"} fast: ${esc(b.symbol)} ${esc(b.strike??"ATM")} ${esc(b.opt||"")}</b> <span class="hint">· stop if it goes ${cr?"above":"below"} ${n2(b.sl)}</span></div>`; }).join("")}
-    ${I.map(b=>`<div style="margin-top:4px;font-size:13px"><b class="${b.side==="BUY"?"up":"dn"}">🐋 ${esc(b.symbol)} futures: big ${b.side==="BUY"?"BUYERS":"SELLERS"}</b> · ${b.stack} candles in a row · ${b.delta>0?"+":""}${b.delta}% net ${b.side==="BUY"?"buying":"selling"} · ${esc(b.time)}</div>`).join("")}</div>`; }
+    ${C.map(b=>{ const cr=b.side==="CRASH"; return `<div style="margin-top:4px;font-size:13.5px"><b class="${cr?"dn":"up"}">${cr?"🔻 CRASH":"🚀 SURGE"} ${esc(b.symbol)} ${b.m10>0?"+":""}${b.m10}% in 10 min</b> · ${b.vol}× volume · ${esc(b.time)} → <b>${cr?"PE":"CE"} fast: ${esc(b.symbol)} ${esc(b.strike??"ATM")} ${esc(b.opt||"")}</b> <span class="hint">· stop if it goes ${cr?"above":"below"} ${n2(b.sl)}</span>
+      ${(()=>{ const k=TKP[`SCR|${b.symbol}|${b.time}|${b.side}`]; return k?`<div style="margin:3px 0 0 18px"><b>${k.take?"✅ TAKE":"⏸ SKIP"}</b> ${pickLine(k,k.take?"AI: take, small size":"AI: skip",k.why)}</div>`:""; })()}</div>`; }).join("")}
+    ${I.map(b=>`<div style="margin-top:4px;font-size:13px"><b class="${b.side==="BUY"?"up":"dn"}">🐋 ${esc(b.symbol)} futures: big ${b.side==="BUY"?"BUYERS":"SELLERS"}</b> · ${b.stack} candles in a row · ${b.delta>0?"+":""}${b.delta}% net ${b.side==="BUY"?"buying":"selling"} · ${esc(b.time)}
+      ${(()=>{ const k=TKP[b.k]; return k?`<div style="margin:3px 0 0 18px"><b>${k.take?"✅ TAKE":"⏸ SKIP"}</b> ${pickLine(k,k.take?"AI: take, small size":"AI: skip",k.why)}</div>`:""; })()}</div>`).join("")}</div>`; }
 function bigVoice(B){ try{ scrShow(B); }catch(e){} const ks=B.map(b=>b.k); if(BIGV===null){ BIGV=new Set(ks); return; }
   const nw=B.filter(b=>!BIGV.has(b.k)); ks.forEach(k=>BIGV.add(k)); let n=0;
   nw.forEach(b=>{ if(n>=2) return;

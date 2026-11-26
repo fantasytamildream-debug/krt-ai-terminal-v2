@@ -29,7 +29,7 @@ NAMES = {"momentum": "Price momentum §3.1", "sr": "Support & resistance §3.14"
          "combo": "Alpha combos §3.20", "multifactor": "Multifactor §3.6", "earnings": "Earnings momentum §3.2", "sector": "Sector momentum rotation §4.1",
          "residual": "Residual momentum §3.7", "knn": "Machine learning KNN §3.17", "channel": "Channel trading §3.15",
          "events": "Economic announcements §19.5", "roll": "Roll yield §9.1"}
-CFG = {"call": 85, "elite": 90, "watch": 75, "risk": 2500, "rr": 2.0, "cover": 0.60, "stale_min": 12, "slip_r": 0.05}
+CFG = {"call": 85, "active": 80, "elite": 90, "watch": 75, "risk": 2500, "rr": 2.0, "cover": 0.60, "stale_min": 12, "slip_r": 0.05}
 STATE = {"time": None, "regime": {}, "index": [], "stock": [], "comm": [], "watch": [], "err": None, "bt": None, "bt_time": None, "learned": {}}
 LOCK = threading.Lock()
 
@@ -103,7 +103,9 @@ def quality(s, conf_pts, coverage):
 
 
 def band(q):
-    return "ELITE" if q >= CFG["elite"] else "HIGH QUALITY" if q >= CFG["call"] else "WATCHLIST" if q >= CFG["watch"] else "REJECT"
+    """v145: 80–84 = ACTIVE (half size) — the user asked for calls, not only a watchlist; 85+ stays the full-size quality line."""
+    return ("ELITE" if q >= CFG["elite"] else "HIGH QUALITY" if q >= CFG["call"] else "ACTIVE" if q >= CFG["active"]
+            else "WATCHLIST" if q >= CFG["watch"] else "REJECT")
 
 
 def regime_of(d5, d60=None):
