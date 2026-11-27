@@ -317,7 +317,12 @@ def classic_eval(c, df, oi_raw, ul, q, now, nd20):
     # v147: far (monthly, ≥15 days) contracts unwind OI much slower than near-expiry ones — GU won Nov 3–11 on near contracts.
     # Since the Nov expiry every watched contract is Dec (23 days) and A / C almost never passed. Thresholds now scale with expiry.
     far = c.get("dte", 0) >= 15
-    need_drop = 5.0 if far else K["oi_drop"]
+    try:
+        from .autopilot import level as _apl
+        apl = _apl("GU")                     # v152: 🤖 autopilot loosens one step per day with no setup (max 3)
+    except Exception:
+        apl = 0
+    need_drop = max(3.5 if far else 5.0, (5.0 if far else K["oi_drop"]) - 1.0 * apl)
     out[f"A · OI unwind ≥{need_drop:g}% + falling"] = bool(drop >= need_drop and falling)
     sma = v[-K["vol_sma"]:].mean() if len(v) >= K["vol_sma"] else v.mean()
     out["B · Volume (2 of 3 > SMA20)"] = bool(sma and v[-1] > sma and int((v[-3:] > sma).sum()) >= K["vol_min_of_last3"]
@@ -325,10 +330,10 @@ def classic_eval(c, df, oi_raw, ul, q, now, nd20):
     atr14 = _atr(h[:-1], l[:-1], cl[:-1], 14)
     cons = False
     for m in range(min(K["consol_max"], len(h) - 1), K["consol_min"] - 1, -1):
-        if atr14 and (h[-m - 1:-1].max() - l[-m - 1:-1].min()) <= (1.5 if far else K["consol_atr"]) * atr14:
+        if atr14 and (h[-m - 1:-1].max() - l[-m - 1:-1].min()) <= ((1.5 if far else K["consol_atr"]) + 0.25 * apl) * atr14:
             cons = True
             break
-    out[f"C · Quiet base (4–12 bars ≤{1.5 if far else 1:g} ATR)"] = cons
+    out[f"C · Quiet base (4–12 bars ≤{(1.5 if far else 1) + 0.25 * apl:g} ATR)"] = cons
     out["H · Premium jump (range ≥2 ticks, volume)"] = bool((h[-1] - l[-1]) >= 0.05 * K["min_range_ticks"] - 1e-9
                                                           and int((v[-6:] == 0).sum()) <= K["max_zero_vol"] and cl[-1] > o[-1])
     c5 = ul.get("close5")
@@ -356,7 +361,7 @@ def classic_eval(c, df, oi_raw, ul, q, now, nd20):
     core = [out[k] for k in out if k[:1] in ("A", "B", "C", "H")]
     must = [v for k, v in out.items() if k[:1] not in ("A", "B", "C", "H")]
     core_n = sum(core)
-    lite = (not ok) and all(must) and drop >= (3.0 if far else K["lite_drop"]) and core_n >= K["lite_core"]
+    lite = (not ok) and all(must) and drop >= max(2.0, (3.0 if far else K["lite_drop"]) - 0.5 * apl) and core_n >= K["lite_core"]
     return {"checks": out, "ok": ok, "lite": lite, "core_n": core_n, "drop": round(drop, 1), "strong": drop >= K["oi_strong"], "entry": entry,
             "sl": r05(entry * (1 - K["sl_cap"])), "targets": [r05(entry * (1 + x)) for x in K["targets"]],
             "ul_sl": (c["zone"][0] if ce else c["zone"][1]) if c.get("zone") else None}

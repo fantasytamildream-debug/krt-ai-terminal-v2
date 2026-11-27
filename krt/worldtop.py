@@ -773,3 +773,134 @@ def walk_forward(trades, split=0.6, min_oos=8):
             enabled[k] = ("on" if (a.get("exp_r", -1) > 0 and b.get("exp_r", -1) > 0)
                           else "recent" if b.get("exp_r", -1) > 0 else "weak")
     return res, enabled
+
+
+# ───────────────────────── 🔬 v152 advanced chart analysis (Chart Room search) ─────────────────────────
+def _pivots(d, k=3):
+    hi, lo = [], []
+    H, L = d["high"].values, d["low"].values
+    for i in range(k, len(d) - k):
+        if H[i] == max(H[i - k:i + k + 1]):
+            hi.append((d.index[i], float(H[i])))
+        if L[i] == min(L[i - k:i + k + 1]):
+            lo.append((d.index[i], float(L[i])))
+    return hi, lo
+
+
+def _cluster(levels, tol):
+    out = []
+    for v in sorted(levels):
+        if out and abs(v - out[-1][0]) <= tol:
+            n = out[-1][1] + 1
+            out[-1] = ((out[-1][0] * out[-1][1] + v) / n, n)
+        else:
+            out.append((v, 1))
+    return out
+
+
+def _rsi(c, n=14):
+    d = c.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    return 100 - 100 / (1 + up / dn.replace(0, np.nan))
+
+
+def analysis(d5, dd=None):
+    """Multi-timeframe trend · market structure (HH/HL) · support/resistance clusters · RSI/MACD · ATR + expected move · VWAP ·
+    volume profile (POC / value area) · last-candle pattern · opening range · gap · PDH/PDL → a plain bias with reasons."""
+    X = context(d5, dd)
+    if X is None:
+        return None
+    px, out, pts, why = X["px"], {}, 0, []
+    tf = {}
+    for lab, d in (("1h", X["d60"]), ("15m", X["d15"]), ("5m", X["d5"])):
+        if d is not None and len(d) > 25:
+            e = _ema(d["close"], 20)
+            up = float(d["close"].iloc[-1]) > float(e.iloc[-1])
+            sl_ = float((e.iloc[-1] / e.iloc[-4] - 1) * 100)
+            tf[lab] = {"trend": "UP" if up and sl_ > 0 else "DOWN" if not up and sl_ < 0 else "FLAT", "ema20": round(float(e.iloc[-1]), 2), "slope": round(sl_, 3)}
+            pts += {"UP": 1, "DOWN": -1}.get(tf[lab]["trend"], 0)
+    out["tf"] = tf
+    d15 = X["d15"]
+    st = "RANGE"
+    if d15 is not None and len(d15) > 20:
+        hi, lo = _pivots(d15, 2)
+        if len(hi) >= 2 and len(lo) >= 2:
+            hh, hl = hi[-1][1] > hi[-2][1], lo[-1][1] > lo[-2][1]
+            st = "UPTREND (higher highs + higher lows)" if hh and hl else "DOWNTREND (lower highs + lower lows)" if not hh and not hl else \
+                 "EXPANDING (higher high, lower low)" if hh else "CONTRACTING (lower high, higher low → squeeze)"
+            pts += 1 if hh and hl else -1 if not hh and not hl else 0
+        tol = X["atr15"] * 0.5
+        lv = [v for _, v in hi[-12:]] + [v for _, v in lo[-12:]]
+        if X.get("pdh"):
+            lv += [X["pdh"], X["pdl"]]
+        cl = _cluster(lv, tol)
+        out["resistance"] = [{"price": round(v, 2), "touches": n} for v, n in sorted([c for c in cl if c[0] > px], key=lambda c: c[0])[:3]]
+        out["support"] = [{"price": round(v, 2), "touches": n} for v, n in sorted([c for c in cl if c[0] < px], key=lambda c: -c[0])[:3]]
+        r = _rsi(d15["close"])
+        rv = float(r.iloc[-1]) if pd.notna(r.iloc[-1]) else None
+        out["rsi15"] = round(rv, 1) if rv is not None else None
+        if rv is not None:
+            out["rsi_txt"] = "overbought (>70) — late to buy" if rv > 70 else "oversold (<30) — late to sell" if rv < 30 else "bullish zone" if rv > 55 else "bearish zone" if rv < 45 else "neutral"
+            pts += 1 if 55 < rv <= 70 else -1 if 30 <= rv < 45 else 0
+        m = _ema(d15["close"], 12) - _ema(d15["close"], 26)
+        h = m - _ema(m, 9)
+        out["macd_hist"] = round(float(h.iloc[-1]), 3)
+        out["macd_txt"] = ("rising" if h.iloc[-1] > h.iloc[-2] else "falling") + (" above zero" if h.iloc[-1] > 0 else " below zero")
+        pts += 1 if h.iloc[-1] > 0 and h.iloc[-1] > h.iloc[-2] else -1 if h.iloc[-1] < 0 and h.iloc[-1] < h.iloc[-2] else 0
+    out["structure"] = st
+    out["atr15"] = round(X["atr15"], 2)
+    hm = X["hm"]
+    left = max(0.0, (pd.Timestamp(f"{X['day']} 15:30") - pd.Timestamp(f"{X['day']} {hm}")).total_seconds() / 60)
+    out["exp_move_left"] = round(X["atr15"] * (left / 15) ** 0.5, 2) if left else None
+    out["vwap"] = round(X["vwap"], 2)
+    out["vwap_pct"] = round((px / X["vwap"] - 1) * 100, 2) if X["vwap"] else None
+    pts += 1 if px > X["vwap"] else -1
+    if X["hv"]:
+        D = X["d5"].tail(375 * 5 // 5)
+        bins = np.linspace(float(D["low"].min()), float(D["high"].max()), 31)
+        tp = ((D["high"] + D["low"] + D["close"]) / 3).values
+        vol, _ = np.histogram(tp, bins=bins, weights=D["volume"].values)
+        if vol.sum() > 0:
+            i = int(np.argmax(vol))
+            out["poc"] = round(float((bins[i] + bins[i + 1]) / 2), 2)
+            order = np.argsort(vol)[::-1]
+            acc, keep = 0.0, []
+            for j in order:
+                keep.append(j)
+                acc += vol[j]
+                if acc >= 0.7 * vol.sum():
+                    break
+            out["vah"], out["val"] = round(float(bins[max(keep) + 1]), 2), round(float(bins[min(keep)]), 2)
+            out["vp_txt"] = ("above value area — buyers accepted higher prices" if px > out["vah"] else
+                             "below value area — sellers in control" if px < out["val"] else "inside value area — fair price, range likely")
+    T = X["T"]
+    if len(T) >= 2:
+        a, b = T.iloc[-2], T.iloc[-1]
+        body, rng = abs(b["close"] - b["open"]), max(1e-9, b["high"] - b["low"])
+        pat = None
+        if b["close"] > b["open"] and a["close"] < a["open"] and b["close"] >= a["open"] and b["open"] <= a["close"]:
+            pat = "Bullish engulfing"
+        elif b["close"] < b["open"] and a["close"] > a["open"] and b["close"] <= a["open"] and b["open"] >= a["close"]:
+            pat = "Bearish engulfing"
+        elif body / rng < 0.15:
+            pat = "Doji (indecision)"
+        elif min(b["open"], b["close"]) - b["low"] > 2 * body and b["high"] - max(b["open"], b["close"]) < body:
+            pat = "Hammer (buyers rejected the low)"
+        elif b["high"] - max(b["open"], b["close"]) > 2 * body and min(b["open"], b["close"]) - b["low"] < body:
+            pat = "Shooting star (sellers rejected the high)"
+        elif b["high"] < a["high"] and b["low"] > a["low"]:
+            pat = "Inside bar (pause before a move)"
+        out["pattern"] = pat
+    o = T[T.index.strftime("%H:%M") < "09:45"]
+    if len(o) >= 3 and X["hm"] >= "09:45":
+        oh, ol = float(o["high"].max()), float(o["low"].min())
+        out["orb"] = {"high": round(oh, 2), "low": round(ol, 2), "state": "above opening range" if px > oh else "below opening range" if px < ol else "inside opening range"}
+    if X.get("pdc"):
+        out["gap_pct"] = round((X["open"] / X["pdc"] - 1) * 100, 2)
+        out["pdh"], out["pdl"] = round(X["pdh"], 2), round(X["pdl"], 2)
+        out["pd_state"] = "above previous-day high" if px > X["pdh"] else "below previous-day low" if px < X["pdl"] else "inside previous-day range"
+        pts += 1 if px > X["pdh"] else -1 if px < X["pdl"] else 0
+    out["bias_pts"] = pts
+    out["bias"] = "BULLISH" if pts >= 3 else "BEARISH" if pts <= -3 else "MILD BULLISH" if pts >= 1 else "MILD BEARISH" if pts <= -1 else "NEUTRAL"
+    return out

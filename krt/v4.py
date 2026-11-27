@@ -515,7 +515,13 @@ def _in_windows(t, wins):
 
 
 def s_silver(cx, now, S):
-    inwin = _in_windows(pd.Timestamp(now), S["silver_windows"])
+    try:
+        from .autopilot import level as _apl
+        apl = _apl("SILVER")             # v152: 🤖 autopilot (only after whole days with no Silver Bullet setup)
+    except Exception:
+        apl = 0
+    wins = S["silver_windows"] if apl < 1 else [["09:45", "11:30"], ["13:00", "15:00"]]
+    inwin = _in_windows(pd.Timestamp(now), wins)
     sw = sweep(cx["m3"], cx["levels"], look=20)
     if not sw:
         return {"side": None, "stage": None, "chk": {"Time window": inwin, "Liquidity sweep": False}, "notes": ["Sweep இல்லை"], "buckets": {}}
@@ -530,7 +536,10 @@ def s_silver(cx, now, S):
     retest = bool(fv) and ((last["low"] <= fv[-1]["hi"] and last["close"] > fv[-1]["hi"]) if ce else (last["high"] >= fv[-1]["lo"] and last["close"] < fv[-1]["lo"]))
     chk = {"Time window": inwin, "Liquidity sweep": True, f"Swept: {sw['level']}": True, "Market structure shift": mss,
            "Displacement candle": disp_ok, "Fair value gap": bool(fv), "FVG retest": retest}
-    stage = _stage(True, inwin and mss and bool(fv), inwin and mss and disp_ok and retest)
+    conf_ok = inwin and mss and (disp_ok or apl >= 2) and (retest or (apl >= 3 and bool(fv)))
+    stage = _stage(True, inwin and mss and bool(fv), conf_ok)
+    if apl:
+        chk[f"🤖 autopilot level {apl}"] = True
     sl = sw["price"] - 0.15 * cx["atr"] if ce else sw["price"] + 0.15 * cx["atr"]
     return {"side": side, "stage": stage, "chk": chk, "spot_sl": round(sl, 2),
             "buckets": {"trend": cx["htf"] == ("UP" if ce else "DOWN"), "liquidity": True, "bos": mss, "volume": disp_ok,

@@ -971,7 +971,12 @@ def fast_tick(ag, res):
             P_["acc"] = _pt(P_, _PS, now) if live else None
             mins_ = now.hour * 60 + now.minute
             jp_ = [j for j in (P_.get("jackpot") or []) if j["index"] == "NIFTY"]
-            if live and jp_ and P_["prob"] >= 75 and 9 * 60 + 45 <= mins_ <= 14 * 60 + 30:
+            try:
+                from .autopilot import level as _apl
+                jp_min = max(63, 75 - 4 * _apl("INDEXJP"))       # v152: 🤖 autopilot
+            except Exception:
+                jp_min = 75
+            if live and jp_ and P_["prob"] >= jp_min and 9 * 60 + 45 <= mins_ <= 14 * 60 + 30:
                 from .calls import add_simple
                 j = jp_[0]
                 add_simple("INDEXJP", "🔮 Index Jackpot", [{"symbol": j["index"], "side": j["side"], "price": P_["spot"], "sl": None, "score": j["prob"], "stars": 5,

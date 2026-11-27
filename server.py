@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v151"
+APP_VERSION = "v152"
 EVC = {"t": 0, "d": None}
 
 
@@ -1405,6 +1405,9 @@ def behav_loop():
             loop_mark("behaviour", False, str(e)[:80])
 
 
+BHSEEN = {}
+
+
 def behaviour_state():
     from krt import behaviour as BH
     tu = {k: v for k, v in (BH.M.get("tuned") or {}).items() if k != "scores"}
@@ -1438,7 +1441,29 @@ def behaviour_state():
                     plan, bad = _TR.plan_option({"ltp": q.get("ltp"), "bid": q.get("bid"), "ask": q.get("ask")}, base, inv, st.get("lot"), 0.5)
                     if plan:
                         plan["ok"], plan["why"] = bad is None, bad
-                L.append({**st, "ltp": q.get("ltp"), "plan": plan, "trigger": trig, "ul_sl": round(inv, 1),
+                # v152: when it first came + a plain TAKE / WAIT / LATE / SKIP answer
+                day_ = str(now_ist().date())
+                if BHSEEN.get("_d") != day_:
+                    BHSEEN.clear()
+                    BHSEEN["_d"] = day_
+                since = BHSEEN.setdefault(f"{n}|{st.get('strike')}|{sd}", now_ist().strftime("%H:%M"))
+                ltp_ = q.get("ltp")
+                if plan is None:
+                    tag, adv = "SKIP", "no live premium for this strike"
+                elif not plan.get("ok"):
+                    tag, adv = "SKIP", f"{plan.get('why')}"
+                elif trig is None:
+                    tag, adv = (("TAKE", f"Brain favours {sd} — entry OK up to ₹{round(plan['entry'] * 1.05, 2):g}, SL ₹{plan['sl']:g}")
+                                if ltp_ and ltp_ <= plan["entry"] * 1.05 else ("LATE", "premium already ran > 5 % — wait for a dip"))
+                else:
+                    hit_ = (spot > trig) if sd == "CE" else (spot < trig)
+                    if not hit_:
+                        tag, adv = "WAIT", f"only after a 5-min close {'above' if sd == 'CE' else 'below'} {trig:,.0f} (now {abs(spot - trig):,.0f} pts away)"
+                    elif ltp_ and ltp_ > plan["entry"] * 1.10:
+                        tag, adv = "LATE", f"broke {trig:,.0f} but premium ran > 10 % — don't chase"
+                    else:
+                        tag, adv = "TAKE", f"{'broke above' if sd == 'CE' else 'broke below'} {trig:,.0f} — entry OK up to ₹{round(plan['entry'] * 1.05, 2):g}, SL ₹{plan['sl']:g}"
+                L.append({**st, "ltp": q.get("ltp"), "plan": plan, "trigger": trig, "ul_sl": round(inv, 1), "since": since, "tag": tag, "advice": adv,
                           "mode": "BUY" if A.get("side") else ("IF IT BREAKS UP" if sd == "CE" else "IF IT BREAKS DOWN")})
             picks[n] = L
         except Exception:
@@ -1769,6 +1794,10 @@ def worldtop_scan(t=None):
         except Exception:
             traceback.print_exc()
     rows.sort(key=lambda r: (r["reject"] is None, r["score"]), reverse=True)
+    if WT.get("seen_day") != day:                     # v152: time = when this setup was FIRST seen today
+        WT["seen"], WT["seen_day"] = {}, day
+    for r in rows:
+        r["time"] = WT["seen"].setdefault(f"{r['symbol']}|{r['side']}", r["time"])
     risk = ((cc_state() or {}).get("strip") or {}).get("risk") or {}
     stale = bool(age is not None and age > 300)
     gate = None if (nse_open or any(r["market"] == "COMMODITY" for r in rows)) else "market closed"
@@ -1831,10 +1860,28 @@ def worldtop_scan(t=None):
     return W.STATE
 
 
+def autopilot_tick():
+    """🤖 v152: re-check the module autopilot (every 10 min + at start). Levels are saved with the calls so a restart keeps them."""
+    from krt import autopilot as APm
+    from krt.calls import STORE as _S, CALLS_LOCK as _CL
+    with _CL:
+        d = _S.load()
+        H = d.setdefault("autopilot", {})
+        APm.update(list((d.get("calls") or {}).values()), str(now_ist().date()), H)
+        _S.dirty = True
+
+
 def worldtop_loop():
     time.sleep(90)
+    ap_t = 0
     while True:
         try:
+            if time.time() - ap_t > 600:
+                ap_t = time.time()
+                try:
+                    autopilot_tick()
+                except Exception:
+                    traceback.print_exc()
             from krt import worldtop as _W
             if _W.STATE.get("bt") is None and not WT["busy"]:
                 worldtop_bt_run()                          # loads the saved result (≤ 3 days old) instantly, else computes
@@ -1956,6 +2003,11 @@ def lookup_state(sym):
                                   "entry": c.get("entry"), "sl": c.get("sl"), "targets": c.get("targets"), "status": c.get("status")} for c in jp][-3:],
            "pdh": (ev or {}).get("X", {}).get("pdh") if ev else None, "pdl": (ev or {}).get("X", {}).get("pdl") if ev else None,
            "vwap": round((ev or {}).get("X", {}).get("vwap"), 2) if ev else None}
+    try:
+        out["analysis"] = W.analysis(d5, dd)
+    except Exception as e:
+        traceback.print_exc()
+        out["analysis"] = None
     LKC[sym] = (time.time(), out)
     if len(LKC) > 50:
         LKC.clear()
@@ -2005,7 +2057,8 @@ def desk_state():
                     "methods_now": [{"name": W.MKEY[k][1], "side": v["side"]} for k, v in ev["signals"].items() if k in ev["allowed"]]})
     secs = sorted(money.get("sectors") or [], key=lambda x: -(x.get("pct") or 0))
     from krt.calls import breadth_now
-    br = breadth_now() or {}
+    _bn = breadth_now()
+    br = {"up": _bn[0], "down": _bn[1]} if isinstance(_bn, (tuple, list)) else (_bn or {})
     big_b = sum(1 for r in BV.FEED.values() if r.get("date") == str(t0.date()) and r.get("side") == "CE")
     big_s = sum(1 for r in BV.FEED.values() if r.get("date") == str(t0.date()) and r.get("side") == "PE")
     day = str(t0.date())
@@ -3116,7 +3169,7 @@ def strat_state():
             from krt.calls import STORE as _S, module_health, proven_sources
             D = _S.load()
             t = now_ist()
-            STRC.update(t=time.time(), d={"combo": CB.STATE, "spreads": SPR.report(D), "health": module_health(D, t), "proven": sorted(proven_sources(D)),
+            STRC.update(t=time.time(), d={"combo": CB.STATE, "spreads": SPR.report(D), "health": module_health(D, t), "proven": sorted(proven_sources(D)), "autopilot": __import__("krt.autopilot", fromlist=["state"]).state(),
                                           "mgu": [{"index": x.get("index"), **(x.get("mgu") or {})} for x in ((STATE.get("full") or {}).get("index") or []) if x.get("mgu")],
                                           "mgu_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "MANNAN-GU"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40],
                                           "combo_calls": sorted([c for c in D["calls"].values() if c.get("kind") == "COMBO"], key=lambda c: (c["date"], c.get("time") or ""), reverse=True)[:40]})

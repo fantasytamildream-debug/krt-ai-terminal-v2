@@ -113,7 +113,7 @@ def build(rg, brain, money, nifty, jv_top, feed, early, calls, adv, events, coac
         p = r.get("plan") or {}
         item = {"symbol": r["symbol"], "strike": r.get("strike"), "side": r.get("side"), "entry": p.get("entry") or r.get("entry"), "sl": p.get("sl") or r.get("sl"),
                 "targets": [t.get("prem") if isinstance(t, dict) else t for t in (p.get("targets") or [])][:3], "score": r.get("score"),
-                "module": r.get("module"), "why": r.get("verdict_why"), "id": r.get("id"), "ltp": r.get("ltp")}
+                "module": r.get("module"), "why": r.get("verdict_why"), "id": r.get("id"), "ltp": r.get("ltp"), "time": r.get("time")}
         (take if v == "TAKE" else avoid if v == "DON'T TAKE" else []).append(item)
     for m in (brain or {}).get("avoid") or []:
         avoid.append({"module": m["module"], "why": f"{m['module']} loses in this market ({m['win']}% win, {'−' if m['exp'] < 0 else '+'}₹{abs(m['exp']):,}/call)", "symbol": None})
@@ -141,13 +141,13 @@ def build(rg, brain, money, nifty, jv_top, feed, early, calls, adv, events, coac
         if g and g.get("tag") not in ("ENTER", "JACKPOT"):
             continue
         best.append({"symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "entry": c.get("entry"), "sl": c.get("sl"),
-                     "targets": (c.get("targets") or [])[:3], "module": c.get("source"), "id": c.get("id"), "ltp": c.get("ltp"),
+                     "targets": (c.get("targets") or [])[:3], "module": c.get("source"), "id": c.get("id"), "ltp": c.get("ltp"), "time": c.get("time"),
                      "tag": (g or {}).get("tag") or "OPEN", "why": (g or {}).get("txt"), "score": None})
         seen.add((c["symbol"], c.get("side")))
     for c in adv or []:
         if c.get("status") == "OPEN" and (c["symbol"], c.get("side")) not in seen:
             best.append({"symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "entry": c.get("entry"), "sl": c.get("sl"),
-                         "targets": (c.get("targets") or [])[:3], "module": "🐋 Big Player Advance", "id": c.get("id"), "ltp": c.get("ltp"), "tag": "BIG PLAYER", "score": None})
+                         "targets": (c.get("targets") or [])[:3], "module": "🐋 Big Player Advance", "id": c.get("id"), "ltp": c.get("ltp"), "tag": "BIG PLAYER", "score": None, "time": c.get("time")})
     ev = []
     for r in events or []:
         if r.get("date") in (day, str((now + pd.Timedelta(days=1)).date())):
