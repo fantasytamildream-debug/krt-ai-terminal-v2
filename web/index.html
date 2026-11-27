@@ -1927,7 +1927,7 @@ function speak(t,pri){ if(!t||!voiceOn()||!window.speechSynthesis) return; t=Str
   if(VQ.some(x=>x.t===t)) return; const it={t,at:Date.now(),pri:!!pri};
   if(pri){ const i=VQ.findIndex(x=>!x.pri); if(i<0) VQ.push(it); else VQ.splice(i,0,it); } else { VQ.push(it); const np=VQ.filter(x=>!x.pri); if(np.length>4) VQ.splice(VQ.indexOf(np[0]),1); }
   VLOG.unshift({t:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),m:t}); VLOG.length=Math.min(VLOG.length,25); vPump(); }
-function vPump(){ while(VQ.length&&Date.now()-VQ[0].at>(VQ[0].pri?120000:45000)) VQ.shift();   /* v135: never speak old news late */
+function vPump(){ while(VQ.length&&Date.now()-VQ[0].at>(VQ[0].pri?180000:90000)) VQ.shift();   /* v135: never speak old news late */
   if(VQB||!VQ.length) return; VQB=true; const t=VQ.shift().t; let done=false;
   const fin=()=>{ if(done) return; done=true; VQB=false; setTimeout(vPump,400); };
   try{ const u=new SpeechSynthesisUtterance(t); u.lang="en-IN"; u.rate=0.97; u.onend=fin; u.onerror=fin; speechSynthesis.speak(u); setTimeout(fin,Math.min(30000,3000+t.length*85)); }catch(e){ fin(); } }
@@ -1985,7 +1985,7 @@ function announceNew(f){
   fresh.sort((a,b)=>((pinkOf(b)||{}).tier==="dark")-((pinkOf(a)||{}).tier==="dark")||(!!pinkOf(b))-(!!pinkOf(a))||(b.time).localeCompare(a.time));
   fresh.slice(0,5).forEach(c=>{ const pk=pinkOf(c), G=aiGuide(c,null,LAST_S);
     toast(`<b>${pk?(pk.tier==="dark"?"🩷🩷 DARK PINK ALERT":"🩷 PINK ALERT"):"🔔 New call"}</b> · 🕒 ${esc(c.date||"")} ${esc(c.time)}<br><b class="${c.side==='CE'?'up':'dn'}">BUY ${esc(c.symbol)} ${esc(c.strike)} ${esc(c.side)}</b><br>Entry ₹${n2(c.entry)} · SL ₹${n2(c.sl)} · T1 ₹${n2((c.targets||[])[0])}<div class="hint">${esc(c.source_label||c.source||c.kind)}${pk?` · win ${pk.win}% (${pk.n})`:""}</div><div class="aiguide ${G.k}" style="margin:4px 0 0;padding:4px 8px;font-size:13px">🤖 ${esc(G.t)}</div>`, pk?(pk.tier==="dark"?"pink2":"pink"):"");
-    speak(callSpeech(c), !!pk); });
+    speak(callSpeech(c), !!pk||!!srcWin(c.source)); });
   if(fresh.length>5) speak(`And ${fresh.length-5} more calls. Check the calls tab.`);
   spokenAdd(fresh.map(c=>c.id));
   try{ beep(); }catch(e){}
@@ -3105,7 +3105,7 @@ function lkHTML(R){ if(LKLOAD&&(!R||R.symbol!==LKLOAD.sym)) return `<div class="
 function lkBar(){ setTimeout(lkSyms,50); return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><input id="lkq" list="lksyms" value="${esc(LKTYPE??LKSYM??"")}" oninput="LKTYPE=this.value" placeholder="🔎 Search any stock / index / commodity — TMPV, VBL, OIL, CIPLA, GOLD…" style="flex:1;padding:8px 10px;border-radius:9px;border:2px solid #38bdf8;background:#0b1220;color:#e2e8f0;font-size:14px" onkeydown="if(event.key==='Enter')lkGo()"><button class="pickbtn" onclick="lkGo()">🔎 Search</button><datalist id="lksyms">${(LKSYMS||[]).map(s=>`<option value="${esc(s)}">`).join("")}</datalist></div><div id="lkres">${(LKR||LKLOAD)?lkHTML(LKR):""}</div>`; }
 
 /* v152: one time badge used everywhere a call is listed */
-function tBox(t,col){ t=String(t||"").slice(0,16); if(!t) return ""; const hm=t.length>5?t.slice(-5):t;
+function tBox(t,col){ t=String(t||"").trim(); if(!t) return ""; const m=t.match(/(\d{1,2}):(\d{2})(?::\d{2})?(?:\.\d+)?$/); const hm=m?m[1].padStart(2,"0")+":"+m[2]:t.slice(0,5);
   return `<span style="display:inline-block;margin-right:5px;padding:0 6px;border-radius:6px;border:1px solid ${col||"#38bdf8"};color:${col||"#7dd3fc"};font-weight:700;font-size:11.5px;font-variant-numeric:tabular-nums">⏱ ${esc(hm)}</span>`; }
 /* v152: proven / high-win strategy names in bright colour everywhere (⭐ star tier or ≥55 % win with 10+ calls) */
 function srcWin(name){ const F=(LAST_S||{}).filtered||{}, T=F.tiers||{}, key=String(name||"").replace(/^[^A-Za-z0-9]+/,"").replace(/^V4\s*/,"").replace(/^[^A-Za-z0-9]+/,"").toLowerCase();
@@ -4147,7 +4147,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v152";
+const APPV="v154";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;
@@ -4264,15 +4264,33 @@ function pickLine(k,label,extra){ const p=k.plan||{}, ce=k.side==="CE", c=ce?"#2
     <span>Entry <b>₹${n2(p.entry??k.ltp)}</b></span><span class="dn">SL ₹${n2(p.sl)}</span><span class="up">T1 ₹${n2((p.targets||[])[0])} · T2 ₹${n2((p.targets||[])[1])}</span>
     <small class="hint">${esc(label)}${extra?" · "+esc(extra):""} · exp ${esc(String(k.expiry||"").slice(0,10))}</small>
     ${k.token?paperOpt({symbol:k.symbol||k.market,side:k.side,strike:k.strike,expiry:k.expiry,contract:k.contract,token:k.token,exch:k.exch,lot:k.lot||p.lot,ltp:p.entry??k.ltp,sl:p.sl,from_src:"🎯 AI pick · "+label,src_modules:["AI pick"]}):""}</div>`; }
+/* 🎙 v154 AI VOICE PICK — the single best setup is ALWAYS spoken (top priority, never dropped behind big-player alerts):
+   new best → spoken at once · same best still valid → reminder every 15 min · only during market hours */
+let AIPV={k:null,t:0};
+function aiPickVoice(top){ try{ const k=top.k||{}, sym=k.symbol||k.market||"", p=k.plan||{}; if(!sym||!p.entry) return;
+    const hm=new Date().toLocaleTimeString("en-GB",{timeZone:"Asia/Kolkata",hour12:false}).slice(0,5), mcx=/GOLD|SILVER|CRUDE|NATURALGAS|COPPER|ZINC|ALUMIN|LEAD|NICKEL/.test(sym);
+    if(!(hm>="09:20"&&hm<="15:15")&&!(mcx&&hm>="09:00"&&hm<="23:15")) return;
+    const key=sym+"|"+k.strike+"|"+k.side, now=Date.now();
+    if(key===AIPV.k&&now-AIPV.t<15*60000) return;
+    const again=key===AIPV.k; AIPV={k:key,t:now};
+    const lab=String(top.label||"").replace(/[^A-Za-z0-9 .+%\/-]/g," ").replace(/\s+/g," ").trim();
+    speak(`${again?"Reminder. A I best setup is still":"A I best setup now."} Buy ${sym} ${k.strike?Math.round(k.strike):""} ${k.side==="CE"?"call":"put"}. Entry ${Math.round(p.entry*100)/100}. Stop loss ${Math.round((p.sl||0)*100)/100}. ${lab}.${top.extra?" "+top.extra+".":""}`,true);
+    if(!again) toast(`<b>🎙 AI BEST SETUP NOW</b><br><b class="${k.side==="CE"?"up":"dn"}">BUY ${esc(sym)} ${esc(k.strike??"")} ${esc(k.side)}</b> · entry ₹${n2(p.entry)} · SL ₹${n2(p.sl)}<div class="hint">${esc(top.label||"")}</div>`,"");
+  }catch(e){} }
 function aiPickRender(){ const el=$("aiPick"); if(!el) return; const C=[];
   ((TRD||{}).index||[]).concat((TRD||{}).stock||[],(TRD||{}).comm||[]).filter(r=>r.plan&&/ELITE|HIGH|ACTIVE/.test(r.status||"")).forEach(r=>C.push({rank:r.score>=85?100+r.score:60+r.score,
      k:{market:r.market,side:r.side,strike:(r.opt||{}).strike,expiry:(r.opt||{}).expiry,token:(r.opt||{}).token,exch:(r.opt||{}).exch,contract:(r.opt||{}).contract,lot:(r.plan||{}).lot,plan:r.plan},
      label:`🔱 Trident ${r.score}/100`,extra:r.score>=85?"full size":"half size"}));
   ((MNDATA||{}).rows||[]).filter(r=>r.verdict==="TAKE").forEach(r=>C.push({rank:80+(r.conf||0)/5,k:{symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,token:r.token,exch:r.exch,contract:r.contract,lot:r.lot,ltp:r.ltp,plan:{entry:r.entry,sl:r.sl,targets:r.targets}},label:`👑 ${r.src} ${r.conf}%`,extra:"Mannan box"}));
   Object.entries(TKP||{}).forEach(([key,k])=>{ if(k.take) C.push({rank:key==="turn"?92:key.startsWith("IDX")?88:84,k,label:key==="turn"?(k.side==="CE"?"📈 short covering":"📉 profit booking"):key.startsWith("IDX")?"🐋 futures big "+(k.side==="CE"?"buyers":"sellers"):"🔻 stock crash",extra:"small size"}); });
+  /* v154: more engines feed the one AI pick — Mannan AI best (score ≥ 60) · 🌍 World Top qualified · 🧠 Market Brain TAKE */
+  ((MNDATA||{}).best||[]).filter(b=>b.score>=60&&b.verdict==="TAKE").forEach(b=>C.push({rank:70+b.score/3,k:{symbol:b.symbol,side:b.side,strike:b.strike,expiry:b.expiry,token:b.token,exch:b.exch,contract:b.contract,lot:b.lot,ltp:b.ltp,plan:{entry:b.entry,sl:b.sl,targets:b.targets}},label:`🏆 AI best ${b.score}/100 · ${b.src||""}`,extra:b.score>=70?"":"small size",t:b.came}));
+  const WTd=(((LAST_S||{}).experts||{}).world)||{};
+  (WTd.qual_now||[]).concat((WTd.picks||[]).filter(c=>c.status==="OPEN")).filter(c=>c.plan&&c.score>=85&&!c.reject).forEach(c=>C.push({rank:90+(c.score-85),k:{symbol:c.symbol,side:c.side,strike:c.strike,expiry:c.expiry,token:c.token,exch:c.exch,contract:c.contract,lot:c.lot,ltp:c.opt_ltp??c.ltp,plan:c.plan},label:`🌍 World Top ${c.score}/100 · ${(c.global_matches||[]).slice(0,2).join(" + ")}`,extra:"",t:c.time}));
+  Object.entries((BRD||{}).picks||{}).forEach(([n,L])=>(L||[]).filter(k=>k.tag==="TAKE"&&k.plan&&k.plan.ok!==false).forEach(k=>C.push({rank:83,k:{symbol:n,side:k.side,strike:k.strike,expiry:k.expiry,token:k.token,exch:k.exch,contract:k.contract,lot:k.lot,ltp:k.ltp,plan:k.plan},label:`🧠 Market Brain · ${k.advice||""}`,extra:"",t:k.since})));
   C.sort((a,b)=>b.rank-a.rank);
   if(!C.length){ el.innerHTML=`<div style="margin-top:8px;padding:7px 12px;border-radius:12px;border:2px solid #64748b;font-size:14px">🎯 <b>AI pick now:</b> nothing clean to take — <b>wait</b>. (No engine has a TAKE call right now.)</div>`; return; }
-  const top=C[0];
+  const top=C[0]; aiPickVoice(top);
   el.innerHTML=`<div style="margin-top:8px;padding:8px 12px;border-radius:12px;border:3px solid #22d3ee;background:rgba(34,211,238,.08);box-shadow:0 0 14px rgba(34,211,238,.35)">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="color:#22d3ee;font-size:15px">🎯 AI PICK NOW — take only this one${top.extra==="small size"||top.extra==="half size"?" (small size)":""}</b><small class="hint">${C.length>1?`${C.length-1} more below in their boxes`:""}</small></div>
     ${pickLine(top.k,top.label,top.extra)}</div>`; }
@@ -4500,7 +4518,7 @@ function bigVoice(B){ try{ scrShow(B); }catch(e){} const ks=B.map(b=>b.k); if(BI
       try{ toast(`<b>🐋 ${esc(b.symbol)} futures · big ${b.side==="BUY"?"BUYERS":"SELLERS"}</b> · ${esc(b.time)}<br>${b.stack} candles in a row · ${b.delta}% net`); }catch(e){} return; }
     if((b.mult||0)<(b.early?4:5)) return; n++;
     const buy=b.side==="BUY", txt=`${b.early?"Early ":""}big ${buy?"buyer":"seller"} in ${b.symbol}. ${Math.round(b.mult)} times volume.${b.strike?` Watch ${b.strike} ${buy?"call":"put"}.`:""}`;
-    speak(txt,true); try{ toast(`<b>${buy?"🟢":"🔴"} ${esc(b.time)} ${b.early?"⚡ EARLY ":""}BIG ${buy?"BUY":"SELL"} · ${esc(b.symbol)}</b> · ${b.mult}× volume${b.strike?` · watch ${esc(b.strike)} ${esc(b.opt||"")}`:""}`); }catch(e){} }); }
+    speak(txt,(b.mult||0)>=6); try{ toast(`<b>${buy?"🟢":"🔴"} ${esc(b.time)} ${b.early?"⚡ EARLY ":""}BIG ${buy?"BUY":"SELL"} · ${esc(b.symbol)}</b> · ${b.mult}× volume${b.strike?` · watch ${esc(b.strike)} ${esc(b.opt||"")}`:""}`); }catch(e){} }); }
 /* 🕐 AM/PM (railway time இல்லை) */
 function ampm(t){ const m=String(t||"").match(/(\d{1,2}):(\d{2})(:\d{2})?/); if(!m) return String(t||""); let h=+m[1]; const ap=h>=12?"PM":"AM"; h=h%12||12; return `${h}:${m[2]}${m[3]||""} ${ap}`; }
 function mergeMcx(s){ try{ const MC=(s.mcx||{}).calls||[]; const T=(s.full||{}).tracking; if(!T||!MC.length) return; const day=String(s.now||"").slice(0,10);
