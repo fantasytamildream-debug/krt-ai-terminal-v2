@@ -46,7 +46,7 @@ REGIME_OK = {
 # terminal sources that are the SAME idea as a global method → not counted twice (no correlated double scoring)
 CORR = {"5-min orb": "orb", "orb": "orb", "ict silver bullet": "ict", "sweep+choch": "ict", "smc": "ict", "breakout ce": "darvas",
         "breakout/breakdown": "darvas", "vcp": "vcp", "pre-breakout": "bb_squeeze", "vwap": "vwap_mom"}
-CFG = {"elite": 95, "aplus": 90, "a": 85, "risk": 2500, "rr": 2.0, "max_day": 3, "cost_r": 0.15, "spread_max": 3.0}
+CFG = {"mode": "all", "elite": 95, "aplus": 90, "a": 85, "risk": 2500, "rr": 2.0, "max_day": 3, "cost_r": 0.15, "spread_max": 3.0}
 COST_NOTE = ("costs per trade = 0.15R (≈ ₹47 brokerage+GST, STT/exchange/stamp ≈ 0.15 % of premium turnover, 1 % slippage each side "
              "on a ~₹15k premium / ₹2k risk lot). Option P&L ≈ underlying R × delta; intraday theta ignored.")
 STATE = {"bt": None, "bt_time": None, "enabled": {}, "picks": [], "watch": [], "time": None, "err": None, "log": {}}
@@ -464,9 +464,10 @@ def score(ev, side, ext, enabled):
     X, S = ev["X"], ev["signals"]
     sg = 1 if side == "CE" else -1
     why, warn, reject = [], [], None
-    same = [k for k in ev["allowed"] if S[k]["side"] == side and enabled.get(k) == "on"]
-    opp = [k for k in ev["allowed"] if S[k]["side"] != side and enabled.get(k) == "on"]
-    fired_not_on = [k for k in ev["allowed"] if S[k]["side"] == side and enabled.get(k) != "on"]
+    live = (lambda k: True) if CFG.get("mode") == "all" else (lambda k: enabled.get(k) in ("on", "recent"))   # v151: user → all methods ON
+    same = [k for k in ev["allowed"] if S[k]["side"] == side and live(k)]
+    opp = [k for k in ev["allowed"] if S[k]["side"] != side and live(k)]
+    fired_not_on = [k for k in ev["allowed"] if S[k]["side"] == side and not live(k)]
     groups = sorted({GROUP[k] for k in same})
     p_g = min(25, 9 * len(groups) + 2 * (len(same) - len(groups))) if same else 0
     if opp and len(opp) >= len(same):
@@ -476,6 +477,11 @@ def score(ev, side, ext, enabled):
         warn.append(f"{len(opp)} method(s) on the other side")
     for k in same:
         why.append(f"🌍 {MKEY[k][1]} ({MKEY[k][3]}-style): {S[k]['why']}")
+        st_ = enabled.get(k, "untested")
+        if st_ in ("off", "weak"):
+            warn.append(f"{MKEY[k][1]}: backtest weak (out-of-sample not profitable) — ON by your choice, use small size")
+        elif st_ == "untested":
+            warn.append(f"{MKEY[k][1]}: not enough backtest trades yet")
     for k in fired_not_on:
         warn.append(f"{MKEY[k][1]} fired but {'failed' if enabled.get(k) == 'off' else 'has no'} walk-forward test — not counted")
     # terminal strategies (drop the ones that are the same idea as a global method that already fired)
@@ -590,11 +596,19 @@ def score(ev, side, ext, enabled):
             warn.append(f"delta {dl}")
         if ext.get("dte") == 0 and X["hm"] >= "13:00":
             reject = reject or "expiry day after 1 PM — theta too fast"
-    total = int(p_g + p_t + p_pa + p_oi + p_v + p_m + p_l)
+    raw = p_g + p_t + p_pa + p_oi + p_v + p_m + p_l
+    # v151: data that does not exist for a market is left out, not counted as zero (MCX has no stock-futures OI build-up, no
+    # NIFTY relative strength, no sector; indices have no stock futures OI) → score = points ÷ points possible × 100
+    mx = 100
+    if ext.get("market") == "COMMODITY":
+        mx -= 8 + 5                      # futures OI build-up (8) · relative strength (5)
+    elif ext.get("is_index"):
+        mx -= 8 if not pcr else 0        # stock futures OI build-up (index has PCR instead)
+    total = int(round(min(100, raw * 100 / mx)))
     if not same:
-        reject = reject or "no walk-forward-approved global method fired on this side"
+        reject = reject or "no global method fired on this side"
     return {"total": total, "band": band(total), "reject": reject, "why": why[:10], "warn": warn[:6], "groups": groups,
-            "parts": {"global": p_g, "terminal": p_t, "price_action": p_pa, "oi_chain": p_oi, "volume_rs": p_v, "mtf": p_m, "liquidity_rr": p_l},
+            "possible": mx, "raw": raw, "parts": {"global": p_g, "terminal": p_t, "price_action": p_pa, "oi_chain": p_oi, "volume_rs": p_v, "mtf": p_m, "liquidity_rr": p_l},
             "global_matches": [MKEY[k][1] for k in same], "terminal_matches": term}
 
 
@@ -756,5 +770,6 @@ def walk_forward(trades, split=0.6, min_oos=8):
         if b.get("trades", 0) < min_oos:
             enabled[k] = "untested"
         else:
-            enabled[k] = "on" if (a.get("exp_r", -1) > 0 and b.get("exp_r", -1) > 0) else "off"
+            enabled[k] = ("on" if (a.get("exp_r", -1) > 0 and b.get("exp_r", -1) > 0)
+                          else "recent" if b.get("exp_r", -1) > 0 else "weak")
     return res, enabled

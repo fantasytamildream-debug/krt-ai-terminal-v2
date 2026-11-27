@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v150"
+APP_VERSION = "v151"
 EVC = {"t": 0, "d": None}
 
 
@@ -1675,7 +1675,7 @@ def _wt_one(sym, d5, t, ctx, ccache, inst):
         sg_ = [k for k in ev["allowed"] if ev["signals"][k]["side"] == side]
         if not sg_:
             continue
-        on = [k for k in sg_ if W.STATE["enabled"].get(k) == "on"] or sg_
+        on = sg_
         # tightest valid invalidation of the agreeing methods → smallest risk
         inv = max(ev["signals"][k]["inv"] for k in on) if side == "CE" else min(ev["signals"][k]["inv"] for k in on)
         spot = X["px"]
@@ -1683,7 +1683,7 @@ def _wt_one(sym, d5, t, ctx, ccache, inst):
             continue
         fo = None
         try:
-            fo = fit_option(sym, side, spot, inv, mcx=mcx)
+            fo = fit_option(sym, side, spot, inv, mcx=mcx, max_otm=8 if mcx else 4)
         except Exception:
             traceback.print_exc()
         st, q, plan, bad, otm = fo if fo else ({}, {}, None, "no option", 0)
@@ -1699,14 +1699,14 @@ def _wt_one(sym, d5, t, ctx, ccache, inst):
         except Exception:
             pass
         lpct = (ctx["lq"].get(sym) or {}).get("pct")
-        ext = {"nifty_pct": ctx["npct"], "is_index": is_idx or mcx, "oi_kind": None if mcx else ctx["fok"].get(sym),
+        ext = {"market": "COMMODITY" if mcx else "INDEX" if is_idx else "STOCK", "nifty_pct": None if mcx else ctx["npct"], "is_index": is_idx or mcx, "oi_kind": None if mcx else ctx["fok"].get(sym),
                "opt_flow": flow, "rs_pct": (lpct - (ctx["npct"] or 0)) if lpct is not None else None,
                "terminal": term[side], "terminal_opp": term["PE" if side == "CE" else "CE"], "plan": plan, "plan_bad": bad,
                "delta": max(0.2, 0.5 - 0.08 * otm), "dte": dte, "pcr": ctx["pcr"] if sym == "NIFTY" else None}
         sc = W.score(ev, side, ext, W.STATE["enabled"])
         lot = (plan or {}).get("lot") or st.get("lot")
         row = {"symbol": sym, "side": side, "market": "INDEX" if is_idx else "COMMODITY" if mcx else "STOCK", "regime": ev["regime"],
-               "regime_info": ev["info"], "score": sc["total"], "band": sc["band"], "reject": sc["reject"], "parts": sc["parts"],
+               "regime_info": ev["info"], "score": sc["total"], "band": sc["band"], "reject": sc["reject"], "parts": sc["parts"], "possible": sc["possible"], "raw": sc["raw"],
                "why": sc["why"], "warn": sc["warn"], "global_matches": sc["global_matches"], "terminal_matches": sc["terminal_matches"],
                "off": [f"{W.MKEY[k][1]}: {r}" for k, r in ev["off"].items()][:4], "spot": round(spot, 2),
                "ul_trigger": max([ev["signals"][k].get("trigger") or spot for k in on]) if side == "CE" else min([ev["signals"][k].get("trigger") or spot for k in on]),
@@ -1789,7 +1789,7 @@ def worldtop_scan(t=None):
                 continue
             c = {**{k: r[k] for k in ("symbol", "side", "market", "regime", "score", "band", "strike", "expiry", "token", "exch", "contract", "lot",
                                          "ul_trigger", "ul_sl", "ul_target", "global_matches", "terminal_matches", "why", "plan", "invest", "max_risk",
-                                         "rr", "otm", "spot")},
+                                         "rr", "otm", "spot", "parts", "possible", "raw", "warn")},
                  "id": f"WT|{day}|{r['symbol']}|{t0.strftime('%H%M')}", "date": day, "time": t0.strftime("%H:%M"), "status": "OPEN", "result": None}
             L.append(c)
             today.append(c)
@@ -1859,7 +1859,7 @@ def worldtop_state():
     mt = []
     for k, name, fam, who, grp in W.METHODS:
         m = (bt.get("methods") or {}).get(k) or {}
-        mt.append({"key": k, "name": name, "style": who, "group": grp, "family": fam, "enabled": (S.get("enabled") or {}).get(k, "untested"),
+        mt.append({"key": k, "name": name, "style": who, "group": grp, "family": fam, "enabled": (S.get("enabled") or {}).get(k, "untested"), "live": W.CFG.get("mode") == "all" or (S.get("enabled") or {}).get(k) in ("on", "recent"),
                    "all": m.get("all"), "oos": m.get("oos"), "regime": m.get("regime")})
     try:
         from krt.calls import PROVEN
@@ -1871,7 +1871,7 @@ def worldtop_state():
             "watch": [clean(r) for r in S.get("watch") or []], "gate": S.get("gate"), "regimes": S.get("regimes"), "scanned": S.get("scanned"),
             "methods": mt, "consensus": bt.get("consensus"), "consensus_on": bt.get("consensus_on"), "bt_time": S.get("bt_time"),
             "bt_note": bt.get("note"), "bt_data": bt.get("data"), "terminal": term, "err": S.get("err"), "busy": WT["busy"],
-            "regime_map": {k: sorted(v) for k, v in W.REGIME_OK.items()}}
+            "regime_map": {k: sorted(v) for k, v in W.REGIME_OK.items()}, "mode": W.CFG.get("mode")}
 
 
 LKC = {}

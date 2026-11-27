@@ -51,9 +51,15 @@ def test_score_counts_only_walk_forward_approved_methods():
     ev = _ev_with(keys=("orb", "vwap_mom"))
     ext = {"nifty_pct": 0.5, "plan": PLAN, "plan_bad": None, "terminal": ["Index OI"], "terminal_opp": [], "rvol": 2}
     on = W.score(ev, "CE", ext, {"orb": "on", "vwap_mom": "on"})
-    unt = W.score(ev, "CE", ext, {"orb": "untested", "vwap_mom": "untested"})
+    W.CFG["mode"] = "strict"
+    try:
+        unt = W.score(ev, "CE", ext, {"orb": "untested", "vwap_mom": "untested"})
+    finally:
+        W.CFG["mode"] = "all"
     assert on["parts"]["global"] == 18 and unt["parts"]["global"] == 0
-    assert unt["reject"] and "walk-forward" in unt["reject"]
+    assert unt["reject"] and "no global method" in unt["reject"]
+    allm = W.score(ev, "CE", ext, {"orb": "untested", "vwap_mom": "weak"})       # v151 default: all methods live
+    assert allm["parts"]["global"] == 18
 
 
 def test_score_rejects_risk_spread_and_conflict():
@@ -81,7 +87,7 @@ def test_walk_forward_gate():
     good = [{"d": f"2026-0{1 + i // 30}-{1 + i % 28:02d}", "r": 2.0 if i % 2 else -1.0, "rg": "TRENDING"} for i in range(60)]
     bad = [{"d": r["d"], "r": -1.0, "rg": "SIDEWAYS"} for r in good]
     res, en = W.walk_forward({"orb": good, "ict": bad, "darvas": []})
-    assert en["orb"] == "on" and en["ict"] == "off" and en["darvas"] == "untested"
+    assert en["orb"] == "on" and en["ict"] == "weak" and en["darvas"] == "untested"
     assert res["orb"]["oos"]["trades"] > 0 and "TRENDING" in res["orb"]["regime"]
 
 
@@ -132,3 +138,16 @@ def test_best_pick_has_times(monkeypatch):
     rows = [{"id": "a", "time": "12:21", "status": "OPEN", "verdict": "TAKE", "symbol": "AAA", "side": "CE", "token": "T1", "exch": "NFO", "src": "x"}]
     best = S._mn_rank(rows, {"a": {"source": "x"}}, None, {}, day)
     assert best[0]["came"] == "12:21" and best[0]["top_since"]
+
+
+def test_v151_all_methods_live_and_commodity_normalised():
+    ev = _ev_with(keys=("orb",))
+    PL = dict(PLAN)
+    r = W.score(ev, "CE", {"plan": PL, "plan_bad": None}, {"orb": "weak"})
+    assert r["parts"]["global"] == 9 and any("backtest weak" in w for w in r["warn"])
+    ext = {"plan": PL, "plan_bad": None, "is_index": True, "market": "COMMODITY"}
+    rc = W.score(ev, "CE", ext, {"orb": "on"})
+    rs = W.score(ev, "CE", dict(ext, market="STOCK", is_index=False), {"orb": "on"})
+    assert rc["possible"] == 87 and rc["total"] == round(rc["raw"] * 100 / 87)
+    res, en = W.walk_forward({"orb": [{"d": f"2026-01-{1 + i:02d}", "r": (-1.0 if i < 15 else 2.0), "rg": "X"} for i in range(25)]})
+    assert en["orb"] == "recent"
