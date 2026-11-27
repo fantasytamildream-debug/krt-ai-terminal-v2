@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v154"
+APP_VERSION = "v155"
 EVC = {"t": 0, "d": None}
 
 
@@ -3384,6 +3384,50 @@ def sys_state():
     return {"up_min": round((time.time() - BOOT_T) / 60, 1), "rss_mb": rss_mb(), "loop_err": LOOP_ERR, "heal": HEAL, "mem": MEM}
 
 
+RISEP = {"t": 0}
+RW0 = {"day": None, "first": {}, "vol": {}}
+
+
+def _riser_watch(t):
+    """🚀 v155: extra strikes to watch for a fast premium rise — 🌍 World Top setups + 🐋 big-player strikes (last 60 min)."""
+    from krt import worldtop as W, bigvol as BV
+    day = str(t.date())
+    if RW0["day"] != day:
+        RW0.update(day=day, first={}, vol={})
+    items = {}
+    for r in list(W.STATE.get("qual_now") or []) + list(W.STATE.get("watch") or [])[:6] + [c for c in W.STATE.get("picks") or [] if c.get("status") == "OPEN"]:
+        if r.get("token") and r.get("plan"):
+            items[str(r["token"])] = {"symbol": r["symbol"], "strike": r.get("strike"), "side": r["side"], "token": r["token"], "exch": r.get("exch"),
+                                      "expiry": r.get("expiry"), "lot": r.get("lot"), "contract": r.get("contract"), "sl": r["plan"].get("sl"),
+                                      "targets": r["plan"].get("targets") or [], "source": f"🌍 World Top {r.get('score')}/100"}
+    t60 = (t - pd.Timedelta(minutes=60)).strftime("%H:%M")
+    for r in list(BV.FEED.values()) + list(BV.EARLY.values()):
+        o = r.get("opt") or {}
+        if r.get("date") == day and o.get("token") and str(r.get("time") or "")[-5:] >= t60:
+            items.setdefault(str(o["token"]), {"symbol": r["symbol"], "strike": o.get("strike"), "side": o.get("side"), "token": o["token"],
+                                               "exch": o.get("exch") or "NFO", "expiry": o.get("expiry"), "lot": o.get("lot"), "contract": o.get("contract"),
+                                               "sl": None, "targets": [], "source": f"🐋 Big {'buyer' if r.get('side') == 'BUY' else 'seller'} strike"})
+    if not items:
+        return []
+    q = opt_quotes([(v.get("exch"), v["token"]) for v in list(items.values())[:40]])
+    out = []
+    for tk, v in items.items():
+        x = q.get(tk) or {}
+        ltp = float(x.get("ltp") or 0)
+        if not ltp:
+            continue
+        e0 = RW0["first"].setdefault(tk, ltp)
+        vol = float(x.get("vol") or 0)
+        hist = RW0["vol"].setdefault(tk, [])
+        hist.append((t, vol))
+        while hist and (t - hist[0][0]).total_seconds() > 200:
+            hist.pop(0)
+        lots = round((vol - hist[0][1]) / max(1.0, float(v.get("lot") or 1))) if len(hist) > 1 else None
+        out.append({**v, "id": f"W|{tk}", "date": day, "status": "OPEN", "kind": "WATCH", "ltp": ltp, "entry": e0,
+                    "sl": v.get("sl") or round(e0 * 0.85, 2), "lots3m": lots})
+    return out
+
+
 def riser_loop():
     """🚀 every 20 s: premium climbing fast on an open call → early alert (no API calls)."""
     time.sleep(30)
@@ -3395,8 +3439,22 @@ def riser_loop():
                 from krt.calls import STORE as _S, CALLS_LOCK
                 from krt.notify import both as _b
                 with CALLS_LOCK:
-                    calls = [dict(c) for c in (_S.load().get("calls") or {}).values() if c.get("date") == str(t.date())]
-                _step("riser", lambda: RS.scan(calls, t, _b))
+                    d_ = _S.load()
+                    RS.restore(d_.get("riser"), str(t.date()))
+                    calls = [dict(c) for c in (d_.get("calls") or {}).values() if c.get("date") == str(t.date())]
+                try:
+                    extra = _riser_watch(t)
+                except Exception:
+                    traceback.print_exc()
+                    extra = []
+                hold_ = []
+                _step("riser", lambda: hold_.extend(RS.scan(calls, t, _b, extra) or []))
+                new_ = hold_
+                if new_ or time.time() - RISEP["t"] > 300:      # v155: save today's alerts → a restart keeps them
+                    RISEP["t"] = time.time()
+                    with CALLS_LOCK:
+                        _S.load()["riser"] = RS.snapshot()
+                        _S.dirty = True
         except Exception:
             traceback.print_exc()
         time.sleep(10)                                # v113: every 10 s (open-call prices now refresh every 5 s)

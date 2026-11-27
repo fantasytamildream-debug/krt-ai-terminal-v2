@@ -3638,20 +3638,22 @@ function paperBtn(id,open){ return open===false?"":`<button class="pickbtn pp" o
 function warnHTML(w){ return (w||[]).length?`<div style="color:#f59e0b;font-size:12px">${w.map(esc).join("<br>")}</div>`:""; }
 function riseTag(id,s){ const r=(((s||LAST_S||{}).riser||{}).live||[]).find(x=>x.id===id); return r?`<span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800">🚀 ${r.state==="STRONG"?"STRONG ":""}RISING +${r.chg3m}% / 3 min</span>`:""; }
 let RISE_SEEN=null;
+function rsPaper(r){ return r.watch||String(r.id||"").startsWith("W|")?(r.token?paperOpt({symbol:r.symbol,side:r.side,strike:r.strike,expiry:r.expiry,contract:r.contract,token:r.token,exch:r.exch,lot:r.lot,ltp:r.ltp,sl:r.sl,from_src:"🚀 Rising · "+(r.source||""),src_modules:["Rising"]}):""):paperBtn(r.id); }
+function rsTags(r){ return `${r.burst?' <b style="background:#f97316;color:#fff;border-radius:5px;padding:0 6px;font-size:11px">⚡ BURST +3%/1m</b>':""}${r.watch?' <b style="background:#0ea5e9;color:#fff;border-radius:5px;padding:0 6px;font-size:11px">👀 watched strike</b>':""}${r.lots3m?` <small class="hint">${Number(r.lots3m).toLocaleString("en-IN")} lots in 3 min</small>`:""}`; }
 function riserHTML(s){ const R=s.riser||{}, L=R.live||[], A=(R.alerts||[]).filter(a=>a.time);
   const k=A.map(a=>a.id+a.ltp).join(","); RISE_SEEN=k;   /* v136: voice + popup now come from the 2-second tick feed (riseVoice) */
   if(!L.length&&!A.length) return "";
-  return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">🌱 building +2.5% · 🚀 rising +4% · 🔥 strong +8% in 3 min · checks every 10 s · ${esc(R.time||"")}</small></h2>
-    ${L.length?L.map(r=>`<div class="rrow" style="border-color:${r.state==="BUILDING"?"#f59e0b":"#16a34a"}"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥 STRONG":r.state==="RISING"?"🚀 RISING":"🌱 BUILDING"} · ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b><span>${srcTag(r.source)}${r.hidden?' · <b style="color:#f59e0b">hidden module (losing record)</b>':""}</span></div>
+  return `<div class="labbox" style="border:2px solid #16a34a;font-size:13px"><h2>🚀 Rising now — premium climbing fast <small class="hint">🌱 building +2.5% · 🚀 rising +4% · 🔥 strong +8% in 3 min · ⚡ burst +3% in 1 min · watches every open call + 🌍 World Top setups + 🐋 big-player strikes · every 10 s · alerts kept all day · ${esc(R.time||"")}</small></h2>
+    ${L.length?L.map(r=>`<div class="rrow" style="border-color:${r.state==="BUILDING"?"#f59e0b":"#16a34a"}"><div class="ctop"><b class="${r.side==="CE"?"up":"dn"}">${r.state==="STRONG"?"🔥 STRONG":r.state==="RISING"?"🚀 RISING":"🌱 BUILDING"} · ${esc(r.symbol)} ${n2(r.strike)} ${r.side}</b>${rsTags(r)}<span>${srcTag(r.source)}${r.hidden?' · <b style="color:#f59e0b">hidden module (losing record)</b>':""}</span></div>
       ${r.act?`<div><b>👉 ${esc(r.act)}</b></div>`:""}
       <div>₹${n2(r.ltp)} · <b class="up">+${r.chg3m}% in 3 min</b> · ${r.from_entry>=0?"+":""}${r.from_entry}% from entry ₹${n2(r.entry)}${r.t1?` · T1 ₹${n2(r.t1)} (${r.to_t1>=0?"+":""}${r.to_t1}%)`:""}</div>
-      ${r.coach?coachHTML(r.coach):'<div class="hint">👉 In the trade? move SL up. Not in? only on a small pullback — fast moves can reverse.</div>'}${r.vr?`<div class="hint">stock volume ${r.vr}× · ${esc(r.oi||"")}</div>`:""}${paperBtn(r.id)}</div>`).join(""):'<div class="hint">Nothing rising right now.</div>'}
+      ${r.coach?coachHTML(r.coach):'<div class="hint">👉 In the trade? move SL up. Not in? only on a small pullback — fast moves can reverse.</div>'}${r.vr?`<div class="hint">stock volume ${r.vr}× · ${esc(r.oi||"")}</div>`:""}${rsPaper(r)}</div>`).join(""):'<div class="hint">Nothing rising right now.</div>'}
     ${A.length?`<div style="margin-top:6px"><b>Today's rising alerts (${A.length})</b> <small class="hint">each card: when it rose · entry · price then → now · AI answer</small>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px;margin-top:4px">${A.slice(0,12).map(a=>{ const c=CALLMAP.get(a.id)||{}, now_=c.ltp||a.ltp, e=a.entry||c.entry, open=OPEN_ST.includes(c.status||"OPEN"), fe=e?(now_/e-1)*100:0;
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px;margin-top:4px">${A.slice(0,20).map(a=>{ const c=CALLMAP.get(a.id)||{}, now_=c.ltp||a.ltp, e=a.entry||c.entry, open=OPEN_ST.includes(c.status||"OPEN"), fe=e?(now_/e-1)*100:0;
         const v=!open?{t:`Done — ${c.status} (${(c.pnl_lot||0)>=0?"+":"−"}₹${n2(Math.abs(c.pnl_lot||0))}/lot)`,c:"#64748b"}:fe>15?{t:`LATE — already +${fe.toFixed(0)}% from entry. Don't chase.`,c:"#64748b"}:fe>5?{t:`Only on a dip to ≈₹${n2(e*1.03)} — SL ₹${n2(c.sl||a.sl)}`,c:"#d97706"}:fe>=-3?{t:`ENTER OK up to ₹${n2(e*1.05)} · SL ₹${n2(c.sl||a.sl)}`,c:"#16a34a"}:{t:`Fell back below entry — wait`,c:"#dc2626"};
-        return `<div class="rrow" style="border-color:${srcWin(a.source)?(srcWin(a.source).star?"#fbbf24":"#4ade80"):v.c};${srcWin(a.source)?"box-shadow:0 0 0 1px "+(srcWin(a.source).star?"#fbbf24":"#4ade80")+" inset;":""}padding:7px;font-size:12px"><div class="ctop"><b class="${a.side==="CE"?"up":"dn"}">${a.state==="STRONG"?"🔥":"🚀"} ${esc(a.symbol)} ${n2(a.strike)} ${a.side}</b><b>${esc(String(a.time).slice(0,5))}</b></div>
+        return `<div class="rrow" style="border-color:${srcWin(a.source)?(srcWin(a.source).star?"#fbbf24":"#4ade80"):v.c};${srcWin(a.source)?"box-shadow:0 0 0 1px "+(srcWin(a.source).star?"#fbbf24":"#4ade80")+" inset;":""}padding:7px;font-size:12px"><div class="ctop"><b class="${a.side==="CE"?"up":"dn"}">${a.state==="STRONG"?"🔥":"🚀"} ${esc(a.symbol)} ${n2(a.strike)} ${a.side}</b>${tBox(a.time)}</div>${rsTags(a)}
           <div>${srcTag(a.source)}</div><div>Entry ₹${n2(e)} · then ₹${n2(a.ltp)} (+${a.chg3m}%/3m) · now <b>₹${n2(now_)}</b></div>
-          <div style="color:${v.c};font-weight:700;margin-top:2px">🤖 ${esc(v.t)}</div>${open?paperBtn(a.id):""}</div>`; }).join("")}</div></div>`:""}</div>`; }
+          <div style="color:${v.c};font-weight:700;margin-top:2px">🤖 ${esc(v.t)}</div>${open?rsPaper(a):""}</div>`; }).join("")}</div></div>`:""}</div>`; }
 function hpHTML(s){ const H=s.highprofit||{}, M=H.modules||[], T=H.today||[], St=H.stats||{}, rs=v=>(v>=0?"+":"−")+"₹"+n2(Math.abs(Math.round(v||0)));
   return `<div class="labbox" style="border:3px solid #fbbf24;font-size:13px"><h2>💰 High-profit strategies — easy picks <small class="hint">modules that really made money: 10+ calls · win ≥55% · profit factor ≥1.5</small></h2>
     ${M.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">${M.map(m=>`<span class="cpbox" style="padding:4px 8px"><b>${esc(m.module)}</b> <small class="hint">${m.win}% win · PF ${m.pf} · ${rs(m.exp)}/call · ${m.n} calls</small></span>`).join("")}</div>`:'<div class="hint">No module has proven itself yet.</div>'}
@@ -4147,7 +4149,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v154";
+const APPV="v155";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

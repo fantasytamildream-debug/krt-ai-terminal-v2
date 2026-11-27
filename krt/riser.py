@@ -6,12 +6,28 @@ STRONG  = +8% or more in 3 minutes (momentum burst)
 One alert per call; a fresh alert only if it climbs another +8% after the last one. Push + voice + a 🚀 tag on the call.
 Honest: a fast rise can reverse — it says "watch / trail the SL", not "guaranteed target".
 """
-CFG = {"win_sec": 180, "rise": 4.0, "strong": 8.0, "again": 8.0, "keep_sec": 900, "build": 2.5}
+CFG = {"win_sec": 180, "rise": 4.0, "strong": 8.0, "again": 8.0, "keep_sec": 900, "build": 2.5, "burst_sec": 60, "burst": 3.0}
+# v155: alerts survive a restart (saved with the calls), a 1-minute BURST (+3 % in 60 s) is caught, and besides open calls it also
+#       watches World Top setups + big-player strikes (pseudo-calls with id "W|token", entry = first premium seen today).
 # v124: also watches HIDDEN module calls (marked "hidden") and shows a BUILDING stage (+2.5% in 3 min) so you see it earlier,
 #       plus a clear action line for each row (enter / don't chase / trail).
 H = {}                    # call id → [(ts, ltp)]
 LAST = {}                 # call id → premium at last alert
-STATE = {"time": None, "alerts": [], "live": []}
+STATE = {"time": None, "alerts": [], "live": [], "day": None}
+
+
+def restore(saved, day):
+    """bring back today's alerts after a restart (saved = store["riser"])."""
+    if STATE.get("day") == day or not saved or saved.get("day") != day:
+        STATE["day"] = day if STATE.get("day") != day else STATE["day"]
+        return
+    STATE["alerts"] = list(saved.get("alerts") or [])[:50]
+    LAST.update({k: v for k, v in (saved.get("last") or {}).items()})
+    STATE["day"] = day
+
+
+def snapshot():
+    return {"day": STATE.get("day"), "alerts": STATE["alerts"][:50], "last": dict(LAST)}
 OPEN = ("OPEN", "T1 HIT", "T2 HIT")
 
 
@@ -19,11 +35,14 @@ def _old(L, now, sec):
     return next((v for t, v in L if (now - t).total_seconds() <= sec), None)
 
 
-def scan(calls, now, send=None):
+def scan(calls, now, send=None, extra=None):
     day = str(now.date())
+    if STATE.get("day") != day:
+        STATE.update(day=day, alerts=[], live=[])
+        LAST.clear()
     live, new = [], []
     seen = set()
-    for c in calls:
+    for c in list(calls) + list(extra or []):
         if c.get("date") != day or c.get("status") not in OPEN or c.get("kind") == "PICK" or "|IMM" in str(c.get("id")):
             continue
         if c.get("shadow") and ("already called today" in str(c.get("shadow_why") or "") or c.get("shadow_code") == "Q_DUP_ANY"):
@@ -43,11 +62,15 @@ def scan(calls, now, send=None):
             continue
         chg = (ltp / base - 1) * 100
         steps = [L[i][1] > L[i - 1][1] for i in range(max(1, len(L) - 3), len(L))]
+        b1 = _old(L, now, CFG["burst_sec"])
+        burst = bool(b1 and (ltp / b1 - 1) * 100 >= CFG["burst"] and L[-1][1] > L[-2][1])
         t1 = (c.get("targets") or [None])[0]
         hit = bool(c.get("hits"))
         state = None
         if chg >= CFG["build"] and sum(steps) >= 2 and ltp >= e * 0.97 and not (t1 and ltp >= t1 and not hit):
             state = "STRONG" if chg >= CFG["strong"] else "RISING" if chg >= CFG["rise"] else "BUILDING"
+        if burst and state in (None, "BUILDING") and ltp >= e * 0.97 and not (t1 and ltp >= t1 and not hit):
+            state = "RISING"                  # v155: +3 % inside one minute = buyers rushing in
         if not state:
             continue
         fe = (ltp / e - 1) * 100
@@ -63,7 +86,9 @@ def scan(calls, now, send=None):
         row = {"id": cid, "symbol": c["symbol"], "strike": c.get("strike"), "side": c.get("side"), "ltp": ltp, "entry": e, "chg3m": round(chg, 1),
                "from_entry": round((ltp / e - 1) * 100, 1), "t1": t1, "to_t1": round((t1 / ltp - 1) * 100, 1) if t1 else None, "state": state,
                "time": now.strftime("%H:%M:%S"), "source": c.get("source_label") or c.get("source"), "act": act,
-               "hidden": bool(c.get("shadow")), "sl": sl}
+               "hidden": bool(c.get("shadow")), "sl": sl, "burst": burst, "watch": str(cid).startswith("W|"),
+               "token": c.get("token"), "exch": c.get("exch"), "expiry": c.get("expiry"), "lot": c.get("lot"), "contract": c.get("contract"),
+               "lots3m": c.get("lots3m")}
         live.append(row)
         if state == "BUILDING":
             continue                              # building rows are shown, not pushed
