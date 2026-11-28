@@ -1786,7 +1786,7 @@ function gokiHTML(f){
 /* ===== 📝 PAPER TRADE ===== */
 function capGet(){ try{ return +localStorage.getItem("krt_cap")||100000; }catch(e){ return 100000; } }
 function capSet(v){ try{ localStorage.setItem("krt_cap", String(+v||100000)); }catch(e){} if(LAST_S) $("p-pt").innerHTML=hpHTML(LAST_S)+paperHTML(LAST_S.full||{}); }
-async function paperGo(o){
+async function paperGo(o){ if(OCCAP){ OCCAP=o||{}; return; }   /* v156: 📈 Chart button reuses the Paper button's own data */
   const lots=prompt(`📝 Paper trade: ${o.symbol} ${n2(o.strike)} ${o.side}\nஎத்தனை lot? (1 lot = ${o.lot})\nEntry = இப்போ LTP · SL ≤ ₹2,500/lot · T1 ₹2K · T2 ₹4K · T3 ₹6K`,"1");
   if(lots===null) return;
   toast(`⏳ Paper: ${esc(o.symbol)} ${n2(o.strike)} ${o.side} …`);
@@ -2939,7 +2939,7 @@ function whaleHTML(s){ const W=s.bigvol||{}, R=(W.rows||[]).filter(r=>WHF==="All
 let CC={tab:"gainers",sym:null,tf:"5",chain:null,exp:null,mny:"All",strike:null,stf:"5",opt:null,K:null,row:null,busy:false};
 const ccLS=(k,v)=>{ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v); }catch(e){ return null; } };
 const PGO={}; let PGN=0;
-function paperOpt(o){ if(!o||!o.token) return ""; const k="g"+(++PGN); PGO[k]=o; if(PGN>4000){ PGN=0; } return `<button class="pickbtn pp" onclick="paperGo(PGO['${k}'])">📝 Paper</button>`; }
+function paperOpt(o,noChart){ if(!o||!o.token) return ""; const k="g"+(++PGN); PGO[k]=o; if(PGN>4000){ PGN=0; } return `<button class="pickbtn pp" onclick="paperGo(PGO['${k}'])">📝 Paper</button>${noChart?'<span class="ocb"></span>':chartBtn(o)}`; }
 const AIC={"TAKE":"#16a34a","BUY CE":"#16a34a","BUY PE":"#dc2626","WAIT":"#d97706","LATE":"#64748b","AVOID":"#dc2626"};
 /* v130 short version: tag + first sentence (≤70 chars), full text on hover */
 function aiShortTxt(a){ return a?String(a.txt||"").split(/(?<=\.)\s/)[0]:""; }
@@ -3114,6 +3114,97 @@ function srcWin(name){ const F=(LAST_S||{}).filtered||{}, T=F.tiers||{}, key=Str
   const mm=((((LAST_S||{}).jbrain||{}).use)||[]).find(r=>norm(r.module)===key); return mm&&mm.win>=55&&(mm.n||0)>=10?{star:false,win:mm.win}:null; }
 function srcTag(name){ const w=srcWin(name); if(!w) return `<span class="hint">${esc(name||"")}</span>`;
   return `<b style="color:${w.star?"#fbbf24":"#4ade80"};text-decoration:underline;text-underline-offset:2px">${w.star?"⭐ ":"✅ "}${esc(name)}</b> <small style="color:${w.star?"#fbbf24":"#4ade80"}">${w.win}% win</small>`; }
+/* 📈 v156 PRO STRIKE CHART — a 📈 Chart button sits next to every 📝 Paper button.
+   Follows the options-chart-analysis rules: option PREMIUM candles (not the stock), long-position box (green = reward, red = risk),
+   blue ENTRY line, green ENTRY ZONE, red STOP ZONE + SL line, teal T1–T5 (T4/T5 only as labelled R-multiples), status
+   WAIT / ACTIVE / T-hit / SL HIT from candles AFTER the call time, sizing with costs and ₹2,500 risk, underlying levels kept separate. */
+const OCO={}; let OCN=0, OCS=null, OCCAP=null;
+/* any 📝 Paper button that has no 📈 Chart next to it gets one; clicking runs the Paper handler in "capture" mode → same contract */
+function ocCapture(btn){ const pb=btn.previousElementSibling; if(!pb) return; OCCAP=true; let o=null;
+  try{ const f=pb.getAttribute("onclick")||""; (new Function("event",f)).call(pb,{stopPropagation(){}}); }catch(e){}
+  setTimeout(()=>{ o=OCCAP; OCCAP=null; if(o&&o!==true&&o.token) ocOpen(o); else alert("No live strike / token for this card yet"); },30); }
+function ocAddBtns(){ document.querySelectorAll("button.pp").forEach(b=>{ const nx=b.nextElementSibling; if(nx&&nx.classList&&nx.classList.contains("ocb")) return;
+    const c=document.createElement("button"); c.className="pickbtn ocb"; c.style.cssText="border-color:#2563eb;color:#93c5fd"; c.textContent="📈 Chart";
+    c.onclick=e=>{ e.stopPropagation(); ocCapture(c); }; b.after(c); }); }
+let OCMO=null; (function(){ const go=()=>{ if(OCMO) return; OCMO=requestAnimationFrame(()=>{ OCMO=null; try{ ocAddBtns(); }catch(e){} }); };
+  const st=()=>{ try{ new MutationObserver(go).observe(document.body,{childList:true,subtree:true}); go(); }catch(e){} };
+  if(document.body) st(); else document.addEventListener("DOMContentLoaded",st); })();
+function chartBtn(o){ if(!o||!o.token) return ""; const k="c"+(++OCN); OCO[k]=o; if(OCN>4000) OCN=0; return `<button class="pickbtn ocb" style="border-color:#2563eb;color:#93c5fd" onclick="ocOpen(OCO['${k}'])">📈 Chart</button>`; }
+function chartFromCall(id){ const c=CALLMAP.get(id); if(!c){ alert("Call not found — refresh"); return; }
+  ocOpen({symbol:c.symbol,side:c.side,strike:c.strike,expiry:c.expiry,contract:c.contract,token:c.token,exch:c.exch,lot:c.lot,ltp:c.ltp,entry:c.entry,sl:c.sl,targets:c.targets,time:(c.date||"")+" "+String(c.time||"").slice(0,5),ul_trigger:c.ul_trigger||c.trigger,ul_sl:c.ul_sl,from_src:c.source_label||c.source||c.kind}); }
+function ocOpen(o){ OCS={o,tf:"5",d:null,hov:null}; let m=$("ocModal");
+  if(!m){ m=document.createElement("div"); m.id="ocModal"; m.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(2,6,23,.82);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:18px 8px";
+    m.onclick=e=>{ if(e.target===m) ocClose(); }; document.body.appendChild(m); }
+  m.style.display="flex"; ocDraw(); ocLoad(); }
+function ocClose(){ const m=$("ocModal"); if(m) m.style.display="none"; OCS=null; }
+async function ocLoad(){ if(!OCS) return; const o=OCS.o, tf=OCS.tf;
+  try{ const j=await (await fetch(`/api/optchart?token=${encodeURIComponent(o.token)}&exch=${encodeURIComponent(o.exch||"NFO")}&tf=${tf}`,{cache:"no-store"})).json(); if(OCS&&OCS.o===o&&OCS.tf===tf){ OCS.d=j; ocDraw(); } }
+  catch(e){ if(OCS){ OCS.d={ok:false,msg:String(e)}; ocDraw(); } } }
+setInterval(()=>{ if(OCS&&!document.hidden) ocLoad(); },15000);
+function ocTf(tf){ if(!OCS) return; OCS.tf=tf; OCS.d=null; ocDraw(); ocLoad(); }
+function ocPlan(o,K){
+  const E=+(o.entry||(o.plan||{}).entry||o.ltp||0), S=+(o.sl||(o.plan||{}).sl||0)||null, R=S&&E>S?E-S:null;
+  let T=((o.targets||(o.plan||{}).targets||[]).map(Number).filter(x=>x>E)).slice(0,3);
+  const tg=T.map((v,i)=>({n:"T"+(i+1),v,r:R?(v-E)/R:null,kind:"plan"}));
+  if(R) for(let r=tg.length?Math.ceil((tg[tg.length-1].v-E)/R+0.5):2; tg.length<5&&r<=5; r++) tg.push({n:"T"+(tg.length+1),v:+(E+r*R).toFixed(2),r,kind:"R"});
+  const zoneHi=+(E*1.03).toFixed(2);
+  /* status from candles after the call time only (a candle hitting SL and a target together counts as SL — conservative) */
+  const t0=String(o.time||"").trim(); let st="WAIT", hit=null, inAt=null, mfe=null, slAt=null;
+  const after=(K||[]).filter(k=>!t0||k[0]>=t0.replace(/^ /,""));
+  for(const k of after){ if(!inAt){ if(k[3]<=zoneHi&&k[2]>=E*0.97){ inAt=k[0]; } else continue; }
+    if(S&&k[3]<=S){ st="SL HIT"; slAt=k[0]; break; }
+    mfe=Math.max(mfe||0,k[2]); for(const t of tg) if(k[2]>=t.v&&(!hit||t.v>hit.v)) hit=t; }
+  if(st!=="SL HIT") st=!inAt?(after.length&&after[after.length-1][4]>zoneHi?"MISSED":"WAIT"):hit?hit.n+" HIT":"ACTIVE";
+  return {E,S,R,tg,zoneHi,st,hit,inAt,mfe,slAt,t0};
+}
+function ocSVG(o,K,P){ const W=980,H=470,L=8,RM=96,TOP=14,BOT=26, fut=Math.max(8,Math.round(K.length*0.18)), n=K.length+fut, bw=(W-L-RM)/n;
+  const vals=K.flatMap(k=>[k[2],k[3]]).concat([P.E,P.S||P.E,...P.tg.slice(0,3).map(t=>t.v)]).filter(x=>x>0), hi=Math.max(...vals)*1.01, lo=Math.min(...vals)*0.99;
+  const y=v=>TOP+(hi-v)/((hi-lo)||1)*(H-TOP-BOT), x=i=>L+i*bw+bw/2;
+  const i0=Math.max(0,P.t0?K.findIndex(k=>k[0]>=P.t0):K.length-1), xs=x(i0<0?K.length-1:i0)-bw/2, xe=W-RM;
+  let g=""; const step=(hi-lo)/6; for(let v=lo;v<=hi;v+=step) g+=`<line x1="${L}" x2="${W-RM}" y1="${y(v)}" y2="${y(v)}" stroke="#1e293b"/><text x="${W-RM+4}" y="${y(v)+4}" fill="#64748b" font-size="10">${v.toFixed(v<100?2:1)}</text>`;
+  K.forEach((k,i)=>{ if(i&&k[0].slice(0,10)!==K[i-1][0].slice(0,10)) g+=`<line x1="${x(i)-bw/2}" x2="${x(i)-bw/2}" y1="${TOP}" y2="${H-BOT}" stroke="#334155" stroke-dasharray="3 3"/><text x="${x(i)}" y="${H-8}" fill="#64748b" font-size="10">${k[0].slice(5,10)}</text>`;
+    else if(i%Math.max(1,Math.round(n/9))===0) g+=`<text x="${x(i)-12}" y="${H-8}" fill="#64748b" font-size="10">${k[0].slice(11,16)}</text>`; });
+  let box="";
+  if(P.E){ const top=P.tg.length?P.tg[Math.min(2,P.tg.length-1)].v:P.E*1.3;
+    box+=`<rect x="${xs}" y="${y(top)}" width="${xe-xs}" height="${y(P.E)-y(top)}" fill="#16a34a" opacity=".16"/>`;
+    if(P.S) box+=`<rect x="${xs}" y="${y(P.E)}" width="${xe-xs}" height="${y(P.S)-y(P.E)}" fill="#dc2626" opacity=".16"/>
+      <rect x="${xs}" y="${y(P.S+(P.E-P.S)*0.25)}" width="${xe-xs}" height="${y(P.S)-y(P.S+(P.E-P.S)*0.25)}" fill="#dc2626" opacity=".22"/><text x="${xs+4}" y="${y(P.S)-4}" fill="#fca5a5" font-size="10.5">STOP ZONE ${(P.S).toFixed(2)}–${(P.S+(P.E-P.S)*0.25).toFixed(2)}</text>`;
+    box+=`<rect x="${xs}" y="${y(P.zoneHi)}" width="${xe-xs}" height="${Math.max(2,y(P.E)-y(P.zoneHi))}" fill="#16a34a" opacity=".38"/><text x="${xs+4}" y="${y(P.zoneHi)-4}" fill="#86efac" font-size="10.5">ENTRY ZONE ${P.E.toFixed(2)}–${P.zoneHi.toFixed(2)}</text>`;
+    box+=`<line x1="${xs}" x2="${xe}" y1="${y(P.E)}" y2="${y(P.E)}" stroke="#2563eb" stroke-width="2.2"/><rect x="${W-RM}" y="${y(P.E)-9}" width="${RM-2}" height="18" rx="3" fill="#2563eb"/><text x="${W-RM+4}" y="${y(P.E)+4}" fill="#fff" font-size="11" font-weight="700">ENTRY ${P.E.toFixed(2)}</text>`;
+    if(P.S) box+=`<line x1="${xs}" x2="${xe}" y1="${y(P.S)}" y2="${y(P.S)}" stroke="#dc2626" stroke-width="2"/><rect x="${W-RM}" y="${y(P.S)-9}" width="${RM-2}" height="18" rx="3" fill="#dc2626"/><text x="${W-RM+4}" y="${y(P.S)+4}" fill="#fff" font-size="11" font-weight="700">SL ${P.S.toFixed(2)}</text>`;
+    P.tg.forEach(t=>{ if(t.v>hi) return; const done=P.hit&&t.v<=P.hit.v; box+=`<line x1="${xs}" x2="${xe}" y1="${y(t.v)}" y2="${y(t.v)}" stroke="#0f766e" stroke-width="${done?2.4:1.4}" ${t.kind==="R"?'stroke-dasharray="6 4"':""}/><rect x="${W-RM}" y="${y(t.v)-9}" width="${RM-2}" height="18" rx="3" fill="${done?"#16a34a":"#0f766e"}"/><text x="${W-RM+4}" y="${y(t.v)+4}" fill="#fff" font-size="10.5" font-weight="700">${done?"✓ ":""}${t.n} ${t.v.toFixed(2)}${t.r?` ${t.r.toFixed(1)}R`:""}</text>`; });
+    if(i0>=0&&P.t0) box+=`<line x1="${xs}" x2="${xs}" y1="${TOP}" y2="${H-BOT}" stroke="#facc15" stroke-dasharray="4 3"/><text x="${xs+3}" y="${TOP+10}" fill="#facc15" font-size="10.5">call ${esc(P.t0.slice(-5))}</text>`; }
+  const c=K.map((k,i)=>{ const up=k[4]>=k[1], col=up?"#22c55e":"#ef4444"; return `<line x1="${x(i)}" x2="${x(i)}" y1="${y(k[2])}" y2="${y(k[3])}" stroke="${col}"/><rect x="${x(i)-bw*0.36}" y="${y(Math.max(k[1],k[4]))}" width="${Math.max(1,bw*0.72)}" height="${Math.max(1,Math.abs(y(k[1])-y(k[4])))}" fill="${col}"/>`; }).join("");
+  const last=K[K.length-1], ly=last?y(last[4]):0;
+  const busy=[P.E,P.S].concat(P.tg.map(t=>t.v)).filter(v=>v&&v<=hi).some(v=>Math.abs(y(v)-ly)<19), lx=busy?W-RM-RM:W-RM;   /* don't hide a target tag */
+  const lp=last?`<line x1="${L}" x2="${W-RM}" y1="${ly}" y2="${ly}" stroke="#e2e8f0" stroke-dasharray="2 3" opacity=".5"/><rect x="${lx}" y="${ly-9}" width="${RM-2}" height="18" rx="3" fill="#e2e8f0"/><text x="${lx+4}" y="${ly+4}" fill="#0b1220" font-size="11" font-weight="700">LTP ${last[4].toFixed(2)}</text>`:"";
+  OCS.geo={L,bw,n:K.length};
+  return `<svg id="ocSvg" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#0b1220;border-radius:10px;cursor:crosshair" onmousemove="ocHover(event)" onmouseleave="ocHover(null)">${g}${box}${c}${lp}<g id="ocCross"></g></svg>`; }
+function ocHover(ev){ const g=$("ocCross"), out=$("ocOhlc"); if(!g||!OCS||!OCS.d||!OCS.d.candles) return; if(!ev){ g.innerHTML=""; return; }
+  const sv=$("ocSvg"), r=sv.getBoundingClientRect(), vx=(ev.clientX-r.left)/r.width*980, i=Math.floor((vx-OCS.geo.L)/OCS.geo.bw), K=OCS.d.candles;
+  if(i<0||i>=K.length){ g.innerHTML=""; return; } const k=K[i], xx=OCS.geo.L+i*OCS.geo.bw+OCS.geo.bw/2;
+  g.innerHTML=`<line x1="${xx}" x2="${xx}" y1="14" y2="444" stroke="#94a3b8" stroke-dasharray="2 2"/>`;
+  if(out) out.innerHTML=`${esc(k[0])} · O ${k[1]} · H <b class="up">${k[2]}</b> · L <b class="dn">${k[3]}</b> · C <b>${k[4]}</b>${k[5]?` · vol ${Number(k[5]).toLocaleString("en-IN")}`:""}`; }
+function ocDraw(){ const m=$("ocModal"); if(!m||!OCS) return; const o=OCS.o, D=OCS.d, K=(D&&D.candles)||[], P=ocPlan(o,K);
+  const SC={"WAIT":["#f59e0b","WAIT — entry zone not traded since the call"],"MISSED":["#94a3b8","MISSED — premium ran above the entry zone; don't chase"],"ACTIVE":["#38bdf8","ACTIVE — traded in the entry zone, targets not hit yet"],"SL HIT":["#ef4444","SL HIT"+(P.slAt?" at "+P.slAt.slice(-5):"")]}[P.st]||["#22c55e",`${P.st} — price reached the green box ✓`];
+  const L=+(o.lot||0), cost=L&&P.E?Math.round(47+0.0015*P.E*L*2):null, perLot=P.R&&L?Math.round(P.R*L+(cost||0)):null, lots=perLot?Math.floor(2500/perLot):null;
+  const sp=D&&D.bid&&D.ask?((D.ask-D.bid)/((D.ask+D.bid)/2)*100):null;
+  m.innerHTML=`<div style="width:min(1060px,100%);background:#0f172a;border:2px solid #2563eb;border-radius:14px;padding:12px;color:#e2e8f0;box-shadow:0 10px 40px rgba(0,0,0,.6)">
+   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div><b style="font-size:18px" class="${o.side==="CE"?"up":"dn"}">${symIcon(o.symbol,22)}${esc(o.symbol)} ${o.strike!=null?n2(o.strike):""} ${esc(o.side||"")}</b> <span class="hint">exp ${esc(o.expiry||"–")} · ${esc(o.exch||"NFO")} · option premium chart · ${esc(o.from_src||"")}</span></div>
+    <div style="display:flex;gap:6px;align-items:center">${["1","5","15"].map(t=>`<button class="pickbtn" style="${OCS.tf===t?"background:#2563eb;color:#fff":""}" onclick="ocTf('${t}')">${t}m</button>`).join("")}<button class="pickbtn" onclick="ocClose()">✕</button></div></div>
+   <div style="margin:6px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="background:${SC[0]};color:#0b1220;border-radius:7px;padding:3px 10px;font-size:14px">${esc(P.st)}</b><span>${esc(SC[1])}</span>${P.mfe&&P.E?`<span class="hint">best since entry ₹${n2(P.mfe)} (${((P.mfe/P.E-1)*100).toFixed(1)}%)</span>`:""}</div>
+   ${!D?'<div class="hint" style="padding:30px;text-align:center">⏳ loading strike candles…</div>':!D.ok?`<div class="cwarn">${esc(D.msg||"no data")}</div>`:ocSVG(o,K,P)}
+   <div id="ocOhlc" class="hint" style="min-height:16px;margin-top:3px">hover the chart for O / H / L / C</div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px 14px;margin-top:6px;font-size:12.5px">
+    <div class="cpbox"><b>Plan (premium)</b><div>🔵 Entry trigger <b>₹${n2(P.E)}</b> · 🟩 zone ₹${n2(P.E)}–₹${n2(P.zoneHi)}</div><div>🔴 SL <b>${P.S?"₹"+n2(P.S):"pending — no stop given"}</b>${P.R?` · risk/unit ₹${n2(P.R)}`:""}</div>
+      <div>${P.tg.map(t=>`<span style="color:${P.hit&&t.v<=P.hit.v?"#4ade80":"#5eead4"}">${t.n} ₹${n2(t.v)}${t.r?` (${t.r.toFixed(1)}R${t.kind==="R"?" plan":""})`:""}</span>`).join(" · ")||"targets N/A"}</div><div class="hint">T4/T5 dashed = R-multiple planning levels, not observed resistance.</div></div>
+    <div class="cpbox"><b>Underlying (separate)</b><div>Trigger ${o.ul_trigger?n2(o.ul_trigger):"N/A"} · invalidation ${o.ul_sl?n2(o.ul_sl):"N/A"}</div><div class="hint">premium SL is the operative exit; if the stock crosses its invalidation first, exit too.</div><div class="hint">plan valid for today's session — review fresh next day.</div></div>
+    <div class="cpbox"><b>Risk (₹2,500 max)</b><div>Lot ${L||"pending"}${perLot?` · planned loss/lot ≈ ₹${perLot.toLocaleString("en-IN")} (incl. ≈₹${cost} costs)`:""}</div><div>${lots===null?"sizing pending":lots>=1?`<b class="up">${lots} lot${lots>1?"s":""} fit</b> the ₹2,500 limit`:'<b class="dn">no lot fits ₹2,500</b> — skip or a cheaper strike'}</div><div class="hint">a stop is not guaranteed — gaps / spread can fill worse.</div></div>
+    <div class="cpbox"><b>Data</b><div>${D&&D.ok?`${esc(D.source)} · ${esc(OCS.tf)}m · as of ${esc(D.time)} IST`:"–"}</div><div>LTP ₹${n2((D||{}).ltp)} · bid ₹${n2((D||{}).bid)} / ask ₹${n2((D||{}).ask)}${sp!=null?` · spread ${sp.toFixed(1)}%${sp>3?' <b class="dn">wide</b>':""}`:""}</div><div class="hint">${(D||{}).oi?`OI ${Number(D.oi).toLocaleString("en-IN")} · `:""}status uses closed candles after the call; a candle touching SL and a target counts as SL.</div></div>
+   </div>
+   <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${paperOpt(Object.assign({},o,{ltp:(D||{}).ltp||o.ltp}),true)}<span class="hint">Idhu ${esc((D||{}).time||"")} data base panna conditional plan — guarantee illa. Paper / manual only.</span></div></div>`; }
+
 function ccPill(lbl,val,col,sub){ return `<div class="cpbox" style="flex:1;min-width:120px;padding:6px 8px"><div class="hint" style="font-size:10.5px">${lbl}</div><b style="color:${col||"#e2e8f0"};font-size:13.5px">${val}</b>${sub?`<div class="hint" style="font-size:10.5px">${sub}</div>`:""}</div>`; }
 const RGC={"STRONG BULLISH":"#16a34a","BULLISH":"#22c55e","SIDEWAYS":"#f59e0b","BEARISH":"#ef4444","STRONG BEARISH":"#b91c1c","HIGH VOLATILITY":"#a78bfa","NO TRADE":"#64748b","UNKNOWN":"#64748b"};
 function ccStripHTML(s){ const C=s.cc||{}, S=C.strip||{}, R=S.risk||{}, Sc=S.scan||{}, rg=C.regime||{};
@@ -3634,7 +3725,7 @@ async function jvAsk(){ const i=document.getElementById("jvQ"), q=((i&&i.value)|
   try{ const j=await post("/api/jarvis/ask",{q}); JV_A=j.answer||j.msg||"No answer"; }catch(e){ JV_A="⚠ "+String(e); } show(); }
 
 /* v107: 📝 Paper button for any call id · ⚠ warnings · 🚀 rising */
-function paperBtn(id,open){ return open===false?"":`<button class="pickbtn pp" onclick='paperFromCall(${JSON.stringify(String(id)).replace(/'/g,"&#39;")})'>📝 Paper</button>`; }
+function paperBtn(id,open){ const q=JSON.stringify(String(id)).replace(/'/g,"&#39;"); return open===false?"":`<button class="pickbtn pp" onclick='paperFromCall(${q})'>📝 Paper</button><button class="pickbtn ocb" style="border-color:#2563eb;color:#93c5fd" onclick='chartFromCall(${q})'>📈 Chart</button>`; }
 function warnHTML(w){ return (w||[]).length?`<div style="color:#f59e0b;font-size:12px">${w.map(esc).join("<br>")}</div>`:""; }
 function riseTag(id,s){ const r=(((s||LAST_S||{}).riser||{}).live||[]).find(x=>x.id===id); return r?`<span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800">🚀 ${r.state==="STRONG"?"STRONG ":""}RISING +${r.chg3m}% / 3 min</span>`:""; }
 let RISE_SEEN=null;
@@ -4149,7 +4240,7 @@ function crHTML(s){
 }
 /* ⚡ V12 LIVE TICKER — /api/ticks (server 2 sec Angel quote) → page 2 sec-க்கு ஒருமுறை update + green/red flash */
 let TICKS={}, TICKT="", APPV_SRV=null;
-const APPV="v155";
+const APPV="v156";
 function tkId(n){ return "tk-"+String(n).replace(/[^A-Za-z0-9]/g,""); }
 function idxTicker(s){
   const el=$("idxTicker"); if(!el) return;

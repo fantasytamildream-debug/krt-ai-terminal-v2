@@ -769,7 +769,7 @@ def power_loop():
             traceback.print_exc()
 
 
-APP_VERSION = "v155"
+APP_VERSION = "v156"
 EVC = {"t": 0, "d": None}
 
 
@@ -3126,6 +3126,40 @@ def sniper_state():
 CANC = {}
 
 
+OPCC = {}
+
+
+def optchart_api(token, exch, tf):
+    """📈 v156 strike chart: the OPTION's own premium candles (1 / 5 / 15 min) + live quote — for the pro position chart."""
+    token, exch = str(token or "").strip(), str(exch or "NFO").upper().strip()
+    tf = tf if tf in ("1", "5", "15") else "5"
+    if not token.isdigit():
+        return {"ok": False, "msg": "no option token"}
+    k = f"{exch}|{token}|{tf}"
+    if k in OPCC and time.time() - OPCC[k][0] < 15:
+        return OPCC[k][1]
+    if not angel_configured():
+        return {"ok": False, "msg": "broker data not configured"}
+    iv = {"1": "ONE_MINUTE", "5": "FIVE_MINUTE", "15": "FIFTEEN_MINUTE"}[tf]
+    t0 = now_ist().tz_localize(None)
+    df = get_angel().candles(exch, token, iv, t0 - pd.Timedelta(days=5 if tf != "1" else 3), t0)
+    if df is None or not len(df):
+        out = {"ok": False, "msg": "no candles for this strike yet (illiquid or not traded today)"}
+        OPCC[k] = (time.time(), out)
+        return out
+    days = sorted(set(df.index.date))
+    df = df[df.index.date >= days[-1 if tf == "1" else max(0, len(days) - 2)]]
+    q = opt_quotes([(exch, token)]).get(token) or {}
+    out = {"ok": True, "tf": tf, "exch": exch, "token": token, "time": now_ist().strftime("%H:%M:%S"), "source": "Angel One",
+           "candles": [[i.strftime("%Y-%m-%d %H:%M"), round(float(r["open"]), 2), round(float(r["high"]), 2), round(float(r["low"]), 2),
+                        round(float(r["close"]), 2), int(r["volume"]) if "volume" in df.columns and pd.notna(r["volume"]) else 0] for i, r in df.iterrows()],
+           "ltp": q.get("ltp"), "bid": q.get("bid"), "ask": q.get("ask"), "oi": q.get("oi"), "vol": q.get("vol")}
+    OPCC[k] = (time.time(), out)
+    if len(OPCC) > 200:
+        OPCC.clear()
+    return out
+
+
 def candles_api(sym, tf):
     """📈 Chart Room multi-timeframe: 1 / 5 / 15 min candles (30 sec cache)."""
     from krt.instruments import INDEX_SPOT, load as load_inst
@@ -4009,6 +4043,14 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, _json(symbols_list()))
             except Exception as e:
                 return self._send(200, _json({"symbols": [], "err": str(e)[:80]}))
+        if self.path.startswith("/api/optchart"):
+            from urllib.parse import urlparse, parse_qs
+            qq = parse_qs(urlparse(self.path).query)
+            try:
+                return self._send(200, _json(optchart_api((qq.get("token") or [""])[0], (qq.get("exch") or ["NFO"])[0], (qq.get("tf") or ["5"])[0])))
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(200, _json({"ok": False, "msg": str(e)[:120]}))
         if self.path.startswith("/api/lookup"):
             from urllib.parse import urlparse, parse_qs
             qq = parse_qs(urlparse(self.path).query)
